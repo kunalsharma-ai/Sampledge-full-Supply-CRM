@@ -205,9 +205,9 @@ export class OpsController {
 
   @ForModule('admin') @Get('audit')
   async auditLog(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
-    const x = parse(z.object({ entity: z.string().optional(), entityId: z.string().optional() }).passthrough(), q);
+    const x = parse(z.object({ entity: z.string().optional(), entityId: z.string().optional(), action: z.string().max(60).optional(), actor: z.string().max(80).optional() }).passthrough(), q);
     const { want, ...page } = pageArgs(q, 500, 100);
-    return paged(await this.db.auditLog.findMany({ where: { tenantId: ctx.tenantId, ...(x.entity ? { entity: x.entity } : {}), ...(x.entityId ? { entityId: x.entityId } : {}) }, orderBy: [{ at: 'desc' }, { id: 'desc' }], ...page }), want, res);
+    return paged(await this.db.auditLog.findMany({ where: { tenantId: ctx.tenantId, ...(x.entity ? { entity: x.entity } : {}), ...(x.entityId ? { entityId: x.entityId } : {}), ...(x.action ? { action: { startsWith: x.action } } : {}), ...(x.actor ? { actor: { contains: x.actor, mode: 'insensitive' as const } } : {}) }, orderBy: [{ at: 'desc' }, { id: 'desc' }], ...page }), want, res);
   }
 
   /** KPIs computed from the database (not from the demo series). */
