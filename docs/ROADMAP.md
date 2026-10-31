@@ -15,12 +15,13 @@
 | **Panel project sync (v0.11.0)** ✅ | Project, markets and quotas sent to the panel; reach check; live status; idempotent response import; backend patch for the panel team (models, migration, Sampledge routes) | 8 tests against a stand-in of the panel routes; panel-side routes tested on MongoDB 7; not yet run against the live panels |
 | **Admin & Security** ✅ | People and roles (granting Platform Admin is approval-gated), sign out everywhere, audit trail viewer with filters, live security posture, role matrix | 7 new API tests |
 | **SMTP e-mail (Comms Hub)** ✅ | SMTP delivery adapter, off until `SMTP_HOST` and `SMTP_FROM` are set; sent-once, blind copies, failed and not-sent states with reasons | 5 tests against a local SMTP server |
-| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; SAML; SMS adapter; AI evaluation scores on Claude (needs an API key); external pen test | |
+| **SMS (Comms Hub)** ✅ | Twilio-compatible SMS adapter, off until `SMS_ACCOUNT_SID`, `SMS_AUTH_TOKEN` and `SMS_FROM` are set; per-workspace phone numbers set by admins; per-number results | 6 tests against a local stand-in API |
+| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; SAML; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4
 - **Postgres outbox instead of Redis.** Events commit with the change that caused them, and the worker claims them with `FOR UPDATE SKIP LOCKED`. This removes a service and a failure mode; the claim function is the single place to swap in a broker if volume calls for it.
 - **Only vendors confirm feasibility.** Internal users cannot enter a supplier answer, and the seed contains open requests but no answers, so a `supplier_confirmed` quote always traces to a vendor's own response.
-- **Delivery is a development adapter.** Every outbound message is a stored record with a status. SMTP e-mail is the first real provider (opt-in by configuration); nothing is presented as sent unless a mail server accepted it.
+- **Delivery is a development adapter.** Every outbound message is a stored record with a status. SMTP e-mail and a Twilio-compatible SMS API are the real providers (each opt-in by configuration); nothing is presented as sent unless a mail server accepted it.
 
 ## Decisions in Phase 5
 - **Rules first, model optional.** Every AI task has a deterministic implementation, so the platform works with no model and degrades to it on any provider problem. A model's output must pass the task's schema before it is used, and it is always a draft behind the existing approvals.

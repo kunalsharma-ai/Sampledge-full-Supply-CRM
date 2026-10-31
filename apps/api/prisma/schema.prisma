@@ -52,6 +52,7 @@ model Membership {
   role     Role
   vendorId String? // vendor users are scoped to one vendor
   clientId String? // client users are scoped to one client
+  phone    String? // E.164, set by an administrator; used only for SMS from the Comms Hub
   tenant   Tenant  @relation(fields: [tenantId], references: [id])
   user     User    @relation(fields: [userId], references: [id])
 

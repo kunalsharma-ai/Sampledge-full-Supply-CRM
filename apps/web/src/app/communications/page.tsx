@@ -83,7 +83,7 @@ function Composer({ onSent }: { onSent: () => void }) {
           )}
         </div>
         <Field label="Subject"><input className={inputCls} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} /></Field>
-        <Field label="Message" hint={audience === 'panel' ? 'Placeholders such as {{handle}} are stored as written. Panel members are e-mailed by the panel’s own site, so these are recorded here, not sent.' : undefined}><textarea className={`${inputCls} h-28 py-2`} value={body} onChange={(e) => setBody(e.target.value)} maxLength={10000} /></Field>
+        <Field label="Message" hint={audience === 'panel' ? 'Placeholders such as {{handle}} are stored as written. Panel members are messaged by the panel’s own site, so these are recorded here, not sent.' : channel === 'sms' ? `${fmtNum(body.length)} of 1,600 characters. Texts go to the phone numbers recorded in Admin & Security → People and roles.` : undefined}><textarea className={`${inputCls} h-28 py-2`} value={body} onChange={(e) => setBody(e.target.value)} maxLength={channel === 'sms' ? 1600 : 10000} /></Field>
 
         <div className={cn('rounded-xl p-3 text-[12.5px]', preview?.needsApproval ? 'bg-orange/10' : 'bg-surface-2/40')} aria-live="polite">
           {preview ? (
@@ -143,10 +143,18 @@ function CommsInner() {
   );
 }
 
+type AdapterInfo = { mode: 'development' | 'smtp'; name: string; channels?: { email: 'development' | 'smtp' | 'off'; sms: 'development' | 'api' | 'off' } };
+
 function AdapterBadge() {
-  const a = useLive<{ mode: 'development' | 'smtp'; name: string }>('/comms/adapter');
-  if (a.data?.mode === 'smtp') return <Badge tone="emerald">E-mail sends via {a.data.name}</Badge>;
-  return <Badge tone="orange">Development adapter: recorded, not sent</Badge>;
+  const a = useLive<AdapterInfo>('/comms/adapter');
+  const ch = a.data?.channels;
+  if (!a.data || !ch || (ch.email === 'development' && ch.sms === 'development')) return <Badge tone="orange">Development adapter: recorded, not sent</Badge>;
+  return (
+    <div className="flex flex-wrap gap-2" title={a.data.name}>
+      <Badge tone={ch.email === 'smtp' ? 'emerald' : 'neutral'}>E-mail {ch.email === 'smtp' ? 'sends' : 'off'}</Badge>
+      <Badge tone={ch.sms === 'api' ? 'emerald' : 'neutral'}>SMS {ch.sms === 'api' ? 'sends' : 'off'}</Badge>
+    </div>
+  );
 }
 
 export default function CommsPage() {

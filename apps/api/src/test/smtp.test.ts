@@ -50,7 +50,8 @@ describe('SMTP delivery', () => {
   it('reports the active adapter without credentials', async () => {
     const r = await as('platform_admin').get('/comms/adapter');
     assert.equal(r.body.mode, 'smtp');
-    assert.match(r.body.name, /^SMTP \(127\.0\.0\.1:\d+\)$/);
+    assert.match(r.body.name, /^e-mail via SMTP \(127\.0\.0\.1:\d+\); SMS not configured$/);
+    assert.deepEqual(r.body.channels, { email: 'smtp', sms: 'off' });
   });
 
   it('e-mails the people behind a role, each as a blind copy', async () => {
@@ -77,7 +78,7 @@ describe('SMTP delivery', () => {
     const before = inbox.length;
     const sms = await send({ channel: 'sms', audience: 'internal', target: 'role:finance' });
     assert.equal(sms.status, 'not_sent');
-    assert.match(sms.error ?? '', /Only e-mail/);
+    assert.match(sms.error ?? '', /No SMS provider/);
     const t = (await h.db.tenant.findFirstOrThrow({ where: { slug: 'sampledge-demo' } })).id;
     const panel = await h.db.message.create({ data: { tenantId: t, channel: 'email', audience: 'panel', toRef: 'panel:turn2opinion:all', recipients: 5, subject: 'x', body: 'y', status: 'queued', createdBy: 'test' } });
     const { deliveryAdapter } = await import('../modules/delivery');
