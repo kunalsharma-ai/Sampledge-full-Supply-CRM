@@ -24,9 +24,9 @@ export function Logo({ compact }: { compact?: boolean }) {
         <path d="M21.5 10.5c-1.3-1.3-3.2-2-5.4-2-3.3 0-5.6 1.7-5.6 4.2 0 5.4 11 3.1 11 8.4 0 2.4-2.4 4.2-5.8 4.2-2.4 0-4.5-.8-5.9-2.3" fill="none" stroke={`url(#${gid})`} strokeWidth="2.4" strokeLinecap="round" />
       </svg>
       {!compact && (
-        <span className="leading-none">
-          <span className="block font-display text-[15px] font-bold tracking-tight">Sampledge</span>
-          <span className="block text-[9.5px] font-semibold uppercase tracking-[0.2em] text-ink-3">AI Research OS</span>
+        <span className="flex flex-col gap-1">
+          <span className="block font-display text-[15px] font-bold leading-[1.15] tracking-tight">Sampledge</span>
+          <span className="block text-[9.5px] leading-none font-semibold uppercase tracking-[0.2em] text-ink-3">AI Research OS</span>
         </span>
       )}
     </Link>

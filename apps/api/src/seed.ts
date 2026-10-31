@@ -6,7 +6,7 @@
  */
 import 'dotenv/config';
 import { Prisma, PrismaClient, type Role } from '@prisma/client';
-import { access, cloudSurvey, cxResponses, cxSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
+import { access, brandSurvey, cloudSurvey, cxResponses, cxSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
 import bcrypt from 'bcryptjs';
 
 export const DEMO_PASSWORD = 'demo1234';
@@ -103,10 +103,11 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
   for (const s of seed.surveys) {
     const isCloud = s.id === cloudSurvey.id;
     const isCx = s.id === cxSurvey.id;
+    const isBrand = s.id === brandSurvey.id;
     await db.survey.create({
       data: {
         id: s.id, tenantId: t, projectId: s.projectId, name: s.name, status: s.status, programmer: s.programmer, currentVersion: isCloud ? cloudSurvey.version : 1,
-        hoursSpent: s.hoursSpent, complexity: s.complexity, completionRate: s.completionRate, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud || isCx, questionCount: isCloud ? cloudSurvey.questions.length : isCx ? cxSurvey.questions.length : s.questions,
+        hoursSpent: s.hoursSpent, complexity: s.complexity, completionRate: s.completionRate, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud || isCx || isBrand, questionCount: isCloud ? cloudSurvey.questions.length : isCx ? cxSurvey.questions.length : isBrand ? brandSurvey.questions.length : s.questions,
       },
     });
   }
@@ -120,6 +121,8 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
   // A closed survey with SYNTHETIC completed interviews (generated, not real people) so Data
   // Processing and Insight Studio have a full dataset to weight, code and tabulate.
   await db.surveyVersion.create({ data: { surveyId: cxSurvey.id, version: 1, label: 'Fielded version (demo)', createdBy: 'Mei Lin (Demo)', definition: cxSurvey as unknown as Prisma.InputJsonValue, publishedAt: new Date(seed.DEMO_NOW.getTime() - 40 * day) } });
+  // A live (Published) survey so the public respondent link works in the demo without signing in.
+  await db.surveyVersion.create({ data: { surveyId: brandSurvey.id, version: 1, label: 'Fielded version (demo)', createdBy: 'Jonas Weber (Demo)', definition: brandSurvey as unknown as Prisma.InputJsonValue, publishedAt: new Date(seed.DEMO_NOW.getTime() - 6 * day) } });
   const cxStart = seed.DEMO_NOW.getTime() - 38 * day;
   await db.response.createMany({
     data: cxResponses(opts.cxResponses ?? 600).map((x, i) => {

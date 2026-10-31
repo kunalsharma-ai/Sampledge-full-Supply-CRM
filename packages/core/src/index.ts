@@ -2,6 +2,7 @@
 export * from './survey/engine';
 export { cloudSurvey } from './survey/demo-survey';
 export { cxSurvey, cxResponses } from './survey/demo-cx';
+export { brandSurvey } from './survey/demo-brand';
 export * from './roles';
 export * from './pricing';
 export * from './analytics';
