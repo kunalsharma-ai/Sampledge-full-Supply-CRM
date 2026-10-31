@@ -14,6 +14,11 @@ export class ApiError extends Error {
 export class ApiUnreachable extends Error {}
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  return (await apiWithCursor<T>(path, init)).body;
+}
+
+/** Like `api`, and also returns the list cursor (`X-Next-Cursor`) when the API has more rows. */
+export async function apiWithCursor<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ body: T; next: string | null }> {
   const method = init.method ?? 'GET';
   // Every write carries an Idempotency-Key, so the one automatic retry after a dropped connection
   // cannot apply the same change twice (the API replays the first response instead).
@@ -38,7 +43,31 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     const m = (body as { message?: unknown } | null)?.message;
     throw new ApiError(r.status, typeof m === 'string' ? m : Array.isArray(m) ? m.join('; ') : `Request failed (${r.status})`, body);
   }
-  return body as T;
+  return { body: body as T, next: r.headers.get('x-next-cursor') };
+}
+
+const withCursor = (path: string, cursor: string) => `${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`;
+
+/** One page of a list plus the cursor for the next one. */
+export async function apiPage<T>(path: string, cursor?: string | null) {
+  const r = await apiWithCursor<T[]>(cursor ? withCursor(path, cursor) : path);
+  return { rows: r.body, next: r.next };
+}
+
+/**
+ * Every page of a list, for screens that work on the whole set (boards, totals, search).
+ * Stops after `maxRows` and says so, rather than loading without limit.
+ */
+export async function apiAll<T>(path: string, maxRows = 5000): Promise<T[] & { truncated?: boolean }> {
+  const out: T[] & { truncated?: boolean } = [];
+  let cursor: string | null = null;
+  do {
+    const { rows, next }: { rows: T[]; next: string | null } = await apiPage<T>(path, cursor);
+    out.push(...rows);
+    cursor = next;
+  } while (cursor && out.length < maxRows);
+  if (cursor) out.truncated = true;
+  return out;
 }
 
 export type Session = {

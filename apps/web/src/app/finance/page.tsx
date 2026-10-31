@@ -3,12 +3,12 @@ import { useState } from 'react';
 import { BadgeCheck, FileText, Send, Wallet } from 'lucide-react';
 import { access, can } from '@/lib/core';
 import { api } from '@/lib/api';
-import { act, fmtCpi, shortDate, useLive, type FinanceSummary, type Invoice, type Payable, type PurchaseOrder } from '@/lib/live';
+import { act, fmtCpi, shortDate, useLive, usePaged, type FinanceSummary, type Invoice, type Payable, type PurchaseOrder } from '@/lib/live';
 import { useOS } from '@/lib/store';
 import { fmtMoney, fmtNum } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Button, EmptyState, PageHeader, Panel, PanelHeader, Segmented } from '@/components/ui/primitives';
-import { DataTable, LiveOnly, Loadable } from '@/components/ui/data';
+import { DataTable, LiveOnly, Loadable, LoadMore } from '@/components/ui/data';
 
 const invTone = { draft: 'neutral', issued: 'blue', paid: 'emerald', void: 'danger' } as const;
 const payTone = { open: 'blue', pending_approval: 'orange', paid: 'emerald' } as const;
@@ -21,9 +21,9 @@ function FinanceInner() {
   const [tab, setTab] = useState<'receivable' | 'payable'>(role === 'vendor' ? 'payable' : 'receivable');
   const [tick, setTick] = useState(0);
   const sum = useLive<FinanceSummary>('/finance/summary', [tick]);
-  const inv = useLive<Invoice[]>(role === 'vendor' ? null : '/invoices', [tick]);
-  const pos = useLive<PurchaseOrder[]>(bids ? '/purchase-orders' : null, [tick]);
-  const pay = useLive<Payable[]>(bids ? '/payables' : null, [tick]);
+  const inv = usePaged<Invoice>(role === 'vendor' ? null : '/invoices', [tick]);
+  const pos = usePaged<PurchaseOrder>(bids ? '/purchase-orders' : null, [tick]);
+  const pay = usePaged<Payable>(bids ? '/payables' : null, [tick]);
   const bump = () => setTick((t) => t + 1);
 
   const issue = (i: Invoice) => act(() => api(`/invoices/${i.id}/issue`, { method: 'POST', body: { termsDays: 30 } }), `${i.number} issued; the client is notified in the Comms Hub`).then(bump);
@@ -61,6 +61,7 @@ function FinanceInner() {
               { key: 'x', label: '', align: 'right', render: (r) => write && (r.status === 'draft' ? <Button size="sm" variant="primary" onClick={() => issue(r)}><Send size={12} /> Issue</Button> : r.status === 'issued' ? <Button size="sm" onClick={() => received(r)}><BadgeCheck size={12} /> Mark received</Button> : null) },
             ]} />
           )}</Loadable>
+          <LoadMore q={inv} count={inv.data?.length} />
         </Panel>
       )}
 
@@ -79,6 +80,7 @@ function FinanceInner() {
                 { key: 'd', label: 'Issued', render: (r) => shortDate(r.issuedAt) },
               ]} />
             )}</Loadable>
+            <LoadMore q={pos} count={pos.data?.length} />
           </Panel>
           <Panel>
             <PanelHeader eyebrow="Accounts payable" title={role === 'vendor' ? 'Payments due to you' : 'Vendor payables'} info="Paying a vendor needs an 'Issuing payments' approval from someone other than the requester. No payment rail is connected: paid is a record, not a transfer." actions={<Wallet size={16} className="text-ink-3" />} />
@@ -92,6 +94,7 @@ function FinanceInner() {
                 { key: 'x', label: '', align: 'right', render: (r) => write && r.status === 'open' && <Button size="sm" variant="primary" onClick={() => requestPay(r)}>Request payment</Button> },
               ]} />
             )}</Loadable>
+            <LoadMore q={pay} count={pay.data?.length} />
           </Panel>
         </div>
       )}

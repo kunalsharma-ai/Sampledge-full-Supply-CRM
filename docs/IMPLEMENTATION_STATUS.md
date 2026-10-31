@@ -217,7 +217,7 @@ Integrations is a navigable placeholder that states its scope.
 - The Claude path of the AI gateway has only been tested against a stub server.
 - The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.
 - The CRM quote builder and Survey Studio QA run in the browser; the API has equivalent endpoints, used for persistence and enforcement.
-- List endpoints return up to 500 rows per page by default (cursor paging with `take`/`cursor` and `X-Next-Cursor`); the web app reads the first page, which covers demo volumes.
+- List endpoints return up to 500 rows per page by default (cursor paging with `take`/`cursor` and `X-Next-Cursor`). The web app loads every page of projects, opportunities, vendors, surveys and clients (up to 5,000 each) and shows "Load more" on the audit trail, Comms Hub messages and Finance lists.
 - Finance, Comms Hub and both portals need the live API; in the offline demo they say so instead of simulating records.
 - The account switcher signs in with the seeded demo password. Turn it off with `NEXT_PUBLIC_DEMO_LOGINS=false`.
 - The 3D globe needs WebGL; without it the 2D map is shown automatically.

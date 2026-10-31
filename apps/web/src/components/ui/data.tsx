@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { PlugZap } from 'lucide-react';
 import { useOS } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { EmptyState, ErrorState, Skeleton } from './primitives';
+import { Button, EmptyState, ErrorState, Skeleton } from './primitives';
 
 /** Gate for screens backed only by API records. Offline mode explains instead of simulating. */
 export function LiveOnly({ what, children }: { what: string; children: ReactNode }) {
@@ -45,6 +45,17 @@ export function DataTable<T extends { id: string }>({ rows, cols, empty, dense }
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** "Load more" under a paged list (see usePaged). Renders nothing once every row is loaded. */
+export function LoadMore({ q, count, noun = 'rows' }: { q: { hasMore: boolean; loadingMore: boolean; more: () => void }; count?: number; noun?: string }) {
+  if (!q.hasMore) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 py-3 text-[12px] text-ink-3">
+      {count != null && <span>Showing {count} {noun}</span>}
+      <Button size="sm" onClick={() => q.more()} disabled={q.loadingMore}>{q.loadingMore ? 'Loading…' : 'Load more'}</Button>
     </div>
   );
 }
