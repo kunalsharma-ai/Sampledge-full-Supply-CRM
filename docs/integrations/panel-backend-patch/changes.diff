@@ -1,0 +1,1130 @@
+diff --git a/integration/country.js b/integration/country.js
+new file mode 100644
+index 0000000..72a8877
+--- /dev/null
++++ b/integration/country.js
+@@ -0,0 +1,51 @@
++/**
++ * Country normalisation. Addresses store country as lowercase free text ("usa", "united states", "us"),
++ * which splits counts in feasibility. This maps common spellings to ISO 3166-1 alpha-2 codes.
++ * Anything not recognised returns null so it can be reviewed, never guessed.
++ */
++const ALIASES = {
++    US: ["us", "usa", "u.s.", "u.s.a.", "united states", "united states of america", "america"],
++    GB: ["gb", "uk", "u.k.", "united kingdom", "great britain", "england", "scotland", "wales", "northern ireland", "britain"],
++    IN: ["in", "ind", "india", "bharat"],
++    CA: ["ca", "can", "canada"],
++    AU: ["au", "aus", "australia"],
++    DE: ["de", "deu", "germany", "deutschland"],
++    FR: ["fr", "fra", "france"],
++    ES: ["es", "esp", "spain", "españa", "espana"],
++    IT: ["it", "ita", "italy", "italia"],
++    NL: ["nl", "nld", "netherlands", "holland", "the netherlands"],
++    BR: ["br", "bra", "brazil", "brasil"],
++    MX: ["mx", "mex", "mexico", "méxico"],
++    JP: ["jp", "jpn", "japan"],
++    CN: ["cn", "chn", "china", "prc"],
++    SG: ["sg", "sgp", "singapore"],
++    AE: ["ae", "are", "uae", "united arab emirates"],
++    SA: ["sa", "sau", "saudi arabia", "ksa"],
++    ZA: ["za", "zaf", "south africa"],
++    IE: ["ie", "irl", "ireland"],
++    NZ: ["nz", "nzl", "new zealand"],
++    PH: ["ph", "phl", "philippines"],
++    ID: ["id", "idn", "indonesia"],
++    MY: ["my", "mys", "malaysia"],
++    PK: ["pk", "pak", "pakistan"],
++    BD: ["bd", "bgd", "bangladesh"],
++    KR: ["kr", "kor", "south korea", "korea", "republic of korea"],
++    SE: ["se", "swe", "sweden"],
++    CH: ["ch", "che", "switzerland"],
++    PL: ["pl", "pol", "poland"],
++    BE: ["be", "bel", "belgium"],
++    AR: ["ar", "arg", "argentina"],
++    NG: ["ng", "nga", "nigeria"],
++    EG: ["eg", "egy", "egypt"],
++    TR: ["tr", "tur", "turkey", "türkiye", "turkiye"],
++};
++const LOOKUP = new Map();
++for (const [code, names] of Object.entries(ALIASES)) for (const n of names) LOOKUP.set(n, code);
++
++export function toCountryCode(value) {
++    if (!value || typeof value !== "string") return null;
++    const v = value.trim().toLowerCase().replace(/\s+/g, " ");
++    return LOOKUP.get(v) ?? null;
++}
++
++export const COUNTRY_CODE = /^[A-Z]{2}$/;
+diff --git a/integration/fields.js b/integration/fields.js
+new file mode 100644
+index 0000000..25cb8d1
+--- /dev/null
++++ b/integration/fields.js
+@@ -0,0 +1,124 @@
++/**
++ * Schema fragments shared by User (Turn2Opinion, MyFrequentRewards) and Respondent (MyHealthOpinions)
++ * for the Sampledge integration: consent per purpose, account status, a cross-panel dedupe key and
++ * recruitment source. Plus helpers for age that the integration and the models both use.
++ */
++import crypto from "crypto";
++import mongoose from "mongoose";
++
++/** Purposes a panelist consents to. "health_data" applies to MyHealthOpinions only. */
++export const CONSENT_PURPOSES = ["survey_invitations", "profiling", "client_sharing", "health_data"];
++
++const consentRecord = new mongoose.Schema({
++    purpose: { type: String, enum: CONSENT_PURPOSES, required: true },
++    granted: { type: Boolean, required: true },
++    at: { type: Date, required: true, default: Date.now },
++    policyVersion: { type: String, trim: true, required: true },
++    // Where it was captured (signup form, profile page, re-consent email); no IP or device stored here.
++    channel: { type: String, trim: true, lowercase: true },
++}, { _id: false });
++
++export const ACCOUNT_STATUS = ["active", "paused", "blocked", "deleted"];
++
++export const integrationFields = {
++    // Full history; the latest record per purpose is what counts (see hasConsent).
++    consents: { type: [consentRecord], default: [] },
++    // Latest decision per purpose, kept in step with `consents` on save so counts can be queried quickly.
++    consentState: {
++        survey_invitations: { type: Boolean, default: false },
++        profiling: { type: Boolean, default: false },
++        client_sharing: { type: Boolean, default: false },
++        health_data: { type: Boolean, default: false },
++    },
++    accountStatus: { type: String, enum: ACCOUNT_STATUS, default: "active", index: true },
++    lastActiveAt: { type: Date, default: null, index: true },
++    unsubscribedAt: { type: Date, default: null },
++    deletionRequestedAt: { type: Date, default: null },
++    // HMAC of the normalised email, same secret on all three panels: lets Sampledge spot one person on
++    // two panels without seeing the email. Never returned to clients.
++    dedupeKey: { type: String, default: null, select: false, index: true },
++    recruitment: {
++        source: { type: String, trim: true, lowercase: true, default: null },
++        campaign: { type: String, trim: true, default: null },
++    },
++};
++
++/** Fields to add to each address entry. */
++export const addressFields = {
++    countryCode: { type: String, trim: true, uppercase: true, match: [/^[A-Z]{2}$/, "Use a 2-letter ISO country code"], default: null },
++    // ISO 3166-2 subdivision when known (e.g. US-CA, IN-MH), otherwise the state as entered.
++    region: { type: String, trim: true, default: null },
++};
++
++/** Latest decision per purpose wins; no record means no consent. */
++export function hasConsent(doc, purpose) {
++    const list = (doc?.consents ?? []).filter((c) => c.purpose === purpose);
++    if (!list.length) return false;
++    const latest = list.reduce((a, b) => (new Date(b.at) >= new Date(a.at) ? b : a));
++    return latest.granted === true;
++}
++
++export function dedupeKeyFor(email, secret = process.env.PANEL_DEDUPE_SECRET) {
++    if (!email || !secret) return null;
++    let [local, domain] = String(email).trim().toLowerCase().split("@");
++    if (!domain) return null;
++    if (domain === "gmail.com" || domain === "googlemail.com") { local = local.split("+")[0].replace(/\./g, ""); domain = "gmail.com"; }
++    return crypto.createHmac("sha256", secret).update(`${local}@${domain}`).digest("hex");
++}
++
++/** Exact age split into years, months and days. Fixes the earlier bug that compared months twice. */
++export function ageParts(dob, today = new Date()) {
++    if (!dob) return null;
++    const d = new Date(dob);
++    if (isNaN(d.getTime())) return null;
++    let years = today.getFullYear() - d.getFullYear();
++    let month = today.getMonth() - d.getMonth();
++    let day = today.getDate() - d.getDate();
++    if (day < 0) {
++        month -= 1;
++        day += new Date(today.getFullYear(), today.getMonth(), 0).getDate(); // days in the previous month
++    }
++    if (month < 0) { years -= 1; month += 12; }
++    return { years, month, day };
++}
++
++export const AGE_BANDS = [[13, 17], [18, 24], [25, 29], [30, 34], [35, 44], [45, 54], [55, 64], [65, 120]];
++export function ageBand(dob, today = new Date()) {
++    const a = ageParts(dob, today);
++    if (!a) return null;
++    const b = AGE_BANDS.find(([lo, hi]) => a.years >= lo && a.years <= hi);
++    return b ? (b[1] >= 120 ? `${b[0]}+` : `${b[0]}-${b[1]}`) : null;
++}
++
++// Same list both models used. "administrator" is a valid User role but was never allowed here; add it if intended.
++const ADMIN_ROLES = ["admin", "superadmin", "root"];
++/**
++ * Admin check used by both resetPassword methods. User checked admin.category and Respondent checked
++ * admin.role; this accepts either, so neither existing caller loses access. Note that role is
++ * select:false on User, so a User admin must be loaded with .select("+role").
++ */
++export function assertAdmin(admin) {
++    const values = [admin?.role, admin?.category].filter(Boolean).map((v) => String(v).toLowerCase());
++    if (!values.some((v) => ADMIN_ROLES.includes(v))) throw new Error("Permission denied");
++}
++
++/** Sets consentState from the consent history. Called from the models' pre-save hook. */
++export function syncConsentState(doc) {
++    for (const p of CONSENT_PURPOSES) doc.set(`consentState.${p}`, hasConsent(doc, p));
++}
++
++/**
++ * Mongo filter for panelists Sampledge may count in feasibility and invite: active account, not
++ * unsubscribed or awaiting deletion, consented to invitations, and active recently if asked.
++ */
++export function reachableMatch({ activeWithinDays, healthData = false, now = new Date() } = {}) {
++    const m = {
++        accountStatus: "active",
++        unsubscribedAt: null,
++        deletionRequestedAt: null,
++        "consentState.survey_invitations": true,
++    };
++    if (healthData) m["consentState.health_data"] = true;
++    if (activeWithinDays) m.lastActiveAt = { $gte: new Date(now.getTime() - activeWithinDays * 86400000) };
++    return m;
++}
+diff --git a/integration/index.js b/integration/index.js
+new file mode 100644
+index 0000000..caac8ef
+--- /dev/null
++++ b/integration/index.js
+@@ -0,0 +1,4 @@
++export * from "./fields.js";
++export * from "./country.js";
++export * from "./serializers.js";
++export * from "./projectStatus.js";
+diff --git a/integration/projectStatus.js b/integration/projectStatus.js
+new file mode 100644
+index 0000000..a3cdd69
+--- /dev/null
++++ b/integration/projectStatus.js
+@@ -0,0 +1,69 @@
++/**
++ * Project status for Sampledge: counts per market and quota from Response, joined to the
++ * SurveyProject's targets. One aggregation, no personal data.
++ */
++const COUNT_KEYS = { invited: "invited", started: "started", complete: "complete", terminate: "terminate", overquota: "overquota", qualityterminate: "qualityTerminate", dropout: "dropout" };
++
++function median(xs) {
++    const v = xs.filter((x) => typeof x === "number" && x > 0).sort((a, b) => a - b);
++    if (!v.length) return null;
++    const m = Math.floor(v.length / 2);
++    return Math.round((v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2) * 10) / 10;
++}
++
++/**
++ * @param Response      the Response model
++ * @param SurveyProject the SurveyProject model
++ * @param pid           Sampledge project id
++ * @returns the project status object, or null if the project is unknown
++ */
++export async function projectStatus({ Response, SurveyProject }, pid) {
++    const project = await SurveyProject.findOne({ pid }).lean();
++    if (!project) return null;
++    const rows = await Response.aggregate([
++        { $match: { "project.pid": pid } },
++        {
++            $group: {
++                _id: { marketID: "$project.marketID", quotaID: "$project.quotaID", status: "$status" },
++                n: { $sum: 1 },
++                lastAt: { $max: "$timeline.end" },
++                lois: { $push: { $cond: [{ $and: [{ $eq: ["$status", "complete"] }, { $ne: ["$timeline.end", null] }] }, { $divide: [{ $subtract: ["$timeline.end", "$timeline.start"] }, 60000] }, null] } },
++            },
++        },
++    ]);
++    const markets = (project.markets ?? []).map((m) => {
++        const mine = rows.filter((r) => r._id.marketID === m.marketID);
++        const counts = Object.fromEntries(Object.values(COUNT_KEYS).map((k) => [k, 0]));
++        let lastCompleteAt = null;
++        const lois = [];
++        for (const r of mine) {
++            const key = COUNT_KEYS[r._id.status];
++            if (key) counts[key] += r.n;
++            if (r._id.status === "complete") {
++                lois.push(...r.lois);
++                if (r.lastAt && (!lastCompleteAt || r.lastAt > lastCompleteAt)) lastCompleteAt = r.lastAt;
++            }
++        }
++        // Everyone who started is counted as started: started-only plus every finished outcome.
++        counts.started += counts.complete + counts.terminate + counts.overquota + counts.qualityTerminate + counts.dropout;
++        counts.invited += counts.started;
++        const screened = counts.complete + counts.terminate;
++        return {
++            marketID: m.marketID,
++            status: m.status ?? project.status,
++            target: m.completes ?? null,
++            counts,
++            medianLoiMinutes: median(lois),
++            // Incidence = complete / (complete + terminate). Overquota and quality terminates are excluded.
++            incidence: screened ? Math.round((counts.complete / screened) * 1000) / 1000 : null,
++            quotas: (m.quotas ?? []).map((q) => ({
++                quotaID: q.quotaID,
++                label: q.label ?? null,
++                target: q.target ?? null,
++                complete: mine.filter((r) => r._id.quotaID === q.quotaID && r._id.status === "complete").reduce((a, r) => a + r.n, 0),
++            })),
++            lastCompleteAt: lastCompleteAt ? new Date(lastCompleteAt).toISOString() : null,
++        };
++    });
++    return { pid, status: project.status, markets, asOf: new Date().toISOString() };
++}
+diff --git a/integration/serializers.js b/integration/serializers.js
+new file mode 100644
+index 0000000..0377a37
+--- /dev/null
++++ b/integration/serializers.js
+@@ -0,0 +1,114 @@
++/**
++ * The objects the backend returns to Sampledge. Each one copies only allowed fields from the stored
++ * document (an allowlist), so a field added to a model later is never exposed by accident.
++ * Never returned: name, email, phone, date of birth, address and GPS, profile picture, payment
++ * details, parent details, passwords and tokens, socials, referrer, notification identities.
++ */
++import { ageBand, ageParts, hasConsent } from "./fields.js";
++import { toCountryCode } from "./country.js";
++
++const iso = (d) => (d ? new Date(d).toISOString() : null);
++const lower = (v) => (v ? String(v).toLowerCase() : null);
++const primaryAddress = (doc) => (Array.isArray(doc?.address) && doc.address.length ? doc.address[0] : null);
++
++function location(doc) {
++    const a = primaryAddress(doc);
++    return {
++        countryCode: a?.countryCode ?? toCountryCode(a?.country) ?? null,
++        region: a?.region ?? null,
++    };
++}
++
++function minorInfo(doc) {
++    const a = ageParts(doc?.dob);
++    const isMinor = a ? a.years < 18 : null;
++    let parentalConsent = "not_required";
++    if (isMinor) parentalConsent = doc?.parent?.consent === true ? "granted" : doc?.parent?.consent === false ? "refused" : "pending";
++    return { isMinor, parentalConsent };
++}
++
++const verified = (v) => ({
++    email: v?.email === "verified",
++    phone: v?.phone === "verified",
++    video: v?.video === "verified",
++    inPerson: v?.inPersonVisit === "verified",
++});
++
++/** The pseudonymous fields every respondent object shares. */
++function baseProfile(doc, panel) {
++    return {
++        respondentID: doc?.respondentID ?? null,
++        panel,
++        ...location(doc),
++        ageBand: ageBand(doc?.dob),
++        gender: lower(doc?.gender),
++    };
++}
++
++/**
++ * Respondent profile for Sampledge.
++ * @param doc     User (t2o, mfr) or Respondent (mho) document
++ * @param panel   "t2o" | "mfr" | "mho"
++ * @param answers optional [{question, answer: [..]}] from Answers (load with .select("+answer"))
++ */
++export function toRespondentProfile(doc, panel, answers = []) {
++    const isHealth = panel === "mho";
++    const consents = {
++        invitations: hasConsent(doc, "survey_invitations"),
++        profiling: hasConsent(doc, "profiling"),
++        clientSharing: hasConsent(doc, "client_sharing"),
++        ...(isHealth && { healthData: hasConsent(doc, "health_data") }),
++    };
++    // Profile answers go out only with consent to share; on MHO also with explicit health-data consent.
++    const mayShareAnswers = consents.clientSharing && (!isHealth || consents.healthData);
++    const out = {
++        ...baseProfile(doc, panel),
++        category: isHealth ? "healthcare" : lower(doc?.category),
++        qualityScore: typeof doc?.qualityScore === "number" ? doc.qualityScore : null,
++        verified: verified(doc?.isVerified),
++        ...minorInfo(doc),
++        joinedMonth: doc?.createdAt ? iso(doc.createdAt).slice(0, 7) : null,
++        accountStatus: doc?.accountStatus ?? "active",
++        lastActiveMonth: doc?.lastActiveAt ? iso(doc.lastActiveAt).slice(0, 7) : null,
++        consents,
++        answers: mayShareAnswers ? answers.map((a) => ({ question: a.question, values: [].concat(a.answer ?? []) })) : [],
++    };
++    if (isHealth) {
++        out.respondentType = doc?.category ?? null; // Professional | Care Giver | Patient
++        out.hcpVerification = doc?.category === "Professional" ? { status: doc?.hcpVerification?.status ?? "unverified", method: doc?.hcpVerification?.method ?? null } : null;
++        delete out.isMinor; delete out.parentalConsent; // MHO has no minors flow
++    }
++    return out;
++}
++
++/**
++ * One response row for Sampledge's response feed.
++ * @param response Response document
++ * @param user     the respondent's User/Respondent document (for the pseudonymous profile)
++ */
++export function toResponseExport(response, user, panel) {
++    const start = response?.timeline?.start ?? null;
++    const end = response?.timeline?.end ?? null;
++    const loiMinutes = start && end ? Math.round(((new Date(end) - new Date(start)) / 60000) * 10) / 10 : (response?.loi || null);
++    const p = baseProfile(user, panel);
++    return {
++        responseID: String(response?._id ?? ""),
++        respondentID: p.respondentID,
++        pid: response?.project?.pid ?? null,
++        marketID: response?.project?.marketID ?? null,
++        quotaID: response?.project?.quotaID ?? null,
++        surveySlug: response?.survey?.slug ?? null,
++        status: response?.status ?? null,
++        qualityReasons: [...(response?.qualityReasons ?? [])],
++        start: iso(start),
++        end: iso(end),
++        loiMinutes,
++        deviceType: response?.deviceType ?? null,
++        points: response?.points ?? 0,
++        profile: { countryCode: p.countryCode, region: p.region, ageBand: p.ageBand, gender: p.gender, category: panel === "mho" ? user?.category ?? null : lower(user?.category) },
++        updatedAt: iso(response?.statusChangedAt ?? response?.updatedAt),
++    };
++}
++
++/** Wraps data in the backend's existing envelope. */
++export const envelope = (data, message = "OK") => ({ status: "success", message, data });
+diff --git a/migrations/2026-10-31-sampledge-fields.js b/migrations/2026-10-31-sampledge-fields.js
+new file mode 100644
+index 0000000..0a16a38
+--- /dev/null
++++ b/migrations/2026-10-31-sampledge-fields.js
+@@ -0,0 +1,89 @@
++/**
++ * One-off migration for the Sampledge integration fields.
++ *
++ *   node migrations/2026-10-31-sampledge-fields.js            # dry run: prints what would change
++ *   node migrations/2026-10-31-sampledge-fields.js --apply    # writes
++ *   ... --apply --legacy-consent=<policyVersion>              # also see step 5
++ *
++ * Env: MONGO_URI. Collection names default to Mongoose's (users, respondents, responses); override
++ * with USERS_COLLECTION, RESPONDENTS_COLLECTION, RESPONSES_COLLECTION.
++ *
++ * Steps
++ *  1. respondents: rename the misspelled `concent` to `consent`.
++ *  2. users + respondents: set accountStatus ("deleted" where isDeleted is true, else "active").
++ *  3. users + respondents: fill address.countryCode from the free-text country; lists what it could not map.
++ *  4. responses: set statusChangedAt from updatedAt (or createdAt) where missing.
++ *  5. Optional, off by default: existing panelists have no consent records, so feasibility counts them
++ *     as not reachable. If your sign-up terms already covered survey invitations, --legacy-consent
++ *     records that consent with the policy version you name and channel "legacy_terms", only for
++ *     people who accepted terms. This is your legal call; the script never assumes it.
++ */
++import mongoose from "mongoose";
++import { toCountryCode } from "../integration/country.js";
++
++const APPLY = process.argv.includes("--apply");
++const legacyArg = process.argv.find((a) => a.startsWith("--legacy-consent="));
++const LEGACY_POLICY = legacyArg ? legacyArg.split("=")[1] : null;
++const names = {
++    users: process.env.USERS_COLLECTION || "users",
++    respondents: process.env.RESPONDENTS_COLLECTION || "respondents",
++    responses: process.env.RESPONSES_COLLECTION || "responses",
++};
++
++export async function migrate(db, { apply = APPLY, legacyPolicy = LEGACY_POLICY, log = console.log } = {}) {
++    const report = { apply, renamedConcent: 0, accountStatus: 0, countryCodes: 0, unmappedCountries: {}, statusChangedAt: 0, legacyConsent: 0 };
++    const users = db.collection(names.users), respondents = db.collection(names.respondents), responses = db.collection(names.responses);
++
++    // 1
++    const concentFilter = { concent: { $exists: true } };
++    report.renamedConcent = await respondents.countDocuments(concentFilter);
++    if (apply && report.renamedConcent) await respondents.updateMany(concentFilter, { $rename: { concent: "consent" } });
++
++    for (const col of [users, respondents]) {
++        // 2
++        const missing = { accountStatus: { $exists: false } };
++        report.accountStatus += await col.countDocuments(missing);
++        if (apply) {
++            await col.updateMany({ ...missing, isDeleted: true }, { $set: { accountStatus: "deleted" } });
++            await col.updateMany(missing, { $set: { accountStatus: "active" } });
++        }
++        // 3
++        const cursor = col.find({ "address.0": { $exists: true } }, { projection: { address: 1 } });
++        for await (const doc of cursor) {
++            const set = {};
++            doc.address.forEach((a, i) => {
++                if (a.countryCode || !a.country) return;
++                const code = toCountryCode(a.country);
++                if (code) set[`address.${i}.countryCode`] = code;
++                else report.unmappedCountries[a.country] = (report.unmappedCountries[a.country] ?? 0) + 1;
++            });
++            if (Object.keys(set).length) {
++                report.countryCodes += 1;
++                if (apply) await col.updateOne({ _id: doc._id }, { $set: set });
++            }
++        }
++        // 5
++        if (legacyPolicy) {
++            const f = { "terms.0": { $exists: true }, "consents.purpose": { $ne: "survey_invitations" } };
++            report.legacyConsent += await col.countDocuments(f);
++            if (apply) await col.updateMany(f, [
++                { $set: { consents: { $concatArrays: [{ $ifNull: ["$consents", []] }, [{ purpose: "survey_invitations", granted: true, at: { $ifNull: ["$createdAt", "$$NOW"] }, policyVersion: legacyPolicy, channel: "legacy_terms" }]] }, "consentState.survey_invitations": true } },
++            ]);
++        }
++    }
++
++    // 4
++    const noChange = { statusChangedAt: { $exists: false } };
++    report.statusChangedAt = await responses.countDocuments(noChange);
++    if (apply && report.statusChangedAt) await responses.updateMany(noChange, [{ $set: { statusChangedAt: { $ifNull: ["$updatedAt", "$createdAt", "$$NOW"] } } }]);
++
++    log(JSON.stringify(report, null, 2));
++    if (!apply) log("Dry run: nothing written. Re-run with --apply.");
++    return report;
++}
++
++if (import.meta.url === `file://${process.argv[1]}`) {
++    if (!process.env.MONGO_URI) { console.error("Set MONGO_URI"); process.exit(1); }
++    await mongoose.connect(process.env.MONGO_URI);
++    try { await migrate(mongoose.connection.db); } finally { await mongoose.disconnect(); }
++}
+diff --git a/model/ProjectLaunch.js b/model/ProjectLaunch.js
+index 92cd5c9..7f935c7 100644
+--- a/model/ProjectLaunch.js
++++ b/model/ProjectLaunch.js
+@@ -9,6 +9,23 @@ const filterSchema=new mongoose.Schema({
+         type: mongoose.Schema.Types.Mixed
+     }
+ },{_id:false})
++// A quota within a market: its own filters on top of the market's, and a target count of completes.
++const quotaSchema=new mongoose.Schema({
++    quotaID:{
++        type:String,
++        required:true,
++        trim:true
++    },
++    label:{
++        type:String,
++        trim:true
++    },
++    filters:[filterSchema],
++    target:{
++        type:Number,
++        min:[0,"Quota target cannot be negative"]
++    }
++},{_id:false})
+ export default mongooseModel(
+     "SurveyProject",
+     {
+@@ -41,6 +58,7 @@ export default mongooseModel(
+                 type:String
+             },
+             filters: [filterSchema],
++            quotas: [quotaSchema],
+             softLaunch: {
+                 enabled: {
+                     type: Boolean,
+diff --git a/model/Respondent.js b/model/Respondent.js
+index fddcfbd..dda5db1 100644
+--- a/model/Respondent.js
++++ b/model/Respondent.js
+@@ -4,6 +4,8 @@ import dns from "dns";
+ import bcrypt from "bcryptjs";
+ import { promisify } from "util"
+ import { parsePhoneNumberFromString } from "libphonenumber-js"
++import { integrationFields, addressFields, ageParts, ageBand, hasConsent, dedupeKeyFor, assertAdmin, syncConsentState } from "../integration/fields.js";
++import { toCountryCode } from "../integration/country.js";
+ 
+ const resolveMx = promisify(dns.resolveMx)
+ 
+@@ -140,6 +142,7 @@ const Respondent = mongooseModel(
+                 trim: true,
+                 lowercase: true,
+             },
++            ...addressFields,
+             gps: {
+                 type: {
+                     type: String,
+@@ -190,11 +193,20 @@ const Respondent = mongooseModel(
+                 }
+             }
+         ],
+-        concent: {
++        // Was misspelled "concent"; run migrations/2026-10-31-sampledge-fields.js to rename stored data.
++        // Device permissions only. Consent to invitations, profiling, sharing and health data is in `consents`.
++        consent: {
+             canShareVideo: { type: Boolean, default: false },
+             canShareGPS: { type: Boolean, default: false },
+             canAcceptPushNotification: { type: Boolean, default: false },
+         },
++        ...integrationFields,
++        // How a healthcare professional was verified. The licence number itself stays out of this record.
++        hcpVerification: {
++            method: { type: String, enum: ["licence_lookup", "document_review", "employer_email", "phone_call", null], default: null },
++            status: { type: String, enum: ["unverified", "pending", "verified", "rejected"], default: "unverified" },
++            verifiedAt: { type: Date, default: null },
++        },
+         passwordHash: { type: String, select: false },
+     },
+     [
+@@ -216,32 +228,48 @@ const Respondent = mongooseModel(
+                     .join(" ");
+             },
+             age: function () {
+-                if (!this.dob) return null;
+-                const today = new Date();
+-                const dob = new Date(this.dob);
+-                let temp = {
+-                    years: today.getFullYear() - dob.getFullYear(),
+-                    month: today.getMonth() - dob.getMonth(),
+-                    day: today.getMonth() - dob.getMonth()
++                return ageParts(this.dob);
++            },
++            ageBand: function () {
++                return ageBand(this.dob);
++            },
++            isMinor: function () {
++                const a = ageParts(this.dob);
++                return a ? a.years < 18 : null;
++            }
++        },
++        pre: {
++            save: function (next) {
++                // Keep the ISO country code in step with the free-text country; unknown spellings stay null for review.
++                for (const a of this.address ?? []) {
++                    if (a.country && (!a.countryCode || this.isModified("address"))) a.countryCode = toCountryCode(a.country) ?? a.countryCode ?? null;
++                }
++                if (this.isModified("email")) {
++                    const key = dedupeKeyFor(this.email);
++                    if (key) this.dedupeKey = key;
+                 }
+-                if (temp.day < 0) { temp.month = temp.month - 1; temp.day += 30; }
+-                if (temp.month < 0) { temp.years = temp.years - 1; temp.month += 12; }
+-                return temp;
++                if (this.isNew || this.isModified("consents")) syncConsentState(this);
++                next();
+             }
+         },
+         method: {
++            hasConsent: function (purpose) {
++                return hasConsent(this, purpose);
++            },
+             resetPassword: async function (admin, password) {
+-                if(!admin || !admin.role || !["admin","superadmin","root"].includes(admin.role))throw new Error("Permission denined");
++                assertAdmin(admin);
+                 this.isVerified.email="verified";
+                 this.passwordHash=await bcrypt.hash(password,10);
+-                this.save();
++                await this.save();
+                 return this;
+             },
+             changePassword: async function (currentPassword, newPassword) {
+-                if(!(await bcrypt.compare(currentPassword,this.passwordHash)))throw new Error("Current password invalid. Check your password and try again.");
++                // passwordHash is select:false, so it is not on `this` after a normal find: read it explicitly.
++                const stored = await this.constructor.findById(this._id).select("+passwordHash");
++                if(!stored?.passwordHash || !(await bcrypt.compare(currentPassword,stored.passwordHash)))throw new Error("Current password invalid. Check your password and try again.");
+                 this.isVerified.email="verified";
+                 this.passwordHash=await bcrypt.hash(newPassword,10);
+-                this.save();
++                await this.save();
+                 return this;
+              },
+         }
+diff --git a/model/Response.js b/model/Response.js
+index 4cfde9f..6c25b08 100644
+--- a/model/Response.js
++++ b/model/Response.js
+@@ -1,6 +1,57 @@
+ import mongoose from "mongoose";
+ import { mongooseModel } from "../utils/index.js";
+ 
++/**
++ * Statuses a response can have. "qualityterminate" is new: a respondent removed for quality (speeding,
++ * straightlining, duplicate, geo mismatch, failed attention check), kept apart from "terminate" so
++ * incidence and billing are right. Stored lowercase because the field lowercases its value.
++ */
++export const RESPONSE_STATUS = ["invited", "started", "complete", "terminate", "overquota", "qualityterminate", "dropout"];
++export const QUALITY_REASONS = ["speeder", "straightliner", "duplicate", "geo_mismatch", "failed_attention", "open_end_quality", "other"];
++const OPEN = [null, "", "dropout", "invited", "started"];
++
++const methods = {
++    async complete() {
++        if (!OPEN.includes(this.status)) throw new Error("Unable to change status of your response");
++        return this.setStatus("complete");
++    },
++    async terminate() {
++        if (!OPEN.includes(this.status)) throw new Error("Unable to change status of your response");
++        return this.setStatus("terminate");
++    },
++    async overquota() {
++        if (!OPEN.includes(this.status)) throw new Error("Unable to change status of your response");
++        return this.setStatus("overquota");
++    },
++    /**
++     * Removes a response for quality. From an open response it can be automatic (e.g. a speeder check).
++     * Reversing a complete removes someone's reward, so it needs the id of the person who reviewed it.
++     */
++    async qualityTerminate(reasons = [], reviewedBy = null) {
++        const list = [].concat(reasons).filter(Boolean);
++        if (!list.length) throw new Error("Give at least one quality reason");
++        const bad = list.filter((r) => !QUALITY_REASONS.includes(r));
++        if (bad.length) throw new Error(`Unknown quality reason: ${bad.join(", ")}`);
++        if (this.status === "complete") {
++            if (!reviewedBy) throw new Error("Removing a complete needs the reviewer's id");
++        } else if (!OPEN.includes(this.status)) {
++            throw new Error("Unable to change status of your response");
++        }
++        this.qualityReasons = list;
++        this.reviewedBy = reviewedBy;
++        return this.setStatus("qualityterminate");
++    },
++    async setStatus(status) {
++        this.status = status;
++        this.statusChangedAt = new Date();
++        if (["complete", "terminate", "overquota", "qualityterminate"].includes(status) && !this.timeline?.end) {
++            this.set("timeline.end", new Date());
++        }
++        await this.save();
++        return this;
++    }
++};
++
+ export default mongooseModel(
+     "Response",
+     {
+@@ -9,6 +60,12 @@ export default mongooseModel(
+             name: { type: String },
+             slug: { type: String },
+         },
++        // Which Sampledge project, market and quota this response counts toward (null for panel-only surveys).
++        project: {
++            pid: { type: String, trim: true, default: null },
++            marketID: { type: String, trim: true, default: null },
++            quotaID: { type: String, trim: true, default: null },
++        },
+         timeline: {
+             start: { type: Date },
+             end: { type: Date, required: false, default: null },
+@@ -23,8 +80,21 @@ export default mongooseModel(
+             type: String,
+             trim: true,
+             lowercase: true,
+-            default: "invited"
++            default: "invited",
++            // Older records with other values still load; only new writes are checked.
++            validate: {
++                validator: function (v) {
++                    if (v === null || v === undefined || v === "") return true;
++                    if (!this.isModified || !this.isModified("status")) return true;
++                    return RESPONSE_STATUS.includes(v);
++                },
++                message: (p) => `${p.value} is not a valid response status`
++            }
+         },
++        statusChangedAt: { type: Date, default: Date.now },
++        qualityReasons: [{ type: String, enum: QUALITY_REASONS }],
++        reviewedBy: { type: String, default: null },
++        deviceType: { type: String, enum: ["desktop", "mobile", "tablet", "other", null], default: null },
+         loi: {
+             type: Number,
+             default: 0
+@@ -54,29 +124,15 @@ export default mongooseModel(
+             {
+                 unique: 1
+             }
+-        ]
++        ],
++        // Project status counts and the "changed since" response feed for Sampledge.
++        [{ "project.pid": 1, "project.marketID": 1, status: 1 }, {}],
++        [{ "project.pid": 1, statusChangedAt: -1 }, {}]
+     ],
+     {
+-        methods: {
+-            async complete() {
+-                if (![null, "", "dropout", "invited"].includes(this.status)) throw new Error("Unable to change status of your response");
+-                this.status = "complete"
+-                await this.save()
+-                return this;
+-            },
+-            async terminate() {
+-                if (![null, "", "dropout", "invited"].includes(this.status)) throw new Error("Unable to change status of your response");
+-                this.status = "terminate"
+-                await this.save()
+-                return this;
+-            },
+-            async overquota() {
+-                if (![null, "", "dropout", "invited"].includes(this.status)) throw new Error("Unable to change status of your response");
+-                this.status = "overquota"
+-                await this.save()
+-                return this;
+-            }
+-        }
++        // Every other model passes methods as `method`; this one used `methods`. Both keys are given so the
++        // methods register whichever one utils/mongooseModel reads. Keep one once you have checked.
++        method: methods,
++        methods
+     }
+ );
+-
+diff --git a/model/User.js b/model/User.js
+index e149990..afb6b37 100644
+--- a/model/User.js
++++ b/model/User.js
+@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
+ import dns from "dns";
+ import { promisify } from "util"
+ import { parsePhoneNumberFromString } from "libphonenumber-js"
++import { integrationFields, addressFields, ageParts, ageBand, hasConsent, dedupeKeyFor, assertAdmin, syncConsentState } from "../integration/fields.js";
++import { toCountryCode } from "../integration/country.js";
+ 
+ 
+ const resolveMx = promisify(dns.resolveMx)
+@@ -156,6 +158,7 @@ export default mongooseModel(
+                 trim: true,
+                 lowercase: true,
+             },
++            ...addressFields,
+             gps: {
+                 type: {
+                     type: String,
+@@ -212,11 +215,13 @@ export default mongooseModel(
+             default: null,
+             select: false
+         },
++        // Device permissions (video, GPS, push). Consent to invitations, profiling and sharing is in `consents`.
+         consent: {
+             canShareVideo: { type: Boolean, default: false },
+             canShareGPS: { type: Boolean, default: false },
+             canAcceptPushNotification: { type: Boolean, default: false },
+         },
++        ...integrationFields,
+         password: { type: String, select: false },
+         origin: {
+             type: String,
+@@ -330,20 +335,42 @@ export default mongooseModel(
+                     .join(" ");
+             },
+             age: function () {
+-                if (!this.dob) return null;
+-                const today = new Date();
+-                const dob = new Date(this.dob);
+-                let temp = {
+-                    years: today.getFullYear() - dob.getFullYear(),
+-                    month: today.getMonth() - dob.getMonth(),
+-                    day: today.getMonth() - dob.getMonth()
++                return ageParts(this.dob);
++            },
++            ageBand: function () {
++                return ageBand(this.dob);
++            },
++            isMinor: function () {
++                const a = ageParts(this.dob);
++                return a ? a.years < 18 : null;
++            },
++            // What Sampledge needs about a minor's parent: whether consent was given, not who the parent is.
++            parentalConsentStatus: function () {
++                const a = ageParts(this.dob);
++                if (!a || a.years >= 18) return "not_required";
++                if (this.parent?.consent === true) return "granted";
++                if (this.parent?.consent === false) return "refused";
++                return "pending";
++            }
++        },
++        pre: {
++            save: function (next) {
++                // Keep the ISO country code in step with the free-text country; unknown spellings stay null for review.
++                for (const a of this.address ?? []) {
++                    if (a.country && (!a.countryCode || this.isModified("address"))) a.countryCode = toCountryCode(a.country) ?? a.countryCode ?? null;
++                }
++                if (this.isModified("mail")) {
++                    const key = dedupeKeyFor(this.mail);
++                    if (key) this.dedupeKey = key;
+                 }
+-                if (temp.day < 0) { temp.month = temp.month - 1; temp.day += 30; }
+-                if (temp.month < 0) { temp.years = temp.years - 1; temp.month += 12; }
+-                return temp;
++                if (this.isNew || this.isModified("consents")) syncConsentState(this);
++                next();
+             }
+         },
+         method: {
++            hasConsent: function (purpose) {
++                return hasConsent(this, purpose);
++            },
+             verifyPassword: async function (password) {
+                 const user = await this.constructor.findById(this._id).select("+password");
+                 if (!user.password) throw new Error("Account is inactive");
+@@ -356,7 +383,7 @@ export default mongooseModel(
+                 return this;
+             },
+             resetPassword: async function (admin, password) {
+-                if (!admin || !admin.category || !["admin", "superadmin", "root"].includes(admin.category)) throw new Error("Permission denined");
++                assertAdmin(admin);
+                 this.isVerified.email = "verified";
+                 this.password = await bcrypt.hash(password, 10);
+                 await this.save();
+diff --git a/routes/sampledge.js b/routes/sampledge.js
+new file mode 100644
+index 0000000..2522466
+--- /dev/null
++++ b/routes/sampledge.js
+@@ -0,0 +1,262 @@
++/**
++ * Routes Sampledge calls on each panel. Mount once per app:
++ *
++ *   import { createSampledgeRouter } from "./routes/sampledge.js";
++ *   app.use("/api/v1/sampledge", createSampledgeRouter({
++ *       panel: "t2o",                      // "t2o" | "mfr" | "mho"
++ *       authenticate: appTokenMiddleware,  // your existing app-token check (required)
++ *       originOf: (req) => req.origin,     // how your app resolves the tenant from the host (required)
++ *   }));
++ *
++ * Routes (all answer in the {status, message, data} envelope):
++ *   POST /feasibility                    counts for a country and filters
++ *   PUT  /project                        create or update a project from Sampledge
++ *   GET  /project/:pid                   counts per market and quota
++ *   GET  /project/:pid/responses         response feed, oldest change first, ?since=&cursor=&limit=
++ *   GET  /respondent-profile/:respondentID
++ *   GET  /questions                      profile questions Sampledge can filter on, ?category=
++ *
++ * Nothing here sends invitations or changes a respondent; those stay on your existing routes, which
++ * Sampledge calls only after a person approves. No route returns name, email, phone, date of birth,
++ * address, GPS, payment or parent details.
++ */
++import express from "express";
++import mongoose from "mongoose";
++import User from "../model/User.js";
++import Respondent from "../model/Respondent.js";
++import Response from "../model/Response.js";
++import SurveyProject from "../model/ProjectLaunch.js";
++import Question from "../model/Question.js";
++import Option from "../model/Option.js";
++import Answers from "../model/Answers.js";
++import { AGE_BANDS, envelope, projectStatus, reachableMatch, toRespondentProfile, toResponseExport } from "../integration/index.js";
++
++const PANELS = ["t2o", "mfr", "mho"];
++// Question types that hold contact details or free text; never offered as filters or returned as answers.
++const PRIVATE_TYPES = ["open end single line", "open end multiline", "phone", "email", "zipcode", "document"];
++const isPrivateType = (t) => PRIVATE_TYPES.includes(String(t ?? "").toLowerCase());
++const BUILT_IN = ["gender", "age", "ageBand", "region", "category", "respondentType"];
++
++class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
++const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
++const yearsAgo = (n, now) => { const d = new Date(now); d.setFullYear(d.getFullYear() - n); return d; };
++const asList = (v) => [].concat(v ?? []).map((x) => String(x));
++const genderValue = (g) => { const s = String(g).toLowerCase(); return s === "male" ? "Male" : s === "female" ? "Female" : s === "other" ? "Other" : null; };
++
++export function createSampledgeRouter({ panel, authenticate, originOf, models = {}, now = () => new Date() } = {}) {
++    if (!PANELS.includes(panel)) throw new Error(`panel must be one of ${PANELS.join(", ")}`);
++    if (typeof authenticate !== "function") throw new Error("authenticate middleware is required");
++    if (typeof originOf !== "function") throw new Error("originOf(req) is required");
++    const M = { User, Respondent, Response, SurveyProject, Question, Option, Answers, ...models };
++    const People = panel === "mho" ? M.Respondent : M.User;
++    const isHealth = panel === "mho";
++
++    const router = express.Router();
++    router.use(express.json({ limit: "1mb" }));
++    router.use(authenticate);
++    router.use((req, _res, next) => {
++        const origin = originOf(req);
++        if (!origin) return next(new HttpError(400, "Unknown panel host"));
++        req.sampledgeOrigin = origin;
++        next();
++    });
++
++    /** Question name -> {question, keys}; keys are what Answers and Options may store (name or id). */
++    async function findQuestion(origin, name) {
++        const q = await M.Question.findOne({ origin, name: String(name).toLowerCase(), isDeleted: { $ne: true } }).lean();
++        if (!q || isPrivateType(q.type)) return null;
++        return { question: q, keys: [q.name, String(q._id)] };
++    }
++
++    /** Translates Sampledge filters into a Mongo filter on User/Respondent. */
++    async function peopleFilter(origin, { country, filters = [] }) {
++        const t = now();
++        const and = [{ origin }, { accountStatus: { $nin: ["deleted", "blocked"] } }, { isDeleted: { $ne: true } }];
++        if (country) and.push({ "address.0.countryCode": String(country).toUpperCase() });
++        for (const f of filters) {
++            if (!f || typeof f.type !== "string") throw new HttpError(400, "Each filter needs a type");
++            const v = f.value;
++            switch (f.type) {
++                case "gender": {
++                    const g = asList(v).map(genderValue);
++                    if (g.some((x) => !x)) throw new HttpError(400, "gender values are male, female or other");
++                    and.push({ gender: { $in: g } });
++                    break;
++                }
++                case "age": {
++                    const gte = Number(v?.gte ?? 0), lte = Number(v?.lte ?? 120);
++                    if (!Number.isFinite(gte) || !Number.isFinite(lte) || gte > lte) throw new HttpError(400, "age needs {gte, lte}");
++                    and.push({ dob: { $lte: yearsAgo(gte, t), $gt: yearsAgo(lte + 1, t) } });
++                    break;
++                }
++                case "ageBand": {
++                    const ors = asList(v).map((b) => {
++                        const band = AGE_BANDS.find(([lo, hi]) => b === `${lo}-${hi}` || b === `${lo}+`);
++                        if (!band) throw new HttpError(400, `Unknown age band ${b}`);
++                        return { dob: { $lte: yearsAgo(band[0], t), $gt: yearsAgo(band[1] + 1, t) } };
++                    });
++                    and.push({ $or: ors });
++                    break;
++                }
++                case "region": and.push({ "address.0.region": { $in: asList(v) } }); break;
++                case "category":
++                    if (isHealth) throw new HttpError(400, "Use respondentType on MyHealthOpinions");
++                    and.push({ category: { $in: asList(v).map((x) => x.toLowerCase()) } });
++                    break;
++                case "respondentType":
++                    if (!isHealth) throw new HttpError(400, "respondentType applies to MyHealthOpinions only");
++                    and.push({ category: { $in: asList(v) } });
++                    break;
++                default: {
++                    const q = await findQuestion(origin, f.type);
++                    if (!q) throw new HttpError(400, `Unknown filter or profile question: ${f.type}`);
++                    const users = await M.Answers.distinct("user", { origin, question: { $in: q.keys }, answer: { $in: asList(v) } });
++                    const ids = users.filter((u) => mongoose.isValidObjectId(u)).map((u) => new mongoose.Types.ObjectId(String(u)));
++                    and.push({ _id: { $in: ids } });
++                }
++            }
++        }
++        return { $and: and };
++    }
++
++    router.post("/feasibility", wrap(async (req, res) => {
++        const origin = req.sampledgeOrigin;
++        const { country, filters, activeWithinDays } = req.body ?? {};
++        if (!country) throw new HttpError(400, "country is required (ISO code, e.g. US)");
++        if (filters !== undefined && !Array.isArray(filters)) throw new HttpError(400, "filters must be a list of {type, value}");
++        const days = activeWithinDays === undefined ? undefined : Number(activeWithinDays);
++        if (days !== undefined && !(days > 0)) throw new HttpError(400, "activeWithinDays must be a positive number");
++        const base = await peopleFilter(origin, { country, filters });
++        const reachable = { $and: [base, reachableMatch({ activeWithinDays: days, healthData: isHealth, now: now() })] };
++        const t = now();
++        // $bucket needs ascending boundaries: oldest band first, by date of birth.
++        const bands = [...AGE_BANDS].reverse();
++        const boundaries = [...bands.map(([, hi]) => yearsAgo(hi + 1, t)), new Date(yearsAgo(bands.at(-1)[0], t).getTime() + 1)];
++        const [total, facets] = await Promise.all([
++            People.countDocuments(base),
++            People.aggregate([
++                { $match: reachable },
++                { $facet: {
++                    active: [{ $count: "n" }],
++                    byGender: [{ $group: { _id: "$gender", n: { $sum: 1 } } }],
++                    byRegion: [{ $group: { _id: { $arrayElemAt: ["$address.region", 0] }, n: { $sum: 1 } } }],
++                    byAgeBand: [{ $bucket: { groupBy: "$dob", boundaries, default: "other", output: { n: { $sum: 1 } } } }],
++                } },
++            ]),
++        ]);
++        const f = facets[0] ?? {};
++        const toMap = (rows, key) => Object.fromEntries(rows.filter((r) => r._id !== null && r._id !== undefined).map((r) => [key(r._id), r.n]));
++        const label = (i) => { const [lo, hi] = bands[i]; return hi >= 120 ? `${lo}+` : `${lo}-${hi}`; };
++        res.json(envelope({
++            country: String(country).toUpperCase(),
++            total,
++            active: f.active?.[0]?.n ?? 0,
++            byGender: toMap(f.byGender ?? [], (g) => String(g).toLowerCase()),
++            byAgeBand: toMap((f.byAgeBand ?? []).filter((r) => r._id !== "other"), (d) => label(boundaries.findIndex((b) => b.getTime() === new Date(d).getTime()))),
++            byRegion: toMap(f.byRegion ?? [], String),
++            activeWithinDays: days ?? null,
++            asOf: t.toISOString(),
++        }));
++    }));
++
++    router.put("/project", wrap(async (req, res) => {
++        const origin = req.sampledgeOrigin;
++        const b = req.body ?? {};
++        if (!b.pid || typeof b.pid !== "string") throw new HttpError(400, "pid is required");
++        if (!Array.isArray(b.markets) || !b.markets.length) throw new HttpError(400, "markets must list at least one market");
++        const ids = b.markets.map((m) => m?.marketID);
++        if (ids.some((x) => !x) || new Set(ids).size !== ids.length) throw new HttpError(400, "Each market needs a unique marketID");
++        // Only these fields come from Sampledge; status and schedule stay under your control.
++        const markets = b.markets.map((m) => ({
++            marketID: m.marketID, country: asList(m.country).map((c) => c.toUpperCase()), targetGroup: m.targetGroup,
++            filters: m.filters ?? [], quotas: m.quotas ?? [], softLaunch: m.softLaunch, cpi: m.cpi, loi: m.loi, ir: m.ir,
++            completes: m.completes, links: m.links,
++        }));
++        let doc = await M.SurveyProject.findOne({ origin, pid: b.pid });
++        const created = !doc;
++        if (!doc) doc = new M.SurveyProject({ origin, pid: b.pid, source: "sampledge" });
++        else if (doc.source && doc.source !== "sampledge") throw new HttpError(409, "This pid belongs to a project not created by Sampledge");
++        // Keep each existing market's schedule when Sampledge updates the rest of it.
++        const previous = new Map((doc.markets ?? []).map((m) => [m.marketID, m.schedule]));
++        doc.set({ name: b.name, note: b.note, markets: markets.map((m) => ({ ...m, schedule: previous.get(m.marketID) })) });
++        try { await doc.save(); } catch (e) {
++            if (e instanceof mongoose.Error.ValidationError) throw new HttpError(400, Object.values(e.errors).map((x) => x.message).join("; "));
++            throw e;
++        }
++        res.status(created ? 201 : 200).json(envelope({ pid: doc.pid, status: doc.status, markets: doc.markets.map((m) => ({ marketID: m.marketID, quotas: (m.quotas ?? []).length })) }, created ? "Project created" : "Project updated"));
++    }));
++
++    router.get("/project/:pid", wrap(async (req, res) => {
++        const origin = req.sampledgeOrigin;
++        const scoped = {
++            SurveyProject: { findOne: (q) => M.SurveyProject.findOne({ ...q, origin }) },
++            Response: { aggregate: (p) => M.Response.aggregate([{ $match: { origin } }, ...p]) },
++        };
++        const s = await projectStatus(scoped, req.params.pid);
++        if (!s) throw new HttpError(404, "Unknown project");
++        res.json(envelope(s));
++    }));
++
++    router.get("/project/:pid/responses", wrap(async (req, res) => {
++        const origin = req.sampledgeOrigin;
++        const limit = Math.min(Math.max(parseInt(req.query.limit ?? "100", 10) || 100, 1), 500);
++        const q = { origin, "project.pid": req.params.pid };
++        if (req.query.cursor) {
++            let c;
++            try { c = JSON.parse(Buffer.from(String(req.query.cursor), "base64url").toString()); } catch { throw new HttpError(400, "Bad cursor"); }
++            if (!c?.t || !mongoose.isValidObjectId(c.id)) throw new HttpError(400, "Bad cursor");
++            const t = new Date(c.t);
++            q.$or = [{ statusChangedAt: { $gt: t } }, { statusChangedAt: t, _id: { $gt: new mongoose.Types.ObjectId(c.id) } }];
++        } else if (req.query.since) {
++            const since = new Date(String(req.query.since));
++            if (isNaN(since.getTime())) throw new HttpError(400, "since must be an ISO date");
++            q.statusChangedAt = { $gt: since };
++        }
++        const rows = await M.Response.find(q).sort({ statusChangedAt: 1, _id: 1 }).limit(limit + 1).lean();
++        const page = rows.slice(0, limit);
++        const people = await People.find({ origin, _id: { $in: page.map((r) => r.user) } }).lean();
++        const byId = new Map(people.map((p) => [String(p._id), p]));
++        const last = page.at(-1);
++        res.json(envelope({
++            items: page.map((r) => toResponseExport(r, byId.get(String(r.user)) ?? {}, panel)),
++            nextCursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ t: last.statusChangedAt, id: String(last._id) })).toString("base64url") : null,
++        }));
++    }));
++
++    router.get("/respondent-profile/:respondentID", wrap(async (req, res) => {
++        const origin = req.sampledgeOrigin;
++        const person = await People.findOne({ origin, respondentID: req.params.respondentID }).lean();
++        if (!person || person.accountStatus === "deleted" || person.isDeleted) throw new HttpError(404, "Unknown respondent");
++        const raw = await M.Answers.find({ origin, user: String(person._id) }).select("+answer").lean();
++        const qs = await M.Question.find({ origin, $or: [{ name: { $in: raw.map((a) => a.question) } }, { _id: { $in: raw.map((a) => a.question).filter((x) => mongoose.isValidObjectId(x)) } }] }).lean();
++        const byKey = new Map(qs.flatMap((q) => [[q.name, q], [String(q._id), q]]));
++        const answers = raw.filter((a) => byKey.has(a.question) && !isPrivateType(byKey.get(a.question).type)).map((a) => ({ question: byKey.get(a.question).name, answer: a.answer }));
++        res.json(envelope(toRespondentProfile(person, panel, answers)));
++    }));
++
++    router.get("/questions", wrap(async (req, res) => {
++        const origin = req.sampledgeOrigin;
++        const q = { origin, isDeleted: { $ne: true }, type: { $nin: PRIVATE_TYPES } };
++        if (req.query.category) q.category = String(req.query.category).toLowerCase();
++        const questions = await M.Question.find(q).sort({ name: 1 }).lean();
++        const opts = await M.Option.find({ origin, question: { $in: questions.flatMap((x) => [x.name, String(x._id)]) } }).sort({ _id: 1 }).lean();
++        res.json(envelope({
++            builtIn: BUILT_IN.filter((b) => (isHealth ? b !== "category" : b !== "respondentType")),
++            ageBands: AGE_BANDS.map(([lo, hi]) => (hi >= 120 ? `${lo}+` : `${lo}-${hi}`)),
++            questions: questions.map((x) => ({
++                name: x.name, label: x.label, type: x.type, category: x.category ?? [], parent: x.parent ?? null,
++                options: opts.filter((o) => o.question === x.name || o.question === String(x._id)).map((o) => ({ label: o.label, value: o.value, isExclusive: !!o.isExclusive })),
++            })),
++        }));
++    }));
++
++    // Errors in the same envelope. Internal details are logged, never sent.
++    router.use((err, _req, res, _next) => {
++        if (err instanceof HttpError) return res.status(err.status).json({ status: "error", message: err.message, data: null });
++        if (err?.type === "entity.parse.failed") return res.status(400).json({ status: "error", message: "Body must be valid JSON", data: null });
++        console.error("[sampledge]", err);
++        res.status(500).json({ status: "error", message: "Internal error", data: null });
++    });
++    return router;
++}
++

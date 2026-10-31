@@ -132,6 +132,13 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET | `/panel-backend/:panel/cpi/categories`, `/panel-backend/:panel/options/:country/:field` | `panels`, owning workspace | backend data unchanged |
 | POST | `/panel-backend/:panel/feasibility` `{filter}` | `panels`, owning workspace | filter passed through unchanged |
 | GET | `/panel-backend/:panel/projects/:id`, `.../qualified` | `panels`, owning workspace | backend data unchanged |
+| GET | `/panel-backend/projects`, `/panel-backend/syncs` | `panels`, owning workspace | projects that can be synced; synced projects with imported counts by outcome |
+| POST | `/panel-backend/:panel/reach` `{country, filters?, activeWithinDays?}` | `panels`, owning workspace | the panel's reach counts, unchanged |
+| GET | `/panel-backend/:panel/questions?category=`, `/panel-backend/:panel/respondents/:rid` | `panels`, owning workspace | the panel's profile questions; one pseudonymous profile |
+| POST | `/panel-backend/:panel/sync/:projectId/preview` `{quotaFilters?, marketFilters?, completes?, links?, softLaunch?}` | `panels`, owning workspace | `{body, unmapped[], notes[]}`; no network call |
+| POST | `/panel-backend/:panel/sync/:projectId` (same body) | `panels` (write), owning workspace | 400 while any quota lacks panel filters; else sends the project (no invitations) and logs a `sync` PanelCall |
+| GET | `/panel-backend/:panel/sync/:projectId` | `panels`, owning workspace | imported counts by outcome, plus the panel's live status or the error reaching it |
+| POST | `/panel-backend/:panel/sync/:projectId/import` | `panels` (write), owning workspace | `{received, pages, more}`; 502 with the reason if the feed fails (position kept) |
 | POST | `/panel-backend/:panel/projects/:id/actions` `{action: invites\|soft-launch\|cancel, body?}` | `panels` (write), owning workspace | 202 with the approval; nothing is sent until someone else approves. Backend errors return 502 (never 401/403); not connected returns 503 |
 | GET | `/ai/evals` | `admin` | evaluation set scored on the rule-based implementations: `{provider, model, at, tasks[{task, version, cases, passed, checks, checksPassed, criticalFailed, costUsd, results[]}], totals}` |
 | POST | `/ai/evals/run` | `admin` (write) | same report from the connected model; 400 without a model or once the monthly cap is spent; the run's cost is logged as one `AiCall` (`task: evals.run`) |
