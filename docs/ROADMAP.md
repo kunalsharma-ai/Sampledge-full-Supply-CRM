@@ -12,6 +12,7 @@
 | **Reports and exports (v0.8.0)** ✅ | PDF survey report, recodes (grouping and bands) usable everywhere a question is, SPSS .sav export with labels and weights | 120 API tests + 37 engine tests; 36-step browser e2e; .sav verified with pyreadstat |
 | **Scale-out and AI evaluation (v0.9.0)** ✅ | Rate limits shared across API instances (Postgres store), `TRUST_PROXY`, multi-instance check in CI (two API processes + separate worker), load test across instances, AI evaluation set with an admin scorecard | 127 API tests + 37 engine tests; 15 cross-instance checks; rules score 16/17 cases, 0 critical |
 | **Panel backend adapter (v0.10.0)** ✅ | Turn2Opinion backend: per-panel connection, CPI, feasibility count, project status; invites, soft launch and cancel behind approvals, sent at most once | 7 adapter tests against a local stand-in; not yet run against the real backend |
+| **Admin & Security** ✅ | People and roles (granting Platform Admin is approval-gated), sign out everywhere, audit trail viewer with filters, live security posture, role matrix | 7 new API tests |
 | Next | Panel adapter: project sync and response hand-off (need the backend's request/response formats), verification on staging; SAML; e-mail/SMS adapters; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4

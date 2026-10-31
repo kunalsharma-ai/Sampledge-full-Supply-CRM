@@ -13,7 +13,7 @@ import { EChart, axis } from '@/components/charts/echart';
 import { WorkflowEditor } from '@/components/flow/workflow-editor';
 import { AiEvalPanel, AiGatewayPanel, AiProviderBadge } from '@/components/ai/panels';
 
-const policies = ['Sending binding quotations', 'Purchasing sample', 'Issuing payments', 'Rejecting respondents in consequential cases', 'Publishing surveys', 'Releasing sensitive datasets', 'Deleting records', 'Sending high-volume communications'];
+const policies = ['Sending binding quotations', 'Purchasing sample', 'Issuing payments', 'Rejecting respondents in consequential cases', 'Publishing surveys', 'Releasing sensitive datasets', 'Deleting records', 'Sending high-volume communications', 'Granting admin access'];
 const approverFor: Record<string, Parameters<typeof can>[1]> = { 'Purchasing sample': 'approve:purchase', 'Sending binding quotations': 'approve:quotes', 'Issuing payments': 'approve:payments', 'Publishing surveys': 'approve:publish' };
 
 export default function AutomationPage() {
