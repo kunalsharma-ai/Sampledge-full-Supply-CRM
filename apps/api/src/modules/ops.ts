@@ -130,6 +130,15 @@ export class ApprovalsService {
         if (r.survey.projectId) await tx.project.update({ where: { id: r.survey.projectId }, data: { completes: { decrement: 1 } } });
         return `Interview rejected and removed from results; ${freed} quota place${freed === 1 ? '' : 's'} released`;
       }
+      case 'Releasing sensitive datasets': {
+        if (!p.deliverableId) return ok ? 'Recorded (no dataset linked; demo request)' : 'Rejected';
+        const d = await tx.deliverable.findUnique({ where: { id: String(p.deliverableId) } });
+        if (!d || d.status !== 'pending_approval') return 'The deliverable is no longer waiting for release';
+        if (!ok) { await tx.deliverable.update({ where: { id: d.id }, data: { status: 'rejected' } }); return 'Release declined; the client cannot see this file'; }
+        await tx.deliverable.update({ where: { id: d.id }, data: { status: 'released', releasedAt: new Date() } });
+        await emit(tx, tenantId, 'deliverable.released', { deliverableId: d.id, projectId: d.projectId });
+        return `Released to the client: ${d.fileName} (SHA-256 ${d.sha256.slice(0, 12)}…)`;
+      }
       case 'Granting admin access': {
         if (!ok) return 'Request rejected; role unchanged';
         const m = await tx.membership.findFirst({ where: { tenantId, userId: String(p.userId) } });

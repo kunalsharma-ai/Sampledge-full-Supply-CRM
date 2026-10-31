@@ -42,6 +42,10 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 |---|---|---|
 | GET | `/vendors` · `/vendors/:id` | vendor role: own record only. 🔒 `cpiB2C/B2B/HC`, `pendingPayment`, `bidWinRate` (`view:vendor_bids`, or own record) |
 | GET | `/allocations` | vendor role: own allocations only |
+| GET | `/deliverables?projectId=` | Client: released files on its own client's projects. Team: all. Never includes file bytes |
+| POST | `/deliverables` | `{ projectId, surveyId, kind: report_pdf\|report_pptx\|tables_xlsx\|responses_csv\|data_sav, title?, note? }`. Team only (full Client Portal access). Reports are released at once; CSV/SPSS create a *Releasing sensitive datasets* approval |
+| GET | `/deliverables/:id/download` | The stored file, with `X-Content-SHA256`. Clients: released and own project only (404 otherwise); audited |
+| POST | `/deliverables/:id/withdraw` | Team only. Hides the file from the client and closes a pending release approval |
 
 ## Surveys (module `survey-studio`)
 | Method | Path | Notes |

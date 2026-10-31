@@ -178,7 +178,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Own projects with stage, completes vs target and deadline; no costs, margins or vendors | Functional |
 | Sign-offs waiting on the client (survey publish approvals on own projects) | Functional |
 | Issued invoices and correspondence; message the project team | Functional |
-| Deliverables and report downloads | Planned (Phase 6) |
+| Deliverables: the team releases a survey's PDF or PowerPoint report or Excel tables (straight away) or respondent-level CSV/SPSS data (after a *Releasing sensitive datasets* approval by someone else). Generated once at release and stored with SHA-256; clients download only released files on their own projects; downloads audited and counted; withdraw at any time; the client is notified through the Comms Hub | Functional |
 
 ## DIY Research (new)
 | Feature | Status |

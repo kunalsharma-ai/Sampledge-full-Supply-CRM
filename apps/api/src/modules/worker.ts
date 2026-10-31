@@ -185,6 +185,17 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
         await this.notify(tx, t, ['finance', 'executive'], `Invoice ${inv.number} drafted`, `${pr.code} ${pr.name}: ${pr.completes} completes · $${inv.amount.toLocaleString('en-US')}`, 'finance');
         return;
       }
+      case 'deliverable.released': {
+        // Tell the client a file is ready; the message itself carries no data, only where to find it.
+        const d = await tx.deliverable.findUnique({ where: { id: String(p.deliverableId) }, select: { id: true, title: true, status: true, project: { select: { code: true, name: true, clientId: true } } } });
+        if (!d || d.status !== 'released' || !d.project.clientId) return;
+        await this.queueMessage(tx, t, {
+          channel: 'email', audience: 'client', toRef: `client:${d.project.clientId}`, relatedType: 'Deliverable', relatedId: d.id,
+          subject: `New deliverable: ${d.title}`,
+          body: `${d.project.code} ${d.project.name}: "${d.title}" is ready to download in your client portal.`,
+        });
+        return;
+      }
       case 'quota.filled': {
         await this.notify(tx, t, ['project_manager', 'survey_programmer'], `Quota "${p.label}" is full`, 'Further matching respondents are terminated as overquota', 'projects');
         return;
