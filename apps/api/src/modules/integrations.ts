@@ -84,12 +84,21 @@ export class IntegrationsService {
       lastActivity: null,
     });
 
-    const sentAt = await this.db.message.findFirst({ where: { tenantId: ctx.tenantId, deliveredAt: { not: null } }, orderBy: { deliveredAt: 'desc' }, select: { deliveredAt: true } });
-    const recorded = await this.db.message.count({ where: { tenantId: ctx.tenantId, deliveredAt: { gte: new Date(Date.now() - 30 * 86400_000) } } });
+    const smtp = deliveryAdapter.mode === 'smtp';
+    const since = new Date(Date.now() - 30 * 86400_000);
+    const lastMsg = await this.db.message.findFirst({ where: { tenantId: ctx.tenantId, deliveredAt: { not: null } }, orderBy: { deliveredAt: 'desc' }, select: { deliveredAt: true, status: true } });
+    const recorded = await this.db.message.count({ where: { tenantId: ctx.tenantId, status: 'delivered_dev', deliveredAt: { gte: since } } });
+    const sent = await this.db.message.count({ where: { tenantId: ctx.tenantId, status: 'sent', deliveredAt: { gte: since } } });
+    const failed = await this.db.message.count({ where: { tenantId: ctx.tenantId, status: 'failed', createdAt: { gte: since } } });
     out.push({
-      id: 'messaging', name: 'Email and SMS delivery', group: 'Messaging', state: 'development',
-      detail: `Adapter: ${deliveryAdapter.name}. ${recorded} message(s) recorded in the last 30 days; none left the system. Sends over the high-volume threshold still need an approval.`,
-      settings: [], lastActivity: sentAt?.deliveredAt ? { at: sentAt.deliveredAt.toISOString(), summary: 'message recorded (not sent)' } : null,
+      id: 'messaging', name: 'Email and SMS delivery', group: 'Messaging',
+      // SMTP is 'configured' until a mail server has accepted a message, then 'connected'.
+      state: smtp ? (sent > 0 ? 'connected' : 'configured') : 'development',
+      detail: smtp
+        ? `E-mail sends via ${deliveryAdapter.name}. Last 30 days: ${sent} sent, ${failed} failed. SMS and panel members are not sent from here. Sends over the high-volume threshold still need an approval.`
+        : `Adapter: ${deliveryAdapter.name}. ${recorded} message(s) recorded in the last 30 days; none left the system. Set SMTP_HOST and SMTP_FROM to send e-mail. Sends over the high-volume threshold still need an approval.`,
+      settings: set('SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM'),
+      lastActivity: lastMsg?.deliveredAt ? { at: lastMsg.deliveredAt.toISOString(), summary: lastMsg.status === 'sent' ? 'e-mail sent' : 'message recorded (not sent)' } : null,
     });
 
     out.push(

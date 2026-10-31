@@ -30,6 +30,19 @@ describe('integrations overview', () => {
     delete process.env.PANEL_T2O_URL; delete process.env.PANEL_T2O_TOKEN;
   });
 
+  it('shows SMTP e-mail as configured once SMTP_HOST and SMTP_FROM are set, without the password', async () => {
+    Object.assign(process.env, { SMTP_HOST: 'mail.example.test', SMTP_FROM: 'ops@example.test', SMTP_PASSWORD: 'smtp-secret-value' });
+    try {
+      const row = find((await as('platform_admin').get('/integrations')).body as Row[], 'messaging');
+      assert.ok(['configured', 'connected'].includes(row.state), row.state);
+      assert.match(row.detail, /mail\.example\.test/);
+      assert.ok(row.settings.some((x) => x.name === 'SMTP_PASSWORD' && x.set));
+      assert.ok(!JSON.stringify(row).includes('smtp-secret-value'));
+    } finally {
+      delete process.env.SMTP_HOST; delete process.env.SMTP_FROM; delete process.env.SMTP_PASSWORD;
+    }
+  });
+
   it('hides the panel connection from other workspaces and is limited to roles with access', async () => {
     const iso = await as('iso').get('/integrations');
     assert.equal(iso.status, 200);

@@ -181,6 +181,7 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET | `/admin/users` | workspace members: `{id, name, email, role, vendorId, clientId, mfaEnabled, activeSessions, lastSignIn, you}`; never password or MFA secrets |
 | PATCH | `/admin/users/:id/role` | write; `{ role }`, one of the internal roles. 403 for your own role, 400 for vendor/client accounts or when removing the last platform admin. Audited as `role.changed`. Granting `platform_admin` returns `{changed: false, approvalId}`: a *Granting admin access* approval that another platform admin or an executive decides |
 | POST | `/admin/users/:id/sessions/revoke` | write; revokes the member's live sessions in this workspace (not your own). Audited as `sessions.revoked` |
+| GET | `/comms/adapter` | module `communications`: `{mode: development|smtp, name}`; never credentials |
 | GET | `/admin/audit/facets` | record types and actions in the audit trail, with counts |
 | GET | `/live` | Server-Sent Events: `change` `{type}` for the workspace, `notification` `{type,module,title}` for the caller's role |
 | GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
