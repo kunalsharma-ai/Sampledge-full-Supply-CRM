@@ -9,6 +9,7 @@ import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
+import { SMS_MAX } from './delivery';
 import { deliveryAdapter } from './worker';
 
 /** Sends to more recipients than this wait for a 'High-volume communications' approval. */
@@ -27,7 +28,7 @@ const fill = (text: string, vars: Record<string, string>) => text.replace(/\{\{\
 
 /**
  * Comms Hub. Every outbound message is a row with a status; delivery goes through the adapter in
- * delivery.ts (development adapter unless SMTP_* is set; see there). Panel sends count
+ * delivery.ts (development adapter unless SMTP_* or SMS_* is set; see there). Panel sends count
  * only members who have not withdrawn marketing consent and are not suspended or pending deletion.
  */
 @Injectable()
@@ -82,6 +83,7 @@ export class CommsService {
   async send(ctx: Ctx, b: z.infer<typeof Compose>) {
     // External users may only write to the internal team.
     if ((ctx.role === 'vendor' || ctx.role === 'client') && b.audience !== 'internal') throw new BadRequestException('You can message the Sampledge team only');
+    if (b.channel === 'sms' && b.body.length > SMS_MAX) throw new BadRequestException(`An SMS can be at most ${SMS_MAX.toLocaleString('en-US')} characters`);
     const r = await this.resolve(ctx, b.audience, b.target);
     if (r.recipients === 0) throw new BadRequestException('No eligible recipients (after consent filtering)');
     return this.db.$transaction(async (tx) => {
@@ -114,7 +116,7 @@ export class CommsController {
   @Get('messages') messages(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { return this.s.messages(ctx, q, res); }
   @Get('templates') templates(@Caller() ctx: Ctx) { return this.s.templates(ctx); }
   /** Which delivery adapter is active. Never returns credentials. */
-  @Get('adapter') adapter() { return { mode: deliveryAdapter.mode, name: deliveryAdapter.name }; }
+  @Get('adapter') adapter() { return { mode: deliveryAdapter.mode, name: deliveryAdapter.name, channels: deliveryAdapter.channels }; }
   @Get('preview') preview(@Caller() ctx: Ctx, @Query() q: unknown) {
     const x = parse(z.object({ audience: z.string(), target: z.string() }), q);
     return this.s.preview(ctx, x.audience, x.target);

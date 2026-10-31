@@ -2,7 +2,7 @@
 
 **Phase 6: enterprise readiness.** A Next.js web app on a NestJS + Postgres API, sharing one TypeScript domain package. Sign-in, roles, tenant isolation, projects, CRM and quotes, vendors and allocations, survey versions, a public respondent runtime with atomic quotas, panelists and consent, and human approvals all run on the database. Phase 4 connects them: a transactional outbox and worker hand work between modules, supplier feasibility, purchase orders, invoices and vendor payments, a Comms Hub, and client and vendor portals. Phase 5 adds an AI gateway (rule-based by default, Claude optional), questionnaire import from Word, Excel and PDF, survey results and PowerPoint reports from recorded responses, respondent quality checks, advanced research methods and DIY research requests. Phase 6 adds Postgres row-level security, OpenID Connect SSO, Data Processing (weighting, open-end coding, Excel tables), live updates, idempotent writes, request ids, metrics, and backup, restore and load-test scripts. See `docs/DEPLOYMENT.md` and `docs/RUNBOOK.md`.
 
-Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected: messages are recorded by a development adapter and never sent unless an operator sets `SMTP_HOST` and `SMTP_FROM` (then e-mail to Sampledge accounts goes out over SMTP), "paid" is a record (no payment rail), and there are no supplier or panel-site APIs. AI tasks run on deterministic rules unless `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` are set in `apps/api/.env`.
+Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected: messages are recorded by a development adapter and never sent unless an operator sets `SMTP_HOST` and `SMTP_FROM` (then e-mail to Sampledge accounts goes out over SMTP) or the `SMS_` settings (then texts go to the phone numbers an administrator recorded), "paid" is a record (no payment rail), and there are no supplier or panel-site APIs. AI tasks run on deterministic rules unless `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` are set in `apps/api/.env`.
 
 ## Run it
 
@@ -40,7 +40,7 @@ node apps/web/e2e-smoke.cjs      # browser end-to-end on a running, freshly seed
 - **Supplier feasibility:** as Business Development, open an opportunity in the CRM and *Request feasibility*. Sign in as the Sample Vendor, answer in the **Vendor Portal**, and the next drafted quote is priced as supplier-confirmed.
 - **Purchase → PO → payment:** approve a sample purchase (as someone other than the requester) and a PO, payable and vendor email appear. In **Finance**, *Request payment* waits for an *Issuing payments* approval.
 - **Invoice:** move a project with completes to the *Invoice* stage; a draft appears in **Finance**. *Issue* it and the Client sees it in the **Client Portal**.
-- **Comms Hub:** send to a panel segment; consent withdrawals are excluded, and more than 100 recipients needs an approval. Without SMTP settings every message shows as *Recorded (dev adapter)*.
+- **Comms Hub:** send to a panel segment; consent withdrawals are excluded, and more than 100 recipients needs an approval. Without SMTP or SMS settings every message shows as *Recorded (dev adapter)*.
 
 ## Layout
 ```
