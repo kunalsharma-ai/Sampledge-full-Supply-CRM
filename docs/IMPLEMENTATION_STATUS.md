@@ -1,4 +1,6 @@
-# Implementation status: v0.11.0 (Phases 1–6, known-limitation fixes, reports and exports, scale-out and AI evaluation, panel backend adapter, panel project sync)
+# Implementation status: v0.11.0 and later (Phases 1–6, known-limitation fixes, reports and exports, scale-out and AI evaluation, panel backend adapter and project sync, Admin & Security, Integrations, SMTP and SMS delivery, SAML, list paging, supplier redirects, client deliverables and scheduled delivery, retention and workspaces, finance ledgers)
+
+Connecting the outside services is covered step by step in [SETUP_GUIDE.md](SETUP_GUIDE.md); the latest security review is [SECURITY_REVIEW.md](SECURITY_REVIEW.md).
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
@@ -13,7 +15,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | SSO: OpenID Connect (authorization code + PKCE, signed ID token, nonce, state) | Functional, tested against a local stub provider only | users must already belong to the workspace |
 | SSO: SAML 2.0 (SP-initiated, signed assertions, issuer, audience, time window, InResponseTo, one-time use, same-browser finish) | Functional, tested against a stand-in provider only | users must already belong to the workspace; no single logout or encrypted assertions; request IDs shared across API instances in Postgres |
 | Role-based access: module access, permissions, read-only enforcement | Functional | one matrix in `packages/core/src/roles.ts` drives both the UI and the API guards |
-| Tenant isolation | Functional, two layers | every query filters by the session's tenant, and Postgres row-level security (forced on all 25 tenant tables) refuses other tenants' rows for signed-in requests even without a filter. Tested; visible at `GET /admin/security` |
+| Tenant isolation | Functional, two layers | every query filters by the session's tenant, and Postgres row-level security (forced on all 33 tenant tables) refuses other tenants' rows for signed-in requests even without a filter. Tested; visible at `GET /admin/security` |
 | Scoped roles (vendor sees own vendor; client sees own projects) | Functional | enforced in services from `Membership.vendorId/clientId` |
 | Field redaction (margins, costs, competitor rate cards) | Functional | stripped server-side; the UI also hides the panels |
 | Human approval gate (quotes, purchases, publishing, deletion, …) | Functional | requester cannot approve their own request; approving applies the effect in the same transaction |
@@ -215,12 +217,10 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Data retention policies | Functional, tested | Per workspace, per category (message content, notifications, ended sessions, AI usage log, panel request log), default keep, with a minimum period each. Turning one on or shortening it is a *Deleting records* approval decided by someone else; lengthening or turning off applies at once. The worker applies them daily; admins can run them now. Message content is redacted and the log row kept; the others are deleted. Every run is audited with counts. Research data, finance records and the audit trail are not covered |
 | Workspace (tenant) creation | Functional, tested | Operator command on the server (`node dist/tenant.js create|list`): creates the workspace and its first platform admin with a one-time password. Not available from inside a workspace |
 
-Integrations is a navigable placeholder that states its scope.
-
 ## Known limitations
-- SSO (OpenID Connect and SAML) and the Claude provider are tested against local stand-ins only.
+- SSO (OpenID Connect and SAML), the Claude provider, SMTP, SMS and the panel backend are tested against local stand-ins only. Each needs a check in staging with real credentials (see SETUP_GUIDE.md).
+- Some dependency advisories remain open because their fixes are major upgrades (Prisma 7, Zod 4, Next 16, ECharts 6) or affect code paths the app does not use; each one is assessed in SECURITY_REVIEW.md.
 - Public respondent routes and sign-in run as the system only until they resolve the workspace (the survey or the membership); from then on the database enforces that tenant. The worker handles each event as its tenant. The first lookup on those routes (survey or response by id, user by e-mail) is still unscoped by design.
-- The Claude path of the AI gateway has only been tested against a stub server.
 - The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.
 - The CRM quote builder and Survey Studio QA run in the browser; the API has equivalent endpoints, used for persistence and enforcement.
 - List endpoints return up to 500 rows per page by default (cursor paging with `take`/`cursor` and `X-Next-Cursor`). The web app loads every page of projects, opportunities, vendors, surveys and clients (up to 5,000 each) and shows "Load more" on the audit trail, Comms Hub messages and Finance lists.

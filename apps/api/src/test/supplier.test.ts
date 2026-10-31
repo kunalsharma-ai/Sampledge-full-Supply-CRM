@@ -87,6 +87,7 @@ describe('supplier redirects', () => {
 
   it('has no exit link for direct traffic and refuses allocations from other projects or not open', async () => {
     const direct = await start({ respondent: 'd-1' });
+    assert.match(direct.body.responseId, /^rs_[\w-]{24}$/, 'the session id is the respondent credential: 144 random bits, not a guessable cuid');
     const last = await walk(direct.body.responseId, { S1: 'none' });
     assert.equal(last.body.redirect, null);
     assert.equal((await start({ allocation: otherProjectAlloc, respondent: 'x' })).status, 404);
