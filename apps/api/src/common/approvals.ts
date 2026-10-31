@@ -16,6 +16,7 @@ export const approvalKinds = {
   'Releasing sensitive datasets': null,
   'Deleting records': null,
   'High-volume communications': 'edit:automations',
+  'Granting admin access': null,
 } as const satisfies Record<string, Permission | null>;
 
 export type ApprovalKind = keyof typeof approvalKinds;

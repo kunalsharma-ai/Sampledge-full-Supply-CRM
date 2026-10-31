@@ -13,7 +13,8 @@
 | **Scale-out and AI evaluation (v0.9.0)** ✅ | Rate limits shared across API instances (Postgres store), `TRUST_PROXY`, multi-instance check in CI (two API processes + separate worker), load test across instances, AI evaluation set with an admin scorecard | 127 API tests + 37 engine tests; 15 cross-instance checks; rules score 16/17 cases, 0 critical |
 | **Panel backend adapter (v0.10.0)** ✅ | Turn2Opinion backend: per-panel connection, CPI, feasibility count, project status; invites, soft launch and cancel behind approvals, sent at most once | 7 adapter tests against a local stand-in; not yet run against the real backend |
 | **Panel project sync (v0.11.0)** ✅ | Project, markets and quotas sent to the panel; reach check; live status; idempotent response import; backend patch for the panel team (models, migration, Sampledge routes) | 8 tests against a stand-in of the panel routes; panel-side routes tested on MongoDB 7; not yet run against the live panels |
-| Next | Panel adapter: project sync and response hand-off (need the backend's request/response formats), verification on staging; SAML; e-mail/SMS adapters; AI evaluation scores on Claude (needs an API key); external pen test | |
+| **Admin & Security** ✅ | People and roles (granting Platform Admin is approval-gated), sign out everywhere, audit trail viewer with filters, live security posture, role matrix | 7 new API tests |
+| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; SAML; e-mail/SMS adapters; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4
 - **Postgres outbox instead of Redis.** Events commit with the change that caused them, and the worker claims them with `FOR UPDATE SKIP LOCKED`. This removes a service and a failure mode; the claim function is the single place to swap in a broker if volume calls for it.

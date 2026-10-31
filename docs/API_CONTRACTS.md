@@ -76,10 +76,10 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/approvals?status` | requests the caller made or may decide (`canDecide` per row). Client: publish requests on own projects; vendor: none |
-| POST | `/approvals/:id/decision` | `{ decision: approved|rejected, note? }`. Needs the kind's permission (quotes → `approve:quotes`, purchases → `approve:purchase`, payments → `approve:payments`, publishing → `approve:publish`, respondent rejection → `edit:projects`, high-volume comms → `edit:automations`; datasets and deletions → platform admin or executive). Requester cannot decide. Effect applied in the same transaction |
+| POST | `/approvals/:id/decision` | `{ decision: approved|rejected, note? }`. Needs the kind's permission (quotes → `approve:quotes`, purchases → `approve:purchase`, payments → `approve:payments`, publishing → `approve:publish`, respondent rejection → `edit:projects`, high-volume comms → `edit:automations`; datasets, deletions and granting admin access → platform admin or executive). Requester cannot decide. Effect applied in the same transaction |
 | GET | `/agents` · PATCH `/agents/:id` | module `automation`; toggling needs `edit:automations` |
 | GET | `/notifications` · POST `/notifications/read-all` · POST `/notifications/:id/read` | filtered to the caller's role; `read`/`readAt` are per person |
-| GET | `/audit?entity&entityId&take` | module `admin` |
+| GET | `/audit?entity&entityId&action&actor&take` | module `admin`; `action` matches a prefix, `actor` a case-insensitive substring |
 | GET | `/dashboard/summary` | module `command-center`; KPIs computed from the database. 🔒 `grossMargin` |
 
 ## Supplier feasibility (modules `crm`, `vendor-portal`)
@@ -178,6 +178,10 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/admin/security` | row-level-security posture seen by Postgres for this request |
+| GET | `/admin/users` | workspace members: `{id, name, email, role, vendorId, clientId, mfaEnabled, activeSessions, lastSignIn, you}`; never password or MFA secrets |
+| PATCH | `/admin/users/:id/role` | write; `{ role }`, one of the internal roles. 403 for your own role, 400 for vendor/client accounts or when removing the last platform admin. Audited as `role.changed`. Granting `platform_admin` returns `{changed: false, approvalId}`: a *Granting admin access* approval that another platform admin or an executive decides |
+| POST | `/admin/users/:id/sessions/revoke` | write; revokes the member's live sessions in this workspace (not your own). Audited as `sessions.revoked` |
+| GET | `/admin/audit/facets` | record types and actions in the audit trail, with counts |
 | GET | `/live` | Server-Sent Events: `change` `{type}` for the workspace, `notification` `{type,module,title}` for the caller's role |
 | GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
 | GET | `/metrics` | Prometheus text; requires `Authorization: Bearer $METRICS_TOKEN`, 404 otherwise |

@@ -52,7 +52,7 @@ function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
       <div className="flex h-16 items-center gap-2 px-5">
         <Logo compact={collapsed} />
       </div>
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 pt-2" aria-label="Modules">
+      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-3 pt-1" aria-label="Modules">
         {groups.map((g) => {
           const items = modules.filter((m) => m.group === g && access(role, m.id) !== 'none');
           if (!items.length) return null;
@@ -69,12 +69,12 @@ function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                         href={m.href}
                         title={collapsed ? m.label : undefined}
                         className={cn(
-                          'group relative flex h-9 items-center gap-3 rounded-xl px-3 text-[13px] font-medium transition-colors',
+                          'group relative flex h-8 items-center gap-3 rounded-xl px-3 text-[13px] font-medium transition-colors',
                           active ? 'text-ink' : 'text-ink-2 hover:bg-surface-2/50 hover:text-ink',
                         )}
                       >
                         {active && <motion.span layoutId="nav-active" className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue/20 via-purple/10 to-transparent ring-1 ring-inset ring-blue/25" transition={{ type: 'spring', bounce: 0.15, duration: 0.5 }} />}
-                        {active && <span className="absolute left-0 top-2 h-5 w-[3px] rounded-r bg-cyan shadow-[0_0_12px_rgb(var(--cyan))]" />}
+                        {active && <span className="absolute left-0 top-1.5 h-5 w-[3px] rounded-r bg-cyan shadow-[0_0_12px_rgb(var(--cyan))]" />}
                         <Icon size={17} className={cn('relative shrink-0', active ? 'text-cyan' : 'text-ink-3 group-hover:text-ink-2')} />
                         {!collapsed && <span className="relative flex-1 truncate">{m.label}</span>}
                         {!collapsed && !isBuilt(m) && <span className="relative text-[9px] font-semibold uppercase tracking-wider text-ink-3">Planned</span>}
