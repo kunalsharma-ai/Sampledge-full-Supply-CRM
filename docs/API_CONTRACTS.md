@@ -184,6 +184,17 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | POST | `/admin/users/:id/sessions/revoke` | write; revokes the member's live sessions in this workspace (not your own). Audited as `sessions.revoked` |
 | GET | `/comms/adapter` | module `communications`: `{mode: development|smtp, name, channels: {email: development|smtp|off, sms: development|api|off}}`; never credentials |
 | GET | `/admin/audit/facets` | record types and actions in the audit trail, with counts |
+| GET | `/finance/currencies` | internal: `{base, pointValue, rates, clients, vendors}` with each party's currency |
+| POST | `/finance/rates` | write; `{ currency, rate }` (base per unit); audited `fx.rate_set` |
+| PUT | `/finance/currencies/base` | write; `{ currency }`; 400 once invoices or POs exist |
+| PUT | `/finance/currencies/party` | write; `{ kind: client|vendor, id, currency }`; needs a recorded rate |
+| GET | `/finance/reconciliation` | needs `view:vendor_bids`: per PO ordered, recorded and accepted completes, payable and status |
+| POST | `/finance/reconciliation/:poId` | write; `{ acceptedCompletes, note? }` (note required when short); adjusts the open payable, closes the PO; audited `po.reconciled` |
+| GET | `/finance/incentives` | internal: liability, this month's totals, pending redemptions, latest 100 entries |
+| GET | `/finance/incentives/members?q=` | panel members by handle (20) |
+| POST | `/finance/incentives` | write; `{ panelistId, kind: earn|redeem|adjust|expire, points, projectId?, note? }`; redeem → *Issuing payments* approval |
+| PUT | `/finance/incentives/point-value` | write; `{ value }` in the base currency |
+| GET | `/finance/forecast` | internal: months and projects, planned vs actual revenue (and cost with `view:margins`), base currency |
 | GET | `/admin/workspace` | `{id, name, slug, createdAt, counts}` for this workspace |
 | PATCH | `/admin/workspace` | write; `{ name }`. Audited as `workspace.renamed` |
 | GET | `/admin/retention` | `{lastRun, categories: [{category, label, min, what, days|null, eligibleNow, pending}]}` |

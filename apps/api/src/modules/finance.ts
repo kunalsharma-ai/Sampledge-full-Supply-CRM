@@ -1,3 +1,4 @@
+import { invoiceTerms } from './finance-ledgers';
 import type { Response } from 'express';
 import { BadRequestException, Body, Controller, Get, HttpCode, Injectable, NotFoundException, Param, Post, Query, Res } from '@nestjs/common';
 import { can } from '@sampledge/core';
@@ -36,14 +37,19 @@ export class FinanceService {
       ctx.role === 'client' ? [] : this.db.payable.findMany({ where: this.vendorScope(ctx) }),
       ctx.role === 'client' ? 0 : this.db.purchaseOrder.count({ where: this.vendorScope(ctx) }),
     ]);
-    const sumBy = <T extends { amount: number; status: string }>(rows: T[], st: string[]) => rows.filter((r) => st.includes(r.status)).reduce((s, r) => s + r.amount, 0);
+    // Totals are in the base currency: each document converts at the rate fixed on it.
+    const t = await this.db.tenant.findUniqueOrThrow({ where: { id: ctx.tenantId }, select: { baseCurrency: true } });
+    const poRate = new Map((ctx.role === 'client' ? [] : await this.db.purchaseOrder.findMany({ where: this.vendorScope(ctx), select: { id: true, fxRate: true } })).map((p) => [p.id, p.fxRate]));
+    const base = (r: { amount: number; fxRate?: number; purchaseOrderId?: string }) => r.amount * (r.fxRate ?? (r.purchaseOrderId ? poRate.get(r.purchaseOrderId) ?? 1 : 1));
+    const sumBy = <T extends { amount: number; status: string; fxRate?: number; purchaseOrderId?: string }>(rows: T[], st: string[]) => Math.round(rows.filter((r) => st.includes(r.status)).reduce((s, r) => s + base(r), 0));
     const now = new Date();
     return {
-      receivable: sumBy(inv, ['issued']), overdueReceivable: inv.filter((i) => i.status === 'issued' && i.dueAt && i.dueAt < now).reduce((s, i) => s + i.amount, 0),
+      currency: t.baseCurrency,
+      receivable: sumBy(inv, ['issued']), overdueReceivable: Math.round(inv.filter((i) => i.status === 'issued' && i.dueAt && i.dueAt < now).reduce((s, i) => s + base(i), 0)),
       collected: sumBy(inv, ['paid']), draftInvoices: inv.filter((i) => i.status === 'draft').length,
       payable: sumBy(pay, ['open', 'pending_approval']), paidOut: sumBy(pay, ['paid']), awaitingApproval: pay.filter((p) => p.status === 'pending_approval').length,
       purchaseOrders: pos,
-      note: 'Records only. No accounting system or payment rail is connected.',
+      note: `Records only, totals in ${t.baseCurrency} at the rate fixed on each document. No accounting system or payment rail is connected.`,
     };
   }
 
@@ -62,7 +68,7 @@ export class FinanceService {
     if (await this.db.invoice.findFirst({ where: { projectId, status: { not: 'void' } } })) throw new BadRequestException('This project already has an invoice');
     return this.db.$transaction(async (tx) => {
       const n = await tx.invoice.count({ where: { tenantId: ctx.tenantId } });
-      const inv = await tx.invoice.create({ data: { tenantId: ctx.tenantId, number: `INV-26${String(n + 1).padStart(4, '0')}`, clientId: pr.clientId, projectId, completes: pr.completes, cpi: pr.cpiSell, amount: Math.round(pr.completes * pr.cpiSell), status: 'draft' } });
+      const inv = await tx.invoice.create({ data: { tenantId: ctx.tenantId, number: `INV-26${String(n + 1).padStart(4, '0')}`, ...(await invoiceTerms(tx, ctx.tenantId, pr)), status: 'draft' } });
       await this.audit.log(ctx, 'invoice.draft', 'Invoice', inv.id, undefined, inv, tx);
       return inv;
     });
