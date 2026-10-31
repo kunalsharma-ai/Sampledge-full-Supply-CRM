@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Bell, Bot, Building2, ChartScatter, ChevronsLeft, Command, Database, Globe2, KanbanSquare, Landmark, Lock, MessagesSquare,
-  LogOut, Monitor, Moon, Orbit, Palette, Plug, RotateCcw, ShieldCheck, Sparkles, Sun, Target, Truck, Users, Workflow, Zap, ZapOff,
+  KeyRound, LogOut, Monitor, Moon, Orbit, Palette, Plug, RotateCcw, ShieldCheck, Sparkles, Sun, Target, Truck, Users, Workflow, Zap, ZapOff,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -203,6 +203,7 @@ function Topbar() {
                 {roles.map((r) => <option key={r.id} value={r.id} className="bg-bg-2">{r.label}</option>)}
               </select>}
         </label>
+        {mode === 'live' && <Link href="/account" title="Your account and two-step sign-in" aria-label="Your account" className="grid h-9 w-9 place-items-center rounded-xl text-ink-2 hover:bg-surface-2/60 hover:text-ink"><KeyRound size={15} /></Link>}
         {mode === 'live' && <Button variant="ghost" size="icon" title="Sign out" aria-label="Sign out" onClick={async () => { await signOut(); router.replace('/login'); }}><LogOut size={15} /></Button>}
       </div>
     </header>

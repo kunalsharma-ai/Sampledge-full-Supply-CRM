@@ -32,6 +32,7 @@ model User {
   name         String
   passwordHash String
   mfaSecret    String?
+  mfaPendingSecret String? // a replacement device, until its first code is accepted
   mfaEnabled   Boolean      @default(false)
   createdAt    DateTime     @default(now())
   memberships  Membership[]
