@@ -10,7 +10,8 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 |---|---|---|
 | Sign-in (email + password), httpOnly session cookie, revocable sessions, logout | Functional | bcrypt hashes; JWT carries only a session id checked against the `Session` table |
 | TOTP two-factor (enrol, activate, challenge at sign-in) | Functional (API) | no enrolment screen in the UI yet; tested via API |
-| SSO: OpenID Connect (authorization code + PKCE, signed ID token, nonce, state) | Functional, tested against a local stub provider only | users must already belong to the workspace; SAML not implemented |
+| SSO: OpenID Connect (authorization code + PKCE, signed ID token, nonce, state) | Functional, tested against a local stub provider only | users must already belong to the workspace |
+| SSO: SAML 2.0 (SP-initiated, signed assertions, issuer, audience, time window, InResponseTo, one-time use, same-browser finish) | Functional, tested against a stand-in provider only | users must already belong to the workspace; no single logout or encrypted assertions; request IDs shared across API instances in Postgres |
 | Role-based access: module access, permissions, read-only enforcement | Functional | one matrix in `packages/core/src/roles.ts` drives both the UI and the API guards |
 | Tenant isolation | Functional, two layers | every query filters by the session's tenant, and Postgres row-level security (forced on all 25 tenant tables) refuses other tenants' rows for signed-in requests even without a filter. Tested; visible at `GET /admin/security` |
 | Scoped roles (vendor sees own vendor; client sees own projects) | Functional | enforced in services from `Membership.vendorId/clientId` |
@@ -206,12 +207,12 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Sign out everywhere | Functional, tested | Revokes a member's live sessions in this workspace; audited |
 | Audit trail viewer with record type, action and actor filters | Functional, tested | Append-only; written in the same transaction as each change |
 | Role matrix | Functional | The same matrix the API guards use |
-| Retention policies, tenant management, SAML | Planned | |
+| Retention policies, tenant management | Planned | |
 
 Integrations is a navigable placeholder that states its scope.
 
 ## Known limitations
-- SSO and the Claude provider are tested against local stubs only.
+- SSO (OpenID Connect and SAML) and the Claude provider are tested against local stand-ins only.
 - Public respondent routes and sign-in run as the system only until they resolve the workspace (the survey or the membership); from then on the database enforces that tenant. The worker handles each event as its tenant. The first lookup on those routes (survey or response by id, user by e-mail) is still unscoped by design.
 - The Claude path of the AI gateway has only been tested against a stub server.
 - The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.

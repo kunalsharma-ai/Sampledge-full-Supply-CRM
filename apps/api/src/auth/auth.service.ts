@@ -45,11 +45,11 @@ export class AuthService {
   }
 
   /** A session for a user already authenticated elsewhere (SSO). */
-  issueFor(userId: string, tenantId: string, method: 'sso') {
+  issueFor(userId: string, tenantId: string, method: 'sso' | 'saml') {
     return this.issue(userId, tenantId, method);
   }
 
-  private async issue(userId: string, tenantId: string, method: 'password' | 'sso' = 'password') {
+  private async issue(userId: string, tenantId: string, method: 'password' | 'sso' | 'saml' = 'password') {
     // The workspace is known from here on: the session and audit rows are written under its scope.
     enterTenant(tenantId);
     const expiresAt = new Date(Date.now() + config.sessionHours * 3600_000);

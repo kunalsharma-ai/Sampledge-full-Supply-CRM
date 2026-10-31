@@ -16,7 +16,8 @@
 | **Admin & Security** ✅ | People and roles (granting Platform Admin is approval-gated), sign out everywhere, audit trail viewer with filters, live security posture, role matrix | 7 new API tests |
 | **SMTP e-mail (Comms Hub)** ✅ | SMTP delivery adapter, off until `SMTP_HOST` and `SMTP_FROM` are set; sent-once, blind copies, failed and not-sent states with reasons | 5 tests against a local SMTP server |
 | **SMS (Comms Hub)** ✅ | Twilio-compatible SMS adapter, off until `SMS_ACCOUNT_SID`, `SMS_AUTH_TOKEN` and `SMS_FROM` are set; per-workspace phone numbers set by admins; per-number results | 6 tests against a local stand-in API |
-| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; SAML; AI evaluation scores on Claude (needs an API key); external pen test | |
+| **SAML sign-in** ✅ | SAML 2.0 single sign-on next to OpenID Connect: service metadata, signed-assertion checks, replay and cross-browser protection, login button, Integrations row | 8 tests against a stand-in identity provider; not yet run against a real provider |
+| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; real-provider SSO checks; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4
 - **Postgres outbox instead of Redis.** Events commit with the change that caused them, and the worker claims them with `FOR UPDATE SKIP LOCKED`. This removes a service and a failure mode; the claim function is the single place to swap in a broker if volume calls for it.

@@ -11,6 +11,7 @@
  */
 import { Controller, Get, Injectable } from '@nestjs/common';
 import { aiConfig, AiGateway } from '../ai/gateway';
+import { samlConfig } from '../auth/saml';
 import { ssoConfig } from '../auth/sso';
 import { Caller, ForModule, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
@@ -68,8 +69,18 @@ export class IntegrationsService {
     out.push({
       id: 'sso-oidc', name: 'Single sign-on (OpenID Connect)', group: 'Sign-in',
       state: s.enabled ? 'configured' : 'off',
-      detail: s.enabled ? `Identity provider ${new URL(s.issuer).host}, for workspace "${s.tenant}". People must already be members; MFA is the provider's.` : 'Password sign-in with optional two-factor codes. SAML is not built.',
+      detail: s.enabled ? `Identity provider ${new URL(s.issuer).host}, for workspace "${s.tenant}". People must already be members; MFA is the provider's.` : 'Password sign-in with optional two-factor codes.',
       settings: set('OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET', 'OIDC_REDIRECT_URI', 'OIDC_TENANT'),
+      lastActivity: null,
+    });
+
+    const sm = samlConfig();
+    const samlLogins = sm.enabled ? await this.db.auditLog.count({ where: { tenantId: ctx.tenantId, action: 'auth.login', after: { path: ['method'], equals: 'saml' } } }) : 0;
+    out.push({
+      id: 'sso-saml', name: 'Single sign-on (SAML 2.0)', group: 'Sign-in',
+      state: sm.enabled ? (samlLogins ? 'connected' : 'configured') : 'off',
+      detail: sm.enabled ? `Identity provider ${sm.idpIssuer}, for workspace "${sm.tenant}". Signed assertions only; people must already be members; MFA is the provider's. Service metadata at /api/v1/auth/saml/metadata.` : 'Set the SAML_ variables to sign in through a SAML identity provider such as Okta, Entra ID or Google Workspace.',
+      settings: set('SAML_ENTRY_POINT', 'SAML_IDP_ISSUER', 'SAML_IDP_CERT', 'SAML_SP_ENTITY_ID', 'SAML_CALLBACK_URL', 'SAML_TENANT'),
       lastActivity: null,
     });
 
