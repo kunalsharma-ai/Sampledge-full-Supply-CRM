@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Injectable, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Injectable, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { paged, pageArgs } from '../common/paging';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requestApproval } from '../common/approvals';
@@ -38,8 +40,9 @@ export class CommsService {
     return { tenantId: ctx.tenantId };
   }
 
-  messages(ctx: Ctx, take: number) {
-    return this.db.message.findMany({ where: this.scope(ctx), orderBy: { createdAt: 'desc' }, take });
+  async messages(ctx: Ctx, q: unknown, res?: Response) {
+    const { want, ...page } = pageArgs(q, 200, 50);
+    return paged(await this.db.message.findMany({ where: this.scope(ctx), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page }), want, res);
   }
 
   templates(ctx: Ctx) {
@@ -108,7 +111,7 @@ export class CommsService {
 @Controller('comms')
 export class CommsController {
   constructor(private s: CommsService) {}
-  @Get('messages') messages(@Caller() ctx: Ctx, @Query('take') take?: string) { return this.s.messages(ctx, Math.min(200, Number(take ?? 50) || 50)); }
+  @Get('messages') messages(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { return this.s.messages(ctx, q, res); }
   @Get('templates') templates(@Caller() ctx: Ctx) { return this.s.templates(ctx); }
   @Get('preview') preview(@Caller() ctx: Ctx, @Query() q: unknown) {
     const x = parse(z.object({ audience: z.string(), target: z.string() }), q);

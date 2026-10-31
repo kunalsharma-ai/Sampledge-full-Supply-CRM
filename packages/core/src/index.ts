@@ -1,6 +1,7 @@
 // @sampledge/core: domain constants, types and pure logic shared by web and API.
 export * from './survey/engine';
 export { cloudSurvey } from './survey/demo-survey';
+export { cxSurvey, cxResponses } from './survey/demo-cx';
 export * from './roles';
 export * from './pricing';
 export * from './analytics';
@@ -15,3 +16,4 @@ export * as seed from './demo/data';
 export * from './methods';
 export * from './extract';
 export * from './results';
+export * from './dp';

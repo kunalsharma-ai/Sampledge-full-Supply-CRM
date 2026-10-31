@@ -6,7 +6,7 @@
  */
 import 'dotenv/config';
 import { Prisma, PrismaClient, type Role } from '@prisma/client';
-import { access, cloudSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
+import { access, cloudSurvey, cxResponses, cxSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
 import bcrypt from 'bcryptjs';
 
 export const DEMO_PASSWORD = 'demo1234';
@@ -16,7 +16,7 @@ export const demoEmail = (role: string) => `${role.replace(/_/g, '.')}@demo.samp
 
 const day = 86400_000;
 
-export async function runSeed(db: PrismaClient, opts: { panelists?: number } = {}) {
+export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxResponses?: number } = {}) {
   if (process.env.NODE_ENV === 'production') throw new Error('Refusing to seed a production database');
   const tables = await db.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
   await db.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} CASCADE`);
@@ -102,10 +102,11 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number } = {
 
   for (const s of seed.surveys) {
     const isCloud = s.id === cloudSurvey.id;
+    const isCx = s.id === cxSurvey.id;
     await db.survey.create({
       data: {
         id: s.id, tenantId: t, projectId: s.projectId, name: s.name, status: s.status, programmer: s.programmer, currentVersion: isCloud ? cloudSurvey.version : 1,
-        hoursSpent: s.hoursSpent, complexity: s.complexity, completionRate: s.completionRate, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud, questionCount: isCloud ? cloudSurvey.questions.length : s.questions,
+        hoursSpent: s.hoursSpent, complexity: s.complexity, completionRate: s.completionRate, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud || isCx, questionCount: isCloud ? cloudSurvey.questions.length : isCx ? cxSurvey.questions.length : s.questions,
       },
     });
   }
@@ -116,6 +117,17 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number } = {
       data: { surveyId: cloudSurvey.id, version: v, label: v === cloudSurvey.version ? 'Imported screener + core (demo)' : `Draft ${v} (demo history)`, createdBy: 'Jonas Weber (Demo)', definition: cloudDef as unknown as Prisma.InputJsonValue, createdAt: new Date(seed.DEMO_NOW.getTime() - (cloudSurvey.version - v) * 2 * day) },
     });
   }
+  // A closed survey with SYNTHETIC completed interviews (generated, not real people) so Data
+  // Processing and Insight Studio have a full dataset to weight, code and tabulate.
+  await db.surveyVersion.create({ data: { surveyId: cxSurvey.id, version: 1, label: 'Fielded version (demo)', createdBy: 'Mei Lin (Demo)', definition: cxSurvey as unknown as Prisma.InputJsonValue, publishedAt: new Date(seed.DEMO_NOW.getTime() - 40 * day) } });
+  const cxStart = seed.DEMO_NOW.getTime() - 38 * day;
+  await db.response.createMany({
+    data: cxResponses(opts.cxResponses ?? 600).map((x, i) => {
+      const started = new Date(cxStart + i * 50 * 60_000);
+      return { tenantId: t, surveyId: cxSurvey.id, version: 1, source: 'synthetic:demo', respondent: x.respondent, answers: x.answers as Prisma.InputJsonValue, path: cxSurvey.questions.map((q) => q.id), outcome: 'complete', startedAt: started, completedAt: new Date(started.getTime() + x.minutes * 60_000) };
+    }),
+  });
+
   await db.quotaCell.createMany({
     data: cloudSurvey.quotas.map((q) => ({ tenantId: t, projectId: 'pr-002', surveyId: cloudSurvey.id, key: q.id, label: q.label, condition: q.when as Prisma.InputJsonValue, target: q.target, count: q.count })),
   });

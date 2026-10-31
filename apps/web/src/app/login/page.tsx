@@ -11,7 +11,10 @@ import { cn } from '@/lib/utils';
 
 function LoginForm() {
   const router = useRouter();
-  const next = useSearchParams().get('next') || '/command-center';
+  const params = useSearchParams();
+  const next = params.get('next') || '/command-center';
+  const [sso, setSso] = useState<{ enabled: boolean; label: string | null } | null>(null);
+  useEffect(() => { fetch('/api/v1/auth/sso/config').then((r) => (r.ok ? r.json() : null)).then(setSso).catch(() => setSso(null)); }, []);
   const mode = useOS((s) => s.mode);
   const session = useOS((s) => s.session);
   const signIn = useOS((s) => s.signIn);
@@ -21,7 +24,7 @@ function LoginForm() {
   const [challenge, setChallenge] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(params.get('sso_error'));
 
   useEffect(() => { if (session) router.replace(next.startsWith('/') && !next.startsWith('//') ? next : '/command-center'); }, [session, next, router]);
 
@@ -60,7 +63,7 @@ function LoginForm() {
       </div>
 
       <div className="panel p-6 md:p-8">
-        <div className="flex items-center justify-between"><h2 className="font-display text-lg font-semibold">{challenge ? 'Two-factor code' : 'Sign in'}</h2><Badge tone="neutral">Phase 5</Badge></div>
+        <div className="flex items-center justify-between"><h2 className="font-display text-lg font-semibold">{challenge ? 'Two-factor code' : 'Sign in'}</h2><Badge tone="neutral">Phase 6</Badge></div>
         <form onSubmit={submit} className="mt-5 space-y-3">
           {!challenge ? (
             <>
@@ -73,6 +76,7 @@ function LoginForm() {
           {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-[12.5px] text-danger">{error}</p>}
           <Button type="submit" variant="primary" className="w-full" disabled={!!busy}>{busy === 'form' ? <Loader2 size={14} className="animate-spin" /> : null}{challenge ? 'Verify' : 'Sign in'}</Button>
           {challenge && <button type="button" className="w-full text-center text-2xs text-ink-3 hover:text-ink" onClick={() => { setChallenge(null); setCode(''); }}>Use a different account</button>}
+          {sso?.enabled && !challenge && <a href={`/api/v1/auth/sso/start?next=${encodeURIComponent(next)}`} className="flex h-9 w-full items-center justify-center rounded-xl border hairline text-[13px] font-medium hover:bg-surface-2/60">{sso.label}</a>}
         </form>
 
         {demoLoginsEnabled && !challenge && (

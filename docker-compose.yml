@@ -1,17 +1,21 @@
 # Local stack: Postgres + API + web.
 #   docker compose up --build
 #   docker compose run --rm -e NODE_ENV=development api node dist/seed.js   # load the demo data
+# Upgrading from a Phase 3-5 volume (where `sampledge` was the superuser)? Run `docker compose down -v` once.
 # Then open http://localhost:3000 and use a demo account (password demo1234).
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: sampledge
-      POSTGRES_PASSWORD: sampledge
-      POSTGRES_DB: sampledge
-    volumes: [pgdata:/var/lib/postgresql/data]
+      # Administrative superuser for the container only. The API connects as the ordinary
+      # role `sampledge` created by docker/db-init.sql, so row-level security applies to it.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres-dev-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/db-init.sql:/docker-entrypoint-initdb.d/01-app-role.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sampledge"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sampledge"]
       interval: 5s
       retries: 10
 

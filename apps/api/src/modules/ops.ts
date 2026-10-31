@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { paged, pageArgs } from '../common/paging';
 import { can, evaluate, lifecycleToOps, type LifecycleStage } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -168,9 +170,10 @@ export class OpsController {
   }
 
   @ForModule('admin') @Get('audit')
-  auditLog(@Caller() ctx: Ctx, @Query() q: unknown) {
-    const x = parse(z.object({ entity: z.string().optional(), entityId: z.string().optional(), take: z.coerce.number().int().min(1).max(500).default(100) }), q);
-    return this.db.auditLog.findMany({ where: { tenantId: ctx.tenantId, ...(x.entity ? { entity: x.entity } : {}), ...(x.entityId ? { entityId: x.entityId } : {}) }, orderBy: { at: 'desc' }, take: x.take });
+  async auditLog(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
+    const x = parse(z.object({ entity: z.string().optional(), entityId: z.string().optional() }).passthrough(), q);
+    const { want, ...page } = pageArgs(q, 500, 100);
+    return paged(await this.db.auditLog.findMany({ where: { tenantId: ctx.tenantId, ...(x.entity ? { entity: x.entity } : {}), ...(x.entityId ? { entityId: x.entityId } : {}) }, orderBy: [{ at: 'desc' }, { id: 'desc' }], ...page }), want, res);
   }
 
   /** KPIs computed from the database (not from the demo series). */

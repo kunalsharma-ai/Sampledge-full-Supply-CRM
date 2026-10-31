@@ -1,4 +1,6 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { paged, pageArgs } from '../common/paging';
 import { can } from '@sampledge/core';
 import { z } from 'zod';
 import { Caller, ForModule, type Ctx } from '../common/context';
@@ -28,8 +30,9 @@ export class AiController {
   }
 
   @ForModule('admin') @Get('usage')
-  usage(@Caller() ctx: Ctx, @Query('take') take?: string) {
-    return this.db.aiCall.findMany({ where: { tenantId: ctx.tenantId }, orderBy: { createdAt: 'desc' }, take: Math.min(200, Number(take) || 50) });
+  async usage(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
+    const { want, ...page } = pageArgs(q, 200, 50);
+    return paged(await this.db.aiCall.findMany({ where: { tenantId: ctx.tenantId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page }), want, res);
   }
 
   @ForModule('crm') @Post('rfq-extract') @HttpCode(200)

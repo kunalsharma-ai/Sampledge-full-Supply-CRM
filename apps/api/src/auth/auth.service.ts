@@ -43,12 +43,17 @@ export class AuthService {
     return this.issue(user.id, p.tid);
   }
 
-  private async issue(userId: string, tenantId: string) {
+  /** A session for a user already authenticated elsewhere (SSO). */
+  issueFor(userId: string, tenantId: string, method: 'sso') {
+    return this.issue(userId, tenantId, method);
+  }
+
+  private async issue(userId: string, tenantId: string, method: 'password' | 'sso' = 'password') {
     const expiresAt = new Date(Date.now() + config.sessionHours * 3600_000);
     const s = await this.db.session.create({ data: { userId, tenantId, expiresAt } });
     const token = await this.jwt.signAsync({ sid: s.id, typ: 'session' }, { expiresIn: `${config.sessionHours}h` });
     const user = await this.db.user.findUniqueOrThrow({ where: { id: userId } });
-    await this.audit.log({ tenantId, userId, name: user.name }, 'auth.login', 'User', userId);
+    await this.audit.log({ tenantId, userId, name: user.name }, 'auth.login', 'User', userId, undefined, { method });
     return { mfaRequired: false as const, token, expiresAt };
   }
 

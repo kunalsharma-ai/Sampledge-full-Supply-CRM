@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { live } from '../common/live';
 import { can, type Role } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { approvalKinds, fallbackDeciders, type ApprovalKind } from '../common/approvals';
@@ -60,8 +61,17 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     for (let i = 0; i < 50; i++) if ((await this.tick()) === 0) return;
   }
 
+  private lastSweep = 0;
+  /** Housekeeping once an hour: expired idempotency keys and long-revoked sessions. */
+  async sweep() {
+    this.lastSweep = Date.now();
+    const keys = await this.db.idempotencyKey.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 24 * 3600_000) } } });
+    if (keys.count) this.log.log(`swept ${keys.count} expired idempotency keys`);
+  }
+
   async tick(): Promise<number> {
     if (this.running) return 0;
+    if (Date.now() - this.lastSweep > 3600_000) await this.sweep().catch((e) => this.log.error(e));
     this.running = true;
     try {
       const batch = await this.db.$queryRaw<Ev[]>`
@@ -77,6 +87,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
           await this.db.$transaction(async (tx) => {
             await this.handle(tx, ev);
             await tx.outboxEvent.update({ where: { id: ev.id }, data: { processedAt: new Date(), lastError: null } });
+            await live(tx, { t: ev.tenantId, type: ev.type });
           });
         } catch (e) {
           this.log.warn(`event ${ev.type} ${ev.id} failed: ${(e as Error).message}`);
@@ -89,8 +100,10 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  private notify(tx: Tx, tenantId: string, roles: Role[], title: string, body: string, module: string) {
-    return tx.notification.create({ data: { tenantId, roles, title, body, module } });
+  private async notify(tx: Tx, tenantId: string, roles: Role[], title: string, body: string, module: string) {
+    const n = await tx.notification.create({ data: { tenantId, roles, title, body, module } });
+    await live(tx, { t: tenantId, type: 'notification', module, roles, title });
+    return n;
   }
 
   private async queueMessage(tx: Tx, tenantId: string, m: { channel: string; audience: string; toRef: string; subject: string; body: string; relatedType: string; relatedId: string }) {

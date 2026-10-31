@@ -267,6 +267,8 @@ model Survey {
   alerts         Int             @default(0)
   hasDefinition  Boolean         @default(false)
   questionCount  Int             @default(0)
+  /// Data Processing set-up: { weighting?: { targets, stats, appliedAt, by }, codeframes?: { qid: Code[] } }
+  dp             Json?
   createdAt      DateTime        @default(now())
   project        Project?        @relation(fields: [projectId], references: [id])
   versions       SurveyVersion[]
@@ -306,6 +308,10 @@ model Response {
   flags       String[]  @default([])
   /// set when a 'Rejecting respondents' approval removes it from results
   rejectedAt  DateTime?
+  /// rim weight from Data Processing (1 = unweighted)
+  weight      Float     @default(1)
+  /// coded open ends: { questionId: [code, ...] }
+  codes       Json?
   survey      Survey    @relation(fields: [surveyId], references: [id])
 
   @@index([surveyId, outcome])
@@ -523,4 +529,22 @@ model AiCall {
   createdAt    DateTime @default(now())
 
   @@index([tenantId, createdAt])
+}
+
+/// Replay protection for retried writes: the first response to an Idempotency-Key is stored for 24 h
+/// and returned again for the same key, user and request body.
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  key       String
+  method    String
+  path      String
+  bodyHash  String
+  status    Int      @default(0) // 0 while the first request is running
+  response  Json?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, userId, key])
+  @@index([createdAt])
 }

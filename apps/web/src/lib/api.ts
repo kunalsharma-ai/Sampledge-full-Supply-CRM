@@ -14,16 +14,21 @@ export class ApiError extends Error {
 export class ApiUnreachable extends Error {}
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const method = init.method ?? 'GET';
+  // Every write carries an Idempotency-Key, so the one automatic retry after a dropped connection
+  // cannot apply the same change twice (the API replays the first response instead).
+  const key = method === 'GET' ? undefined : (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const send = () => fetch(`/api/v1${path}`, {
+    method,
+    credentials: 'same-origin',
+    headers: { ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...(key ? { 'idempotency-key': key } : {}) },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
   let r: Response;
   try {
-    r = await fetch(`/api/v1${path}`, {
-      method: init.method ?? 'GET',
-      credentials: 'same-origin',
-      headers: init.body === undefined ? undefined : { 'content-type': 'application/json' },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    });
+    r = await send();
   } catch {
-    throw new ApiUnreachable('API unreachable');
+    try { r = await send(); } catch { throw new ApiUnreachable('API unreachable'); }
   }
   // The Next proxy answers 500/502/504 with a non-JSON body when the API process is down.
   const text = await r.text();

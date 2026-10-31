@@ -136,5 +136,27 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | POST | `/diy/requests` `{...spec, title, objective}` | client users only; creates an opportunity (`channel:'diy'`, stage *New RFQ*) and emits `diy.requested` |
 | GET | `/diy/requests` | client: own requests with client-facing status; internal roles: all DIY requests |
 
-## Planned (Phase 6)
-Cursor pagination on all lists, `Idempotency-Key` on money-bearing POSTs, WebSocket `/ws` for live counters, PDF reports, Data Processing endpoints.
+## Data Processing (module `data-processing`)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/dp/surveys` | programmed surveys with completes, weighted, codeframe count |
+| GET | `/dp/surveys/:id` | completes, outcomes, flags, rejected, synthetic, median minutes, weighting, weighting variables (with sample shares), open ends (answered, coded, manual, codeframe) |
+| PUT | `/dp/surveys/:id/weighting` `{targets:{Q:{code:share}}}` | rakes and stores weights; returns iterations, converged, efficiency, effectiveBase, min/max weight, achieved. 400 if targets do not sum to 100% or a targeted group is empty |
+| DELETE | `/dp/surveys/:id/weighting` | weights back to 1 |
+| POST | `/dp/surveys/:id/codeframes/:qid/suggest` `{maxCodes}` | AI gateway result `{data:{codes[]}, provider, note, answers}` |
+| PUT | `/dp/surveys/:id/codeframes/:qid` `{codes:[{code,label,keywords[]}]}` | saves and codes every answer; manual codes kept. Returns `{coded, tally}` |
+| GET | `/dp/surveys/:id/codeframes/:qid/verbatims?code=&take=` | `[{id,text,codes,manual}]`; `code=other` or `uncoded` filters |
+| PATCH | `/dp/responses/:rid/codes` `{questionId, codes[]}` | manual coding |
+| GET | `/dp/surveys/:id/tables.xlsx?banner&weighted` | Excel workbook (Notes, Tables) |
+
+`/surveys/:id/results` and `report.pptx` accept `weighted=true`; results add `weighted`, `weightedBase`, `effectiveBase`, `synthetic`, `weightingAvailable`, and `coded` rows on coded open ends.
+
+## Platform
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/security` | row-level-security posture seen by Postgres for this request |
+| GET | `/live` | Server-Sent Events: `change` `{type}` for the workspace, `notification` `{type,module,title}` for the caller's role |
+| GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
+| GET | `/metrics` | Prometheus text; requires `Authorization: Bearer $METRICS_TOKEN`, 404 otherwise |
+
+**Headers.** Writes accept `Idempotency-Key` (8–100 of `[A-Za-z0-9_.:-]`): a retry with the same key and body returns the stored response with `Idempotent-Replayed: true`; a different body gives 422; a retry during the first request gives 409. `GET /audit`, `/comms/messages` and `/ai/usage` take `take` and `cursor` and return `X-Next-Cursor` when more rows exist. Every response has `X-Request-Id`; error bodies include `requestId`.

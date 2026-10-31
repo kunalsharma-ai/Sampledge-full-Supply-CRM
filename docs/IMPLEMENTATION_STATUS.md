@@ -1,4 +1,4 @@
-# Implementation status: Phase 5
+# Implementation status: Phase 6
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
@@ -10,9 +10,9 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 |---|---|---|
 | Sign-in (email + password), httpOnly session cookie, revocable sessions, logout | Functional | bcrypt hashes; JWT carries only a session id checked against the `Session` table |
 | TOTP two-factor (enrol, activate, challenge at sign-in) | Functional (API) | no enrolment screen in the UI yet; tested via API |
-| SSO (SAML/OIDC) | Planned (Phase 6) | |
+| SSO: OpenID Connect (authorization code + PKCE, signed ID token, nonce, state) | Functional, tested against a local stub provider only | users must already belong to the workspace; SAML not implemented |
 | Role-based access: module access, permissions, read-only enforcement | Functional | one matrix in `packages/core/src/roles.ts` drives both the UI and the API guards |
-| Tenant isolation | Functional (application layer) | every query filters by the session's tenant; other tenants' ids return 404. Postgres RLS as a second layer is Phase 6 |
+| Tenant isolation | Functional, two layers | every query filters by the session's tenant, and Postgres row-level security (forced on all 25 tenant tables) refuses other tenants' rows for signed-in requests even without a filter. Tested; visible at `GET /admin/security` |
 | Scoped roles (vendor sees own vendor; client sees own projects) | Functional | enforced in services from `Membership.vendorId/clientId` |
 | Field redaction (margins, costs, competitor rate cards) | Functional | stripped server-side; the UI also hides the panels |
 | Human approval gate (quotes, purchases, publishing, deletion, …) | Functional | requester cannot approve their own request; approving applies the effect in the same transaction |
@@ -21,9 +21,15 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Notifications | Functional | written by the workflow worker (POs, invoices, feasibility answers, approvals, quota fills). Read state is shared per role, not per user |
 | Offline demo fallback | Functional (client) | when the API is unreachable, Phase 2 behaviour with an "Offline demo" label |
 | Docker compose (Postgres, API, web) | Functional | images built and the e2e test passed against the stack |
-| CI workflow | Written, not yet run | no GitHub repository attached yet |
+| CI workflow | Written, in the repository; first run happens on the pull request | |
 | Workflow engine: transactional outbox + worker | Functional | events are written in the same transaction as the change, so a rolled-back change never fires a side effect. The worker claims batches with `FOR UPDATE SKIP LOCKED` and a 30 s lease, retries up to 5 times and records the last error. Runs inside the API by default or as a separate process (`node dist/worker.js`, `WORKER_INLINE=false`). Postgres instead of Redis: one less moving part at this scale; the claim query is the swap point |
-| Live push (WebSocket) | Planned (Phase 6) | UI refreshes after each action |
+| Live updates | Functional: Postgres NOTIFY on commit → Server-Sent Events, filtered by tenant and role; screens refresh and role notifications toast. Tested in the API and in the browser |
+| Idempotency keys on writes | Functional: the web client sends one on every write and retries once after a dropped connection; replays return the first response |
+| Cursor paging | Functional on audit log, messages and AI usage (`X-Next-Cursor`); other lists are small and unpaged |
+| Security headers | API: CSP `default-src none`, no framing, nosniff. Web: CSP (scripts need `unsafe-inline` for Next bootstrap), Permissions-Policy, COOP, optional HSTS |
+| Observability | Request ids, JSON access logs, Prometheus metrics. No tracing backend connected |
+| Backup and restore | Scripts written and a round trip verified in the build container |
+| Load test | Script and one measured run (see DEPLOYMENT.md); not a sizing guarantee | UI refreshes after each action |
 
 ## Command Center
 | Feature | Status |
@@ -172,11 +178,23 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Client-facing request status (Received, Being reviewed, Quote sent, …) without margins or owners | Functional |
 | Self-service questionnaire building and launch | Planned (Phase 6): fielding stays with the research team and its approvals |
 
+## Data Processing (new)
+| Feature | Status |
+|---|---|
+| Fielding summary: completes, screen-outs, flags, rejections, median length | Functional |
+| Rim weighting (raking) to target shares on any single-choice questions; weight cap 0.2–5; efficiency, effective base and achieved shares; remove weighting | Functional, tested. Results, PowerPoint and tables use weights on request; significance uses the effective base |
+| Open-end codeframes: suggested by the AI gateway (rules by default), edited by a coder; keyword first pass over every answer; manual codes that survive recoding | Functional, tested |
+| Excel tables: every question against a banner, weighted or not, with significance letters and a notes sheet | Functional, tested |
+| Demo dataset: 600 **synthetic** interviews on the closed "CX Benchmark Telecom" survey, labelled in every screen and export | Synthetic, generated from fixed probabilities |
+| Recodes, derived variables, SPSS export | Planned |
+
 ## Other modules
-Data Processing (Phase 6), Integrations and Admin & Security are navigable placeholders that state their scope and role access. No functionality is simulated on them.
+Integrations and Admin & Security are navigable placeholders that state their scope; the security posture endpoint is available to administrators through the API.
 
 ## Known limitations
 - Survey results read recorded responses; the segmentation, Sankey and trend views still use the simulated demo dataset.
+- SSO and the Claude provider are tested against local stubs only.
+- Public respondent routes, sign-in and the worker run without a tenant in the database scope; they rely on their explicit tenant filters.
 - The Claude path of the AI gateway has only been tested against a stub server.
 - The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.
 - The CRM quote builder and Survey Studio QA run in the browser; the API has equivalent endpoints, used for persistence and enforcement.
