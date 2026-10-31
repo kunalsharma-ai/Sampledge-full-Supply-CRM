@@ -58,7 +58,7 @@ class HealthController {
   async health() {
     await this.db.$queryRaw`SELECT 1`;
     const pending = await this.db.outboxEvent.count({ where: { processedAt: null } });
-    return { status: 'ok', db: 'ok', version: '0.7.0', outboxPending: pending };
+    return { status: 'ok', db: 'ok', version: '0.8.0', outboxPending: pending };
   }
 }
 

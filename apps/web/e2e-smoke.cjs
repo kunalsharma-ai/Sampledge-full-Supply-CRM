@@ -204,7 +204,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   ok('Business Development sees it live, pushed from the server', true);
   await ctx2.close();
 
-  // 11 Phase 6: data processing (weighting, coding, tables) on the closed survey's synthetic interviews
+  // 11 Data processing (weighting, coding, recodes, tables and exports) on the closed survey's synthetic interviews
   await switchTo('data_processing');
   await go('/data-processing');
   await p.getByText('Completed interviews').first().waitFor({ timeout: 15000 });
@@ -224,6 +224,16 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   ok('Open ends coded from a suggested codeframe', true);
   const xlsx = await p.evaluate(async () => { const r = await fetch('/api/v1/dp/surveys/sv-012/tables.xlsx?banner=S1&weighted=true'); return { s: r.status, n: (await r.arrayBuffer()).byteLength }; });
   ok('Weighted Excel tables download', xlsx.s === 200 && xlsx.n > 5000);
+  await p.getByRole('radio', { name: 'Recodes' }).click();
+  await p.getByLabel('New recode from').selectOption('Q2');
+  await p.getByRole('button', { name: 'Save recode' }).click();
+  await p.getByText(/Recode R_Q2 saved/).first().waitFor({ timeout: 10000 });
+  ok('A top-2 box recode is created and usable as a banner', (await apiGet('/surveys/sv-012/results?banner=R_Q2')).banner?.id === 'R_Q2');
+  await p.getByRole('radio', { name: 'Tables & exports' }).click();
+  const [sav] = await Promise.all([p.waitForEvent('download'), p.getByRole('link', { name: /SPSS data/ }).click()]);
+  const savHead = require('node:fs').readFileSync(await sav.path()).subarray(0, 4).toString();
+  const pdf = await p.evaluate(async () => { const r = await fetch('/api/v1/surveys/sv-012/report.pdf?banner=R_Q2'); return { s: r.status, head: new TextDecoder().decode((await r.arrayBuffer()).slice(0, 5)) }; });
+  ok('SPSS data and the PDF report download', savHead === '$FL2' && pdf.s === 200 && pdf.head === '%PDF-');
 
   await switchTo('platform_admin');
   await go('/automation');

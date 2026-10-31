@@ -6,11 +6,14 @@
  * - Coding: a codeframe per open-ended question (suggested by the AI gateway or rules, edited by a
  *   coder), automatic first-pass coding by keyword, and manual overrides that recoding keeps.
  * - Tabulation: an Excel workbook with every question against a banner, weighted or not.
+ * - Recodes: derived single-choice variables (groupings such as top-2 box, numeric bands) that
+ *   results, banners, tables, reports and exports treat like questions.
+ * - SPSS export: a .sav file with variable and value labels, recodes, coded open ends and weights.
  * Every change is audited. Nothing here deletes or alters answers.
  */
 import { BadRequestException, Body, Controller, Delete, Get, Header, Injectable, NotFoundException, Param, Patch, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { codeText, rake, type Code } from '@sampledge/core';
+import { applyRecodes, codeText, rake, recodeValue, validateRecode, type Code, type Recode } from '@sampledge/core';
 import ExcelJS from 'exceljs';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -21,6 +24,7 @@ import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 import { resultsQuery, SurveysService, type DpConfig } from './surveys';
+import { spssDate, writeSav, type SavCell, type SavVar } from './spss';
 
 type Codes = Record<string, string[]> & { __manual?: string[] };
 const usable = (surveyId: string): Prisma.ResponseWhereInput => ({ surveyId, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null });
@@ -63,6 +67,12 @@ export class DpService {
       outcomes: Object.fromEntries(outcomes.map((o) => [o.outcome ?? 'in_progress', o._count])),
       medianMinutes: mins.length ? Math.round(mins[Math.floor(mins.length / 2)] * 10) / 10 : null,
       flags: flagCounts, weighting: s.dp.weighting ?? null, weightingVariables: singles, openEnds: texts,
+      recodes: (s.dp.recodes ?? []).map((rc) => {
+        const counts: Record<string, number> = {};
+        rows.forEach((r) => { const v = recodeValue(rc, r.answers as Record<string, unknown>); if (v) counts[v] = (counts[v] ?? 0) + 1; });
+        return { ...rc, counts, unassigned: rows.length - Object.values(counts).reduce((a, b) => a + b, 0) };
+      }),
+      recodeSources: s.definition.questions.filter((q) => ['single', 'nps', 'numeric'].includes(q.type)).map((q) => ({ id: q.id, text: q.text, type: q.type, options: q.options?.map((o) => ({ code: o.code, label: o.label })) ?? [], min: q.min ?? null, max: q.max ?? null })),
     };
   }
 
@@ -88,6 +98,89 @@ export class DpService {
       await this.audit.log(ctx, 'dp.weighting_applied', 'Survey', id, s.dp.weighting ? { targets: s.dp.weighting.targets } : undefined, { targets, efficiency: r.efficiency, effectiveBase: r.effectiveBase, iterations: r.iterations }, tx);
     });
     return stats;
+  }
+
+  /** Creates or replaces a recode. Answers are not changed; the recode is computed when read. */
+  async saveRecode(ctx: Ctx, id: string, rc: Recode) {
+    const s = await this.survey(ctx, id);
+    const others = (s.dp.recodes ?? []).filter((r) => r.id !== rc.id);
+    try { validateRecode(s.definition.questions, rc, others); } catch (e) { throw new BadRequestException((e as Error).message); }
+    const before = (s.dp.recodes ?? []).find((r) => r.id === rc.id);
+    const recodes = [...others, rc].sort((a, b) => a.id.localeCompare(b.id));
+    await this.db.$transaction(async (tx) => {
+      await tx.survey.update({ where: { id }, data: { dp: { ...s.dp, recodes } as Prisma.InputJsonValue } });
+      await this.audit.log(ctx, before ? 'dp.recode_updated' : 'dp.recode_created', 'Survey', id, before ? { recode: before } : undefined, { recode: rc }, tx);
+    });
+    return rc;
+  }
+
+  async deleteRecode(ctx: Ctx, id: string, rid: string) {
+    const s = await this.survey(ctx, id);
+    const rc = (s.dp.recodes ?? []).find((r) => r.id === rid);
+    if (!rc) throw new NotFoundException('Recode not found');
+    if (s.dp.weighting && Object.keys(s.dp.weighting.targets).includes(rid)) throw new BadRequestException('The weighting uses this recode; remove the weighting first');
+    await this.db.$transaction(async (tx) => {
+      await tx.survey.update({ where: { id }, data: { dp: { ...s.dp, recodes: (s.dp.recodes ?? []).filter((r) => r.id !== rid) } as Prisma.InputJsonValue } });
+      await this.audit.log(ctx, 'dp.recode_deleted', 'Survey', id, { recode: rc }, undefined, tx);
+    });
+    return { deleted: rid };
+  }
+
+  /**
+   * SPSS .sav of the usable completes: respondent reference, source, completion time, then one
+   * variable per question (multi-choice and matrix rows split into one variable each), recodes,
+   * coded open ends as 0/1 variables, and the weight when weighting is applied.
+   */
+  async spss(ctx: Ctx, id: string) {
+    const s = await this.survey(ctx, id);
+    const raw = await this.db.response.findMany({ where: usable(id), select: { id: true, respondent: true, source: true, completedAt: true, answers: true, codes: true, weight: true, flags: true }, orderBy: [{ completedAt: 'asc' }, { id: 'asc' }] });
+    if (!raw.length) throw new BadRequestException('No completed responses to export yet');
+    const { questions, rows } = applyRecodes(s.definition.questions, raw.map((r) => ({ ...r, answers: r.answers as Record<string, unknown> })), s.dp.recodes);
+    const vars: SavVar[] = [];
+    const get: ((r: (typeof rows)[number]) => SavCell)[] = [];
+    const add = (v: SavVar, f: (r: (typeof rows)[number]) => SavCell) => { vars.push(v); get.push(f); };
+    add({ name: 'response_id', label: 'Response id', kind: 'string', width: 32 }, (r) => r.id);
+    add({ name: 'respondent', label: 'Respondent reference (pseudonymous)', kind: 'string', width: 80 }, (r) => r.respondent);
+    add({ name: 'source', label: 'Sample source', kind: 'string', width: 60 }, (r) => r.source);
+    add({ name: 'completed', label: 'Completed at (UTC)', kind: 'numeric', format: 'DATETIME' }, (r) => (r.completedAt ? spssDate(r.completedAt) : null));
+    add({ name: 'quality_flags', label: 'Quality flags', kind: 'string', width: 60 }, (r) => r.flags.join(' '));
+    const num = (c: string) => (c.trim() !== '' && Number.isFinite(Number(c)) ? Number(c) : null);
+    for (const q of questions) {
+      const label = `${q.id}. ${q.text}`;
+      if (q.type === 'single' || q.type === 'dropdown' || q.type === 'likert') {
+        const opts = q.options ?? [];
+        // Numeric answer codes keep their values; other codes are numbered 1..n in questionnaire order.
+        const numeric = opts.length > 0 && opts.every((o) => num(o.code) !== null);
+        const val = (code: string) => (numeric ? num(code)! : opts.findIndex((o) => o.code === code) + 1 || null);
+        add({ name: q.id, label, kind: 'numeric', values: opts.map((o) => ({ value: val(o.code)!, label: o.label })) }, (r) => (typeof r.answers[q.id] === 'string' ? val(r.answers[q.id] as string) : null));
+      } else if (q.type === 'multi') {
+        for (const o of q.options ?? []) add({ name: `${q.id}_${o.code}`, label: `${q.id}. ${o.label}`, kind: 'numeric', values: [{ value: 0, label: 'Not selected' }, { value: 1, label: 'Selected' }] }, (r) => (Array.isArray(r.answers[q.id]) ? ((r.answers[q.id] as string[]).includes(o.code) ? 1 : 0) : null));
+      } else if (q.type === 'nps' || q.type === 'numeric' || q.type === 'rating' || q.type === 'slider') {
+        add({ name: q.id, label, kind: 'numeric', decimals: q.type === 'numeric' ? 2 : 0 }, (r) => (typeof r.answers[q.id] === 'number' ? (r.answers[q.id] as number) : null));
+      } else if (q.type === 'matrix') {
+        const opts = q.options ?? [];
+        const numeric = opts.every((o) => num(o.code) !== null);
+        const val = (code: string) => (numeric ? num(code)! : opts.findIndex((o) => o.code === code) + 1 || null);
+        for (const row of q.rows ?? []) add({ name: `${q.id}_${row.code}`, label: `${q.id}. ${row.label}`, kind: 'numeric', values: opts.map((o) => ({ value: val(o.code)!, label: o.label })) }, (r) => { const m = r.answers[q.id] as Record<string, string> | undefined; return m && typeof m[row.code] === 'string' ? val(m[row.code]) : null; });
+      } else if (q.type === 'ranking') {
+        for (const o of q.options ?? []) add({ name: `${q.id}_${o.code}`, label: `${q.id}. Rank of ${o.label} (1 = first)`, kind: 'numeric' }, (r) => { const a = r.answers[q.id]; const i = Array.isArray(a) ? (a as string[]).indexOf(o.code) : -1; return i >= 0 ? i + 1 : null; });
+      } else if (q.type === 'constant_sum') {
+        for (const o of q.options ?? []) add({ name: `${q.id}_${o.code}`, label: `${q.id}. ${o.label}`, kind: 'numeric', decimals: 2 }, (r) => { const a = r.answers[q.id] as Record<string, unknown> | undefined; const v = a && typeof a === 'object' ? Number(a[o.code]) : NaN; return Number.isFinite(v) ? v : null; });
+      } else if (q.type === 'maxdiff') {
+        add({ name: q.id, label: `${label} (raw answers as JSON)`, kind: 'string', width: 255 }, (r) => (r.answers[q.id] === undefined ? '' : JSON.stringify(r.answers[q.id])));
+      } else if (q.type === 'text') {
+        add({ name: q.id, label, kind: 'string', width: 255 }, (r) => (r.answers[q.id] === undefined ? '' : String(r.answers[q.id])));
+        for (const c of [...(s.dp.codeframes?.[q.id] ?? []), { code: 'other', label: 'Other' }]) {
+          add({ name: `${q.id}_${c.code}`, label: `${q.id} coded: ${c.label}`, kind: 'numeric', values: [{ value: 0, label: 'Not mentioned' }, { value: 1, label: 'Mentioned' }] }, (r) => { const cs = (r.codes as Codes | null)?.[q.id]; return cs ? (cs.includes(c.code) ? 1 : 0) : null; });
+        }
+      }
+    }
+    const weighted = !!s.dp.weighting;
+    if (weighted) add({ name: 'weight', label: 'Rim weight (Data Processing)', kind: 'numeric', decimals: 4 }, (r) => r.weight);
+    const synthetic = raw.filter((r) => r.source.startsWith('synthetic:')).length;
+    const buf = writeSav(vars, rows.map((r) => get.map((f) => f(r))), { label: `${s.name}${synthetic ? ' (includes SYNTHETIC demo data)' : ''}`, weightVar: weighted ? 'weight' : undefined });
+    await this.audit.log(ctx, 'dp.spss_exported', 'Survey', id, undefined, { cases: rows.length, variables: vars.length, weighted });
+    return buf;
   }
 
   async unweight(ctx: Ctx, id: string) {
@@ -226,6 +319,10 @@ export class DpService {
   }
 }
 
+const RecodeBody = z.object({
+  label: z.string().min(1).max(120), source: z.string().min(1).max(40), kind: z.enum(['group', 'bands']),
+  groups: z.array(z.object({ code: z.string().min(1).max(20).regex(/^[A-Za-z0-9_-]+$/), label: z.string().min(1).max(120), from: z.array(z.string().max(40)).max(100).optional(), min: z.number().optional(), max: z.number().optional() })).min(1).max(30),
+});
 const Targets = z.record(z.string().max(40), z.record(z.string().max(40), z.number().min(0).max(1)));
 const Frame = z.array(z.object({ code: z.string().min(1).max(20).regex(/^[A-Za-z0-9_-]+$/), label: z.string().min(1).max(120), keywords: z.array(z.string().min(2).max(40)).max(30) })).min(1).max(40);
 
@@ -262,6 +359,21 @@ export class DpController {
   setCodes(@Caller() ctx: Ctx, @Param('rid') rid: string, @Body() b: unknown) {
     const x = parse(z.object({ questionId: z.string().max(40), codes: z.array(z.string().max(20)).max(40) }), b);
     return this.s.setCodes(ctx, rid, x.questionId, x.codes);
+  }
+
+  @Put('surveys/:id/recodes/:rid') @Write()
+  saveRecode(@Caller() ctx: Ctx, @Param('id') id: string, @Param('rid') rid: string, @Body() b: unknown) {
+    return this.s.saveRecode(ctx, id, { id: rid, ...parse(RecodeBody, b) });
+  }
+
+  @Delete('surveys/:id/recodes/:rid') @Write()
+  deleteRecode(@Caller() ctx: Ctx, @Param('id') id: string, @Param('rid') rid: string) { return this.s.deleteRecode(ctx, id, rid); }
+
+  @Get('surveys/:id/data.sav') @Header('content-type', 'application/x-spss-sav')
+  async spss(@Caller() ctx: Ctx, @Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    const buf = await this.s.spss(ctx, id);
+    res.setHeader('content-disposition', `attachment; filename="${id}-data.sav"`);
+    return new StreamableFile(buf);
   }
 
   @Get('surveys/:id/tables.xlsx') @Header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

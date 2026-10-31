@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { codeText, rake, suggestCodeframe } from '../src/dp.ts';
+import { applyRecodes, codeText, rake, suggestCodeframe, validateRecode, type Recode } from '../src/dp.ts';
 import { surveyResults } from '../src/results.ts';
 import { cxResponses, cxSurvey } from '../src/survey/demo-cx.ts';
 
@@ -51,5 +51,31 @@ describe('open-end coding', () => {
     const coded = rows.map((r) => ({ ...r, codes: { Q6: codeText(String(r.answers.Q6), f) } }));
     const q6 = surveyResults(cxSurvey.questions, coded, undefined, { Q6: [...f, { code: 'other', label: 'Other' }] }).questions.find((q) => q.id === 'Q6') as { coded: { code: string; pct: number }[] };
     assert.ok(q6.coded.find((c) => c.code === 'PRICE')!.pct > 0.1);
+  });
+});
+
+describe('recodes', () => {
+  const top2: Recode = { id: 'R_Q2T2B', label: 'Satisfaction top-2 box', source: 'Q2', kind: 'group', groups: [{ code: 't2b', label: 'Satisfied (top 2)', from: ['5', '4'] }, { code: 'rest', label: 'Not satisfied', from: ['3', '2', '1'] }] };
+  const spend: Recode = { id: 'R_SPEND', label: 'Monthly spend band', source: 'Q4', kind: 'bands', groups: [{ code: 'lo', label: 'Under $40', min: 0, max: 39.99 }, { code: 'mid', label: '$40-$59', min: 40, max: 59.99 }, { code: 'hi', label: '$60+', min: 60, max: 10000 }] };
+  it('validates against the questionnaire', () => {
+    validateRecode(cxSurvey.questions, top2);
+    validateRecode(cxSurvey.questions, spend, [top2]);
+    assert.throws(() => validateRecode(cxSurvey.questions, { ...top2, id: 'Q2' }), /start with R|already a question/);
+    assert.throws(() => validateRecode(cxSurvey.questions, top2, [top2]), /already exists/);
+    assert.throws(() => validateRecode(cxSurvey.questions, { ...top2, groups: [{ code: 'a', label: 'A', from: ['5'] }, { code: 'b', label: 'B', from: ['5'] }] }), /more than one group/);
+    assert.throws(() => validateRecode(cxSurvey.questions, { ...top2, groups: [{ code: 'a', label: 'A', from: ['9'] }] }), /not an answer code/);
+    assert.throws(() => validateRecode(cxSurvey.questions, { ...spend, groups: [{ code: 'a', label: 'A', min: 0, max: 50 }, { code: 'b', label: 'B', min: 50, max: 90 }] }), /overlap/);
+    assert.throws(() => validateRecode(cxSurvey.questions, { ...spend, source: 'Q3' }), /bands need/);
+  });
+  it('adds derived single-choice questions that tabulate like any other', () => {
+    const { questions, rows: rr } = applyRecodes(cxSurvey.questions, rows, [top2, spend]);
+    assert.deepEqual(questions.map((q) => q.id).filter((id) => id.startsWith('R')), ['R_Q2T2B', 'R_SPEND']);
+    assert.equal(questions.findIndex((q) => q.id === 'R_Q2T2B'), questions.findIndex((q) => q.id === 'Q2') + 1);
+    const res = surveyResults(questions, rr);
+    const t2b = res.questions.find((q) => q.id === 'R_Q2T2B')!;
+    const expected = rows.filter((r) => ['5', '4'].includes(r.answers.Q2 as string)).length / rows.filter((r) => r.answers.Q2).length;
+    assert.ok(t2b.type === 'single' && Math.abs(t2b.rows.find((x) => x.code === 't2b')!.pct - expected) < 0.001);
+    const banner = surveyResults(questions, rr, 'R_SPEND');
+    assert.equal(banner.banner?.cols.length, 3);
   });
 });

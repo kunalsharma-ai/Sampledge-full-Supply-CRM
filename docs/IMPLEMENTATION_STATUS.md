@@ -1,4 +1,4 @@
-# Implementation status: Phase 6 + known-limitation fixes (v0.7.0)
+# Implementation status: v0.8.0 (Phases 1–6, known-limitation fixes, reports and exports)
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
@@ -115,7 +115,8 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | **Fieldwork trend**: completes per day or week of completion, with NPS, a mean, or the share choosing an answer per period | Functional, tested |
 | **Segmentation**: weighted k-means (k = 2–5) on standardised rating, NPS and numeric answers, segment profiles (largest differences from the total), 2D map on the first two principal components, share of variance explained | Functional, tested. A starting point for analysis, not a validated typology |
 | Demo dataset view (n=1,200): weighting, k-means segmentation, 3D/2D views, Sankey, trends, narrative, presentation | Simulated data, functional statistics (unchanged from Phase 2) |
-| PDF report, scheduled report delivery | Planned (Phase 6) |
+| **PDF report**: the PowerPoint report's content (title page with base, weighting and exclusions; every question with bars or banner tables; coded open ends and verbatims) as an A4 PDF with page footers | Functional, tested. Standard PDF fonts (Latin-1); other characters are replaced |
+| Scheduled report delivery | Planned: needs an e-mail provider |
 
 ## AI gateway (new)
 | Feature | Status |
@@ -189,7 +190,8 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Open-end codeframes: suggested by the AI gateway (rules by default), edited by a coder; keyword first pass over every answer; manual codes that survive recoding | Functional, tested |
 | Excel tables: every question against a banner, weighted or not, with significance letters and a notes sheet | Functional, tested |
 | Demo dataset: 600 **synthetic** interviews on the closed "CX Benchmark Telecom" survey, labelled in every screen and export | Synthetic, generated from fixed probabilities |
-| Recodes, derived variables, SPSS export | Planned |
+| **Recodes**: derived single-choice variables that group answers of a single-choice or NPS question (e.g. top-2 box) or cut a numeric/NPS answer into bands; validated against the questionnaire; usable as banners and in results, flow, tables, PowerPoint, PDF and SPSS | Functional, tested. Answers are never changed; recodes are computed when read |
+| **SPSS export (.sav)**: one case per usable complete with variable and value labels, long names, UTF-8, multi-choice/matrix/ranking split into variables, recodes, coded open ends as 0/1, completion datetime, and the rim weight set as the file weight | Functional, tested; verified with an independent reader (pyreadstat). Written by Sampledge's own writer, uncompressed |
 
 ## Other modules
 Integrations and Admin & Security are navigable placeholders that state their scope; the security posture endpoint is available to administrators through the API.

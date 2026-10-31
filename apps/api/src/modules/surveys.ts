@@ -1,7 +1,8 @@
 import { BadRequestException, Body, Controller, Get, Header, Injectable, NotFoundException, Param, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
-import { flowQuestions, responseFlow, responseSegments, responseTrend, runQA, segmentationVariables, surveyResults, type SurveyDef } from '@sampledge/core';
+import { applyRecodes, type Recode, flowQuestions, responseFlow, responseSegments, responseTrend, runQA, segmentationVariables, surveyResults, type SurveyDef } from '@sampledge/core';
 import { buildReport } from './report';
+import { buildPdfReport } from './report-pdf';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requestApproval } from '../common/approvals';
@@ -45,7 +46,7 @@ export const SurveyDefSchema = z.object({
 });
 
 export type ResultsOpts = { banner?: string; excludeFlagged?: boolean; weighted?: boolean };
-export type DpConfig = { weighting?: { targets: Record<string, Record<string, number>>; stats: unknown; appliedAt: string; by: string }; codeframes?: Record<string, { code: string; label: string; keywords: string[] }[]> };
+export type DpConfig = { recodes?: Recode[]; weighting?: { targets: Record<string, Record<string, number>>; stats: unknown; appliedAt: string; by: string }; codeframes?: Record<string, { code: string; label: string; keywords: string[] }[]> };
 const flag = z.enum(['true', 'false']).optional().transform((v) => v === 'true');
 export const resultsQuery = (q: unknown): ResultsOpts => parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: flag, weighted: flag }), q);
 export type ExploreOpts = { excludeFlagged?: boolean; weighted?: boolean; from?: string; to?: string; trendQ?: string; trendCode?: string; interval?: 'day' | 'week'; k?: number };
@@ -169,7 +170,8 @@ export class SurveysService {
     const dp = (s.dp ?? {}) as DpConfig;
     const hasWeights = !!dp.weighting;
     const frames = Object.fromEntries(Object.entries(dp.codeframes ?? {}).map(([q, f]) => [q, [...f, { code: 'other', label: 'Other' }]]));
-    const res = surveyResults(s.definition.questions, used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never>, ...(o.weighted && hasWeights ? { weight: r.weight } : {}), codes: (r.codes ?? undefined) as Record<string, string[]> | undefined })), o.banner, frames);
+    const rec = applyRecodes(s.definition.questions, used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never>, ...(o.weighted && hasWeights ? { weight: r.weight } : {}), codes: (r.codes ?? undefined) as Record<string, string[]> | undefined })), dp.recodes);
+    const res = surveyResults(rec.questions, rec.rows, o.banner, frames);
     return {
       survey: { id: s.id, name: s.name, version: s.currentVersion }, flagged: rows.filter((r) => r.flags.length).length, excludedFlagged: !!o.excludeFlagged, rejected,
       synthetic: rows.filter((r) => r.source.startsWith('synthetic:')).length, weightingAvailable: hasWeights, ...res,
@@ -186,8 +188,9 @@ export class SurveysService {
     const rows = await this.db.response.findMany({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null }, select: { id: true, answers: true, flags: true, weight: true, completedAt: true, source: true } });
     const used = o.excludeFlagged ? rows.filter((r) => !r.flags.length) : rows;
     const weighted = !!o.weighted && !!(s.dp as DpConfig | null)?.weighting;
-    const data = used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never>, completedAt: r.completedAt, ...(weighted ? { weight: r.weight } : {}) }));
-    const qs = s.definition.questions;
+    const rec = applyRecodes(s.definition.questions, used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never>, completedAt: r.completedAt, ...(weighted ? { weight: r.weight } : {}) })), (s.dp as DpConfig | null)?.recodes);
+    const data = rec.rows;
+    const qs = rec.questions;
     const flowable = flowQuestions(qs);
     const segVars = segmentationVariables(qs).map((v) => ({ id: v.id, label: v.label }));
     const attempt = <T,>(f: () => T): { ok: true; data: T } | { ok: false; error: string } => { try { return { ok: true, data: f() }; } catch (e) { return { ok: false, error: (e as Error).message }; } };
@@ -203,11 +206,11 @@ export class SurveysService {
     };
   }
 
-  async report(ctx: Ctx, id: string, o: ResultsOpts = {}) {
+  async report(ctx: Ctx, id: string, o: ResultsOpts = {}, format: 'pptx' | 'pdf' = 'pptx') {
     const r = await this.results(ctx, id, o);
     if (!r.base) throw new BadRequestException('No completed responses to report on yet');
-    await this.audit.log(ctx, 'survey.report_exported', 'Survey', id, undefined, { base: r.base, banner: o.banner ?? null, weighted: r.weighted });
-    return buildReport(r);
+    await this.audit.log(ctx, 'survey.report_exported', 'Survey', id, undefined, { base: r.base, banner: o.banner ?? null, weighted: r.weighted, format });
+    return format === 'pdf' ? buildPdfReport(r) : buildReport(r);
   }
 
   /** Rejecting a respondent is a 'Rejecting respondents' approval; the decider cannot be the requester. */
@@ -292,6 +295,13 @@ export class SurveysController {
   async reportPptx(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
     const buf = await this.s.report(ctx, id, resultsQuery(q));
     res.setHeader('content-disposition', `attachment; filename="${id}-report.pptx"`);
+    return new StreamableFile(buf);
+  }
+
+  @ForModule('analytics') @Get(':id/report.pdf') @Header('content-type', 'application/pdf')
+  async reportPdf(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
+    const buf = await this.s.report(ctx, id, resultsQuery(q), 'pdf');
+    res.setHeader('content-disposition', `attachment; filename="${id}-report.pdf"`);
     return new StreamableFile(buf);
   }
 
