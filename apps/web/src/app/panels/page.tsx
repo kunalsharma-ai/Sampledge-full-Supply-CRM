@@ -87,7 +87,7 @@ export default function PanelsPage() {
           <PanelHeader eyebrow="Recruitment" title="Recruitment funnel (this month)" />
           <EChart ariaLabel="Recruitment funnel" height={250} deps={[sel]} option={() => ({
             tooltip: { trigger: 'item', formatter: '{b}: {c}' },
-            series: [{ type: 'funnel', sort: 'none', gap: 3, minSize: '20%', left: 10, right: 10, top: 4, bottom: 4, label: { color: '#fff', fontSize: 11, formatter: '{b}\n{c}' },
+            series: [{ type: 'funnel', sort: 'none', gap: 3, minSize: '48%', left: 10, right: 10, top: 4, bottom: 4, label: { position: 'inside', color: '#fff', fontSize: 11, formatter: '{b}  {c}' },
               data: ['Landing visits', 'Sign-up started', 'Email verified', 'Profile 50%+', 'First survey'].map((n, i) => ({ name: n, value: d.funnel[i], itemStyle: { color: [palette.blue, '#3B7BFB', palette.cyan, palette.emerald, palette.purple][i] } })) }],
           })} />
         </Panel>

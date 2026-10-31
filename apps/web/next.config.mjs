@@ -21,7 +21,6 @@ const nextConfig = {
   reactStrictMode: true,
   devIndicators: false,
   transpilePackages: ['three'],
-  eslint: { ignoreDuringBuilds: true },
   // Same-origin API: the browser calls /api/v1/*, Next forwards to the API server, and the
   // httpOnly session cookie stays first-party.
   async rewrites() {

@@ -36,7 +36,7 @@ export const SurveyDefSchema = z.object({
   })).min(1).max(2000),
   rules: z.array(z.object({ id: z.string(), after: z.string(), when: Cond.nullable(), action: z.union([z.object({ goto: z.string() }), z.object({ terminate: z.enum(['complete', 'screenout', 'overquota']) })]) })),
   quotas: z.array(z.object({ id: z.string(), label: z.string(), when: Cond, target: z.number().int().nonnegative(), count: z.number().int().nonnegative() })),
-  languages: z.record(z.record(z.string())).optional(),
+  languages: z.record(z.string(), z.record(z.string(), z.string())).optional(),
 }).superRefine((d, ctx) => {
   const seen = new Set<string>();
   for (const q of d.questions) {

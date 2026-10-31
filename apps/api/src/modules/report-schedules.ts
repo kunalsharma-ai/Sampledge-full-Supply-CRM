@@ -23,7 +23,7 @@ const SCHEDULABLE = ['report_pdf', 'report_pptx', 'tables_xlsx'] as const;
 const CreateBody = z.object({
   projectId: z.string().max(40),
   surveyId: z.string().max(40),
-  kind: z.enum(SCHEDULABLE, { errorMap: () => ({ message: 'Only reports and tables can be scheduled; respondent-level data needs an approval each time' }) }),
+  kind: z.enum(SCHEDULABLE, { error: 'Only reports and tables can be scheduled; respondent-level data needs an approval each time' }),
   frequency: z.enum(['daily', 'weekly']),
   weekday: z.number().int().min(0).max(6).optional(), // 0 = Sunday, for weekly
   hourUtc: z.number().int().min(0).max(23),
