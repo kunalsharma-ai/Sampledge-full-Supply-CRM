@@ -1,3 +1,5 @@
+import { applyRedemption } from './finance-ledgers';
+import { applyApprovedRetention } from './retention';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { pageInMemory, paged, pageArgs } from '../common/paging';
@@ -100,10 +102,11 @@ export class ApprovalsService {
         return ok ? 'Quote approved and queued to the client in the Comms Hub (development adapter: recorded, not emailed).' : 'Quote rejected';
       }
       case 'Issuing payments': {
+        if (p.incentiveEntryId) return applyRedemption(tx, tenantId, String(p.incentiveEntryId), ok);
         if (!p.payableId) return ok ? 'Recorded (no payable linked; demo request)' : 'Rejected';
-        const pay = await tx.payable.update({ where: { id: String(p.payableId) }, data: ok ? { status: 'paid', paidAt: new Date() } : { status: 'open' } });
+        const pay = await tx.payable.update({ where: { id: String(p.payableId) }, data: ok ? { status: 'paid', paidAt: new Date() } : { status: 'open' }, include: { purchaseOrder: { select: { fxRate: true } } } });
         if (!ok) return 'Payment rejected; payable is open again';
-        await tx.vendor.update({ where: { id: pay.vendorId }, data: { pendingPayment: { decrement: pay.amount } } });
+        await tx.vendor.update({ where: { id: pay.vendorId }, data: { pendingPayment: { decrement: Math.round(pay.amount * pay.purchaseOrder.fxRate) } } });
         await emit(tx, tenantId, 'payable.paid', { payableId: pay.id });
         return 'Payable marked paid. No money moves: payment rails are not connected.';
       }
@@ -148,6 +151,7 @@ export class ApprovalsService {
         return `Role changed from ${m.role} to platform_admin`;
       }
       case 'Deleting records': {
+        if (p.retention) return ok ? applyApprovedRetention(tx, tenantId, p.retention as unknown as { category: string; days: number }) : 'Rejected; retention policy unchanged';
         if (!p.panelistId) return ok ? 'Recorded' : 'Rejected';
         if (!ok) {
           await tx.panelist.update({ where: { id: String(p.panelistId) }, data: { status: 'active' } });

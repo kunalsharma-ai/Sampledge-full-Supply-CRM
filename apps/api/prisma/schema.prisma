@@ -17,6 +17,13 @@ model Tenant {
   name        String
   slug        String       @unique
   createdAt   DateTime     @default(now())
+  /// Retention periods in days per category (see modules/retention.ts); a missing key means keep.
+  retention      Json      @default("{}")
+  retentionRunAt DateTime?
+  /// Finance: amounts are reported in this currency; other currencies convert at the rates finance records
+  baseCurrency   String    @default("USD")
+  /// Cash value of one panel incentive point, in the base currency
+  pointValue     Float     @default(0.01)
   memberships Membership[]
 }
 
@@ -117,6 +124,7 @@ model Client {
   tenantId      String
   name          String
   sector        String?
+  currency      String        @default("USD") // invoices to this client are drafted in it
   projects      Project[]
   opportunities Opportunity[]
 
@@ -246,6 +254,7 @@ model Vendor {
   pendingPayment    Int          @default(0)
   bidWinRate        Float        @default(0)
   verified          Boolean      @default(false)
+  currency          String       @default("USD") // purchase orders to this vendor are raised in it
   allocations       Allocation[]
 
   @@index([tenantId])
@@ -260,6 +269,11 @@ model Allocation {
   cpi       Float
   status    String   // proposed | approved | live | closed
   approvalId String?
+  /// Where respondents go when they finish, set by the vendor or the project team. {rid} is
+  /// replaced with the supplier's own respondent id from the entry link.
+  completeUrl  String?
+  screenoutUrl String?
+  overquotaUrl String?
   createdAt DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id])
   vendor    Vendor   @relation(fields: [vendorId], references: [id])
@@ -327,9 +341,15 @@ model Response {
   weight      Float     @default(1)
   /// coded open ends: { questionId: [code, ...] }
   codes       Json?
+  /// supplier entry: the allocation the respondent came through and the supplier's respondent id
+  allocationId String?
+  supplierRid  String?
+  /// keyed hash of a first-party device cookie (never the raw value, never IP or user agent)
+  deviceHash   String?
   survey      Survey    @relation(fields: [surveyId], references: [id])
 
   @@index([surveyId, outcome])
+  @@index([surveyId, deviceHash])
 }
 
 // ───────────────────────── Panels
@@ -451,6 +471,12 @@ model PurchaseOrder {
   cpi          Float
   amount       Int
   status       String   // issued | closed | cancelled
+  currency     String   @default("USD")
+  fxRate       Float    @default(1) // base currency per unit of `currency`, fixed when the PO is raised
+  /// Reconciliation: completes finance accepted against the order, and when
+  acceptedCompletes Int?
+  reconciledAt DateTime?
+  reconcileNote String?
   issuedAt     DateTime @default(now())
   payables     Payable[]
 
@@ -464,6 +490,7 @@ model Payable {
   purchaseOrderId String
   amount          Int
   status          String        // open | pending_approval | paid
+  currency        String        @default("USD")
   dueAt           DateTime
   paidAt          DateTime?
   createdAt       DateTime      @default(now())
@@ -482,6 +509,8 @@ model Invoice {
   cpi       Float
   amount    Int
   status    String    // draft | issued | paid | void
+  currency  String    @default("USD")
+  fxRate    Float     @default(1) // base currency per unit of `currency`, fixed when drafted
   issuedAt  DateTime?
   dueAt     DateTime?
   paidAt    DateTime?
@@ -675,4 +704,36 @@ model Deliverable {
   project     Project   @relation(fields: [projectId], references: [id])
 
   @@index([tenantId, projectId, status])
+}
+
+/// Exchange rates finance records (no market feed is connected). The latest effective rate applies to new documents.
+model ExchangeRate {
+  id            String   @id @default(cuid())
+  tenantId      String
+  currency      String
+  rate          Float    // base currency per 1 unit of `currency`
+  effectiveFrom DateTime @default(now())
+  setBy         String
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, currency, effectiveFrom])
+}
+
+/// Panel incentives: points earned, redeemed, adjusted or expired per panel member. Redemptions are paid out, so they need an 'Issuing payments' approval.
+model IncentiveEntry {
+  id         String   @id @default(cuid())
+  tenantId   String
+  panelistId String
+  kind       String   // earn | redeem | adjust | expire
+  points     Int      // signed: earn positive, redeem and expire negative
+  valueBase  Float    // points x the point value at the time, in the base currency
+  status     String   @default("posted") // posted | pending_approval | rejected
+  projectId  String?
+  note       String?
+  approvalId String?
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, panelistId])
+  @@index([tenantId, createdAt])
 }

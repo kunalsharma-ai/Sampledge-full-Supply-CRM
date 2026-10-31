@@ -41,7 +41,8 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/vendors` · `/vendors/:id` | vendor role: own record only. 🔒 `cpiB2C/B2B/HC`, `pendingPayment`, `bidWinRate` (`view:vendor_bids`, or own record) |
-| GET | `/allocations` | vendor role: own allocations only |
+| GET | `/allocations` | vendor role: own allocations only. Includes exit links and the project's published surveys (for entry links) |
+| PATCH | `/allocations/:id/redirects` | `{ completeUrl?, screenoutUrl?, overquotaUrl? }` (https only, `{rid}` placeholder, `null` clears). The vendor that owns the allocation, or full Sample Exchange access. Audited |
 | GET | `/deliverables?projectId=` | Client: released files on its own client's projects. Team: all. Never includes file bytes |
 | POST | `/deliverables` | `{ projectId, surveyId, kind: report_pdf\|report_pptx\|tables_xlsx\|responses_csv\|data_sav, title?, note? }`. Team only (full Client Portal access). Reports are released at once; CSV/SPSS create a *Releasing sensitive datasets* approval |
 | GET | `/deliverables/:id/download` | The stored file, with `X-Content-SHA256`. Clients: released and own project only (404 otherwise); audited |
@@ -62,9 +63,9 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 ## Respondent runtime (public)
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/r/:surveyId/start` | `{ source?, respondent?, preview? }`. Live only for *Published* surveys; preview needs a signed-in user with Survey Studio access and never counts |
+| POST | `/r/:surveyId/start` | `{ source?, respondent?, preview?, allocation? }`. Live only for *Published* surveys; preview needs a signed-in user with Survey Studio access and never counts. `allocation` must belong to the survey's project and be approved or live; the source becomes `vendor:<id>` and `respondent` is kept as the supplier id. Sets the `sx_dev` device cookie |
 | GET | `/r/session/:responseId` | current question (piped text, seeded option order), progress |
-| POST | `/r/session/:responseId/answer` | `{ questionId, value }` → next question or `outcome`. 422 on invalid or out-of-order answers. On completion, matching quota cells increment atomically (`count < target` for hard cells); losing a race returns `overquota` and rolls back |
+| POST | `/r/session/:responseId/answer` | `{ questionId, value }` → next question or `outcome` (with `redirect`, the supplier exit link, for allocation traffic). 422 on invalid or out-of-order answers. On completion, matching quota cells increment atomically (`count < target` for hard cells); losing a race returns `overquota` and rolls back |
 
 ## Panels (module `panels`)
 | Method | Path | Notes |
@@ -188,6 +189,22 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | POST | `/admin/users/:id/sessions/revoke` | write; revokes the member's live sessions in this workspace (not your own). Audited as `sessions.revoked` |
 | GET | `/comms/adapter` | module `communications`: `{mode: development|smtp, name, channels: {email: development|smtp|off, sms: development|api|off}}`; never credentials |
 | GET | `/admin/audit/facets` | record types and actions in the audit trail, with counts |
+| GET | `/finance/currencies` | internal: `{base, pointValue, rates, clients, vendors}` with each party's currency |
+| POST | `/finance/rates` | write; `{ currency, rate }` (base per unit); audited `fx.rate_set` |
+| PUT | `/finance/currencies/base` | write; `{ currency }`; 400 once invoices or POs exist |
+| PUT | `/finance/currencies/party` | write; `{ kind: client|vendor, id, currency }`; needs a recorded rate |
+| GET | `/finance/reconciliation` | needs `view:vendor_bids`: per PO ordered, recorded and accepted completes, payable and status |
+| POST | `/finance/reconciliation/:poId` | write; `{ acceptedCompletes, note? }` (note required when short); adjusts the open payable, closes the PO; audited `po.reconciled` |
+| GET | `/finance/incentives` | internal: liability, this month's totals, pending redemptions, latest 100 entries |
+| GET | `/finance/incentives/members?q=` | panel members by handle (20) |
+| POST | `/finance/incentives` | write; `{ panelistId, kind: earn|redeem|adjust|expire, points, projectId?, note? }`; redeem → *Issuing payments* approval |
+| PUT | `/finance/incentives/point-value` | write; `{ value }` in the base currency |
+| GET | `/finance/forecast` | internal: months and projects, planned vs actual revenue (and cost with `view:margins`), base currency |
+| GET | `/admin/workspace` | `{id, name, slug, createdAt, counts}` for this workspace |
+| PATCH | `/admin/workspace` | write; `{ name }`. Audited as `workspace.renamed` |
+| GET | `/admin/retention` | `{lastRun, categories: [{category, label, min, what, days|null, eligibleNow, pending}]}` |
+| PUT | `/admin/retention` | write; `{ category, days|null }`. Below the minimum → 400. Turning on or shortening returns `{changed: false, approvalId, wouldRemove}` (a *Deleting records* approval); lengthening or `null` applies at once (`retention.changed`) |
+| POST | `/admin/retention/run` | write; applies the policies now, returns `{counts}`; audited as `retention.applied` |
 | GET | `/live` | Server-Sent Events: `change` `{type}` for the workspace, `notification` `{type,module,title}` for the caller's role |
 | GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
 | GET · POST | `/auth/saml/config` · `/auth/saml/metadata` · `/auth/saml/start?next=` · POST `/auth/saml/acs` · `/auth/saml/finish` | SAML 2.0 sign-in (public). The ACS validates and hands over to `/finish`, which checks the browser's flow cookie before setting the session |

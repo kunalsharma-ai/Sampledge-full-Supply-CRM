@@ -1,3 +1,4 @@
+import { documentCurrency, invoiceTerms, toDoc } from './finance-ledgers';
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { live } from '../common/live';
 import { can, type Role } from '@sampledge/core';
@@ -28,6 +29,7 @@ async function nextNumber(tx: Tx, tenantId: string, kind: 'PO' | 'INV') {
 
 // Delivery lives in ./delivery; re-exported here because callers import it from the worker.
 import { deliveryAdapter } from './delivery';
+import { applyRetention, logRun } from './retention';
 export { deliveryAdapter };
 
 /**
@@ -70,6 +72,20 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // the panel before anything is sent again.
     const stuck = await this.db.panelCall.updateMany({ where: { status: 'sending', createdAt: { lt: new Date(Date.now() - 600_000) } }, data: { status: 'needs_review', error: 'Interrupted while sending; check the panel before retrying' } });
     if (stuck.count) this.log.warn(`${stuck.count} panel call(s) need review`);
+    await this.retention();
+  }
+
+  /** Applies each workspace's retention policies, at most once a day per workspace. */
+  async retention() {
+    const due = await this.db.tenant.findMany({ where: { NOT: { retention: { equals: {} } }, OR: [{ retentionRunAt: null }, { retentionRunAt: { lt: new Date(Date.now() - 24 * 3600_000) } }] }, select: { id: true } });
+    for (const t of due) {
+      await asTenant(t.id, () => this.db.$transaction(async (tx) => {
+        const counts = await applyRetention(tx, t.id);
+        await logRun(tx, t.id, { userId: null, name: 'system (daily retention)' }, counts as Record<string, number>);
+        const n = Object.values(counts).reduce((a, b) => a + (b ?? 0), 0);
+        if (n) this.log.log(`retention: ${n} record(s) removed or redacted in ${t.id}`);
+      })).catch((e) => this.log.error(e));
+    }
   }
 
   async tick(): Promise<number> {
@@ -151,15 +167,19 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
         if (!al) return;
         const existing = await tx.purchaseOrder.findUnique({ where: { allocationId: al.id } });
         if (existing) return;
-        const amount = Math.round(al.completes * al.cpi);
-        const po = await tx.purchaseOrder.create({ data: { tenantId: t, number: await nextNumber(tx, t, 'PO'), vendorId: al.vendorId, projectId: al.projectId, allocationId: al.id, completes: al.completes, cpi: al.cpi, amount, status: 'issued' } });
-        await tx.payable.create({ data: { tenantId: t, vendorId: al.vendorId, purchaseOrderId: po.id, amount, status: 'open', dueAt: new Date(Date.now() + 30 * day) } });
-        await tx.vendor.update({ where: { id: al.vendorId }, data: { pendingPayment: { increment: amount } } });
+        // Allocation CPIs are in the base currency; the PO is raised in the vendor's currency at the recorded rate.
+        const fx = await documentCurrency(tx, t, al.vendor.currency);
+        const cpi = Math.round(toDoc(al.cpi, fx.fxRate) * 100) / 100;
+        const amount = Math.round(al.completes * cpi);
+        const po = await tx.purchaseOrder.create({ data: { tenantId: t, number: await nextNumber(tx, t, 'PO'), vendorId: al.vendorId, projectId: al.projectId, allocationId: al.id, completes: al.completes, cpi, amount, currency: fx.currency, fxRate: fx.fxRate, status: 'issued' } });
+        await tx.payable.create({ data: { tenantId: t, vendorId: al.vendorId, purchaseOrderId: po.id, amount, currency: fx.currency, status: 'open', dueAt: new Date(Date.now() + 30 * day) } });
+        await tx.vendor.update({ where: { id: al.vendorId }, data: { pendingPayment: { increment: Math.round(amount * fx.fxRate) } } });
+        const money = (n: number, d = 0) => `${fx.currency} ${n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
         await this.queueMessage(tx, t, {
           channel: 'email', audience: 'vendor', toRef: `vendor:${al.vendorId}`, relatedType: 'PurchaseOrder', relatedId: po.id,
-          subject: `Purchase order ${po.number}`, body: `${al.vendor.name}: ${al.completes} completes at $${al.cpi.toFixed(2)} CPI for project ${al.project.code}. Total $${amount.toLocaleString('en-US')}.`,
+          subject: `Purchase order ${po.number}`, body: `${al.vendor.name}: ${al.completes} completes at ${money(cpi, 2)} CPI for project ${al.project.code}. Total ${money(amount)}.`,
         });
-        await this.notify(tx, t, ['finance', 'project_manager'], `PO ${po.number} issued`, `${al.vendor.name} · ${al.project.code} · $${amount.toLocaleString('en-US')}`, 'finance');
+        await this.notify(tx, t, ['finance', 'project_manager'], `PO ${po.number} issued`, `${al.vendor.name} · ${al.project.code} · ${money(amount)}`, 'finance');
         return;
       }
       case 'quote.sent': {
@@ -181,8 +201,8 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
         if (p.to !== 'Invoice') return;
         const pr = await tx.project.findUnique({ where: { id: String(p.projectId) } });
         if (!pr || (await tx.invoice.findFirst({ where: { projectId: pr.id, status: { not: 'void' } } }))) return;
-        const inv = await tx.invoice.create({ data: { tenantId: t, number: await nextNumber(tx, t, 'INV'), clientId: pr.clientId, projectId: pr.id, completes: pr.completes, cpi: pr.cpiSell, amount: Math.round(pr.completes * pr.cpiSell), status: 'draft' } });
-        await this.notify(tx, t, ['finance', 'executive'], `Invoice ${inv.number} drafted`, `${pr.code} ${pr.name}: ${pr.completes} completes · $${inv.amount.toLocaleString('en-US')}`, 'finance');
+        const inv = await tx.invoice.create({ data: { tenantId: t, number: await nextNumber(tx, t, 'INV'), ...(await invoiceTerms(tx, t, pr)), status: 'draft' } });
+        await this.notify(tx, t, ['finance', 'executive'], `Invoice ${inv.number} drafted`, `${pr.code} ${pr.name}: ${pr.completes} completes · ${inv.currency} ${inv.amount.toLocaleString('en-US')}`, 'finance');
         return;
       }
       case 'deliverable.released': {
