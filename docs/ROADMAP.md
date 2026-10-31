@@ -17,6 +17,8 @@
 | **SMTP e-mail (Comms Hub)** ✅ | SMTP delivery adapter, off until `SMTP_HOST` and `SMTP_FROM` are set; sent-once, blind copies, failed and not-sent states with reasons | 5 tests against a local SMTP server |
 | **SMS (Comms Hub)** ✅ | Twilio-compatible SMS adapter, off until `SMS_ACCOUNT_SID`, `SMS_AUTH_TOKEN` and `SMS_FROM` are set; per-workspace phone numbers set by admins; per-number results | 6 tests against a local stand-in API |
 | **SAML sign-in** ✅ | SAML 2.0 single sign-on next to OpenID Connect: service metadata, signed-assertion checks, replay and cross-browser protection, login button, Integrations row | 8 tests against a stand-in identity provider; not yet run against a real provider |
+| **Retention and workspaces** ✅ | Per-workspace retention policies behind an approval, daily worker run, workspace settings, operator tenant command | 6 tests |
+| **Finance ledgers** ✅ | Multi-currency with recorded rates, PO reconciliation, incentives ledger behind payment approvals, forecast vs actuals | 6 tests |
 | Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; real-provider SSO checks; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4

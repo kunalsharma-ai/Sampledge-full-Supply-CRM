@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { CheckCircle2, KeyRound, LogOut, ScrollText, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
+import { Archive, CheckCircle2, KeyRound, LogOut, ScrollText, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import { access, moduleAccess, roles, type ModuleId, type Role } from '@/lib/core';
 import { api } from '@/lib/api';
 import { act, shortDate, useLive, usePaged } from '@/lib/live';
@@ -10,6 +10,7 @@ import { fmtNum } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Button, EmptyState, PageHeader, Panel, PanelHeader, SearchInput, Segmented, inputCls } from '@/components/ui/primitives';
 import { DataTable, LiveOnly, Loadable, LoadMore } from '@/components/ui/data';
+import { DataRetention, WorkspaceIcon, WorkspaceSettings } from './workspace';
 
 type Member = { id: string; name: string; email: string; role: Role; vendorId: string | null; clientId: string | null; phone: string | null; mfaEnabled: boolean; joinedAt: string; activeSessions: number; lastSignIn: string | null; you: boolean };
 type Security = { rowLevelSecurity: { enforced: boolean; databaseRole: string; roleBypassesRls: boolean; tenantSeenByDatabase: string; tablesWithTenantColumn: number; tablesWithForcedPolicies: number; note: string | null }; activeSessions: number };
@@ -173,7 +174,7 @@ function RoleMatrix() {
 function AdminInner() {
   const role = useOS((s) => s.role);
   const write = access(role, 'admin') === 'full';
-  const [tab, setTab] = useState<'overview' | 'people' | 'audit' | 'roles'>('overview');
+  const [tab, setTab] = useState<'overview' | 'people' | 'audit' | 'roles' | 'workspace' | 'retention'>('overview');
   const users = useLive<Member[]>('/admin/users');
   const stats = useMemo(() => {
     const u = users.data ?? [];
@@ -192,11 +193,15 @@ function AdminInner() {
         { value: 'people', label: <span className="inline-flex items-center gap-1.5"><Users size={13} /> People and roles</span> },
         { value: 'audit', label: <span className="inline-flex items-center gap-1.5"><ScrollText size={13} /> Audit trail</span> },
         { value: 'roles', label: <span className="inline-flex items-center gap-1.5"><KeyRound size={13} /> Role matrix</span> },
+        { value: 'workspace', label: <span className="inline-flex items-center gap-1.5"><WorkspaceIcon size={13} /> Workspace</span> },
+        { value: 'retention', label: <span className="inline-flex items-center gap-1.5"><Archive size={13} /> Data retention</span> },
       ]} />
       {tab === 'overview' && <Overview users={users.data} />}
       {tab === 'people' && <People q={users} write={write} />}
       {tab === 'audit' && <Audit />}
       {tab === 'roles' && <RoleMatrix />}
+      {tab === 'workspace' && <WorkspaceSettings write={write} />}
+      {tab === 'retention' && <DataRetention write={write} />}
     </>
   );
 }
