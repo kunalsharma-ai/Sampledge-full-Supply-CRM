@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/primitives';
 import { Logo } from '@/components/shell/logo';
 
 type Rendered = { question: Question & { options?: Option[] }; progress: number };
-type Step = { responseId: string; outcome?: 'complete' | 'screenout' | 'overquota' | null; preview?: boolean } & Partial<Rendered>;
+type Step = { responseId: string; outcome?: 'complete' | 'screenout' | 'overquota' | null; preview?: boolean; redirect?: string | null } & Partial<Rendered>;
 
 const endings = {
   complete: { icon: CheckCircle2, tone: 'text-emerald', title: 'Thank you', body: 'Your responses have been recorded.' },
@@ -33,7 +33,7 @@ function Runner() {
 
   useEffect(() => {
     const source = qs.get('src') ?? undefined;
-    api<Step>(`/r/${surveyId}/start`, { method: 'POST', body: { source, respondent: qs.get('rid') ?? undefined, preview: qs.get('preview') === '1' || undefined } })
+    api<Step>(`/r/${surveyId}/start`, { method: 'POST', body: { source, allocation: qs.get('a') ?? undefined, respondent: qs.get('rid') ?? undefined, preview: qs.get('preview') === '1' || undefined } })
       .then((s) => setStep(s))
       .catch((e) => setFatal(e instanceof ApiError ? (e.status === 403 ? 'This survey is not open right now.' : e.status === 404 ? 'We could not find this survey.' : e.message) : 'The survey service is not reachable.'));
   }, [surveyId, qs]);
@@ -55,6 +55,13 @@ function Runner() {
   };
 
   const end = step?.outcome ? endings[step.outcome] : null;
+  // Supplier traffic goes back to the supplier's own page for this outcome (https only, set per allocation).
+  const redirect = step?.outcome && step.redirect && step.redirect.startsWith('https://') ? step.redirect : null;
+  useEffect(() => {
+    if (!redirect) return;
+    const t = setTimeout(() => window.location.assign(redirect), 1500);
+    return () => clearTimeout(t);
+  }, [redirect]);
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-4 py-8">
       <div className="flex items-center justify-between"><Logo compact />{step?.preview && <span className="rounded-full bg-orange/15 px-2.5 py-1 text-2xs font-semibold text-orange">Preview: not counted</span>}</div>
@@ -66,7 +73,7 @@ function Runner() {
           ) : !step ? (
             <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-ink-3" /></div>
           ) : end ? (
-            <div className="py-6 text-center"><end.icon size={36} className={`mx-auto ${end.tone}`} /><h1 className="mt-4 font-display text-xl font-semibold">{end.title}</h1><p className="mt-2 text-sm text-ink-2">{end.body}</p></div>
+            <div className="py-6 text-center"><end.icon size={36} className={`mx-auto ${end.tone}`} /><h1 className="mt-4 font-display text-xl font-semibold">{end.title}</h1><p className="mt-2 text-sm text-ink-2">{end.body}</p>{redirect && <p className="mt-4 text-2xs text-ink-3">Taking you back to your panel… <a className="underline" href={redirect}>Continue</a></p>}</div>
           ) : step.question ? (
             <AnimatePresence mode="wait">
               <motion.div key={step.question.id} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>

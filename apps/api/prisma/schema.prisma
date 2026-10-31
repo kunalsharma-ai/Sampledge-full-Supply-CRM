@@ -268,6 +268,11 @@ model Allocation {
   cpi       Float
   status    String   // proposed | approved | live | closed
   approvalId String?
+  /// Where respondents go when they finish, set by the vendor or the project team. {rid} is
+  /// replaced with the supplier's own respondent id from the entry link.
+  completeUrl  String?
+  screenoutUrl String?
+  overquotaUrl String?
   createdAt DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id])
   vendor    Vendor   @relation(fields: [vendorId], references: [id])
@@ -335,9 +340,15 @@ model Response {
   weight      Float     @default(1)
   /// coded open ends: { questionId: [code, ...] }
   codes       Json?
+  /// supplier entry: the allocation the respondent came through and the supplier's respondent id
+  allocationId String?
+  supplierRid  String?
+  /// keyed hash of a first-party device cookie (never the raw value, never IP or user agent)
+  deviceHash   String?
   survey      Survey    @relation(fields: [surveyId], references: [id])
 
   @@index([surveyId, outcome])
+  @@index([surveyId, deviceHash])
 }
 
 // ───────────────────────── Panels

@@ -82,7 +82,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Panelist directory: 3,000 synthetic pseudonymous members, filters, paging, consent history, consent withdrawal, deletion via approval | Functional |
 | Healthcare safeguards, automation list | Design + policy description |
 | CSV member import: dry-run validation, then import; rejects rows containing an email address or phone number; skips existing handles; up to 5,000 rows | Functional |
-| Integration with existing panel sites | Planned (Phase 6 adapters); we do not assume APIs exist |
+| Integration with existing panel sites | Functional adapter and project sync (v0.10–v0.11), tested against stand-ins only; see Panels below and docs/integrations/TURN2OPINION.md |
 
 ## Survey Studio
 | Feature | Status |
@@ -93,7 +93,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Automated QA: reference integrity, missing options, backward jumps, translation gaps, reachability via simulated journeys, completion path; approve fixes | Functional |
 | AI programming assistant: randomise, add quotas, translation slots, routing check, mobile split; diff + apply + undo | Functional rule-based; no LLM; translations are placeholders |
 | Questionnaire import: TXT/CSV parse → review → draft (never publishes) | Functional for text; Word/PDF/Excel Phase 5 |
-| Advanced methods (MaxDiff, conjoint, Van Westendorp, Gabor-Granger, TURF) | Planned Phase 5 with valid designs; not simulated |
+| Advanced methods (MaxDiff, conjoint, Van Westendorp, Gabor-Granger, TURF) | Functional engines (Phase 5); see the Methods lab row below |
 
 ## Survey runtime (new)
 | Feature | Status |
@@ -105,7 +105,8 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Publishing blocked while QA reports critical issues; published only after approval | Functional |
 | Responses by outcome and source (`GET /surveys/:id/responses`), CSV export (`responses.csv`, linked from the studio) | Functional |
 | Quality flags at completion (speed, straight-lining, duplicates, gibberish) | Functional (Phase 5) |
-| Device fingerprinting, supplier redirects | Planned (Phase 6) |
+| Supplier entry and exit: entry link per allocation (`?a=<allocation>&rid=<supplier id>`), https exit links per outcome set by the vendor or the team, supplier id returned URL-encoded | Functional |
+| Duplicate-device check: a random first-party cookie, stored only as a keyed per-survey hash; a second complete from the same browser is flagged `duplicate_device` for review, never blocked | Functional. No fingerprinting from IP, user agent or device traits, by design |
 
 ## Insight Studio
 | Feature | Status |

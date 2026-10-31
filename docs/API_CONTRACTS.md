@@ -41,7 +41,8 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/vendors` · `/vendors/:id` | vendor role: own record only. 🔒 `cpiB2C/B2B/HC`, `pendingPayment`, `bidWinRate` (`view:vendor_bids`, or own record) |
-| GET | `/allocations` | vendor role: own allocations only |
+| GET | `/allocations` | vendor role: own allocations only. Includes exit links and the project's published surveys (for entry links) |
+| PATCH | `/allocations/:id/redirects` | `{ completeUrl?, screenoutUrl?, overquotaUrl? }` (https only, `{rid}` placeholder, `null` clears). The vendor that owns the allocation, or full Sample Exchange access. Audited |
 
 ## Surveys (module `survey-studio`)
 | Method | Path | Notes |
@@ -58,9 +59,9 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 ## Respondent runtime (public)
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/r/:surveyId/start` | `{ source?, respondent?, preview? }`. Live only for *Published* surveys; preview needs a signed-in user with Survey Studio access and never counts |
+| POST | `/r/:surveyId/start` | `{ source?, respondent?, preview?, allocation? }`. Live only for *Published* surveys; preview needs a signed-in user with Survey Studio access and never counts. `allocation` must belong to the survey's project and be approved or live; the source becomes `vendor:<id>` and `respondent` is kept as the supplier id. Sets the `sx_dev` device cookie |
 | GET | `/r/session/:responseId` | current question (piped text, seeded option order), progress |
-| POST | `/r/session/:responseId/answer` | `{ questionId, value }` → next question or `outcome`. 422 on invalid or out-of-order answers. On completion, matching quota cells increment atomically (`count < target` for hard cells); losing a race returns `overquota` and rolls back |
+| POST | `/r/session/:responseId/answer` | `{ questionId, value }` → next question or `outcome` (with `redirect`, the supplier exit link, for allocation traffic). 422 on invalid or out-of-order answers. On completion, matching quota cells increment atomically (`count < target` for hard cells); losing a race returns `overquota` and rolls back |
 
 ## Panels (module `panels`)
 | Method | Path | Notes |
