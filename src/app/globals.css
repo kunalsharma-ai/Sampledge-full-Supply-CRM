@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Sampledge design tokens. Values are RGB channels so Tailwind can apply alpha.
+ * Source of truth for JS (charts, 3D) lives in src/lib/tokens.ts and mirrors these.
+ */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: 8 13 31;            /* Midnight Navy #080D1F */
+  --bg-2: 16 25 54;         /* Deep Space Blue #101936 */
+  --surface: 17 26 56;
+  --surface-2: 24 36 74;
+  --line: 255 255 255;      /* used with low alpha */
+  --line-alpha: 0.08;
+  --ink: 236 241 255;
+  --ink-2: 168 180 214;
+  --ink-3: 112 126 168;
+  --blue: 36 107 253;       /* Electric Blue #246BFD */
+  --purple: 113 59 255;     /* Royal Purple #713BFF */
+  --cyan: 24 215 242;       /* Neon Cyan #18D7F2 */
+  --emerald: 19 201 150;    /* #13C996 */
+  --orange: 255 145 77;     /* #FF914D */
+  --magenta: 218 78 255;    /* #DA4EFF */
+  --danger: 255 92 122;
+  --warn: 255 196 77;
+  --glass: 20 30 64;
+  --glass-alpha: 0.55;
+  --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 20px 40px -24px rgb(0 0 0 / 0.8);
+  --shadow-lift: 0 1px 0 0 rgb(255 255 255 / 0.06) inset, 0 30px 60px -20px rgb(4 8 24 / 0.9);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: 244 246 252;
+  --bg-2: 233 237 248;
+  --surface: 255 255 255;
+  --surface-2: 246 248 253;
+  --line: 16 25 54;
+  --line-alpha: 0.1;
+  --ink: 12 20 46;
+  --ink-2: 66 80 120;
+  --ink-3: 108 120 156;
+  --blue: 28 92 230;
+  --purple: 98 48 230;
+  --cyan: 8 150 180;
+  --emerald: 10 150 112;
+  --orange: 220 110 40;
+  --magenta: 170 50 210;
+  --danger: 214 48 80;
+  --warn: 196 132 10;
+  --glass: 255 255 255;
+  --glass-alpha: 0.78;
+  --shadow-panel: 0 1px 2px rgb(16 25 54 / 0.06), 0 12px 32px -16px rgb(16 25 54 / 0.18);
+  --shadow-lift: 0 2px 4px rgb(16 25 54 / 0.06), 0 24px 48px -20px rgb(16 25 54 / 0.25);
+}
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    @apply bg-bg text-ink font-sans;
+    background-color: rgb(var(--bg));
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  ::selection { background: rgb(var(--blue) / 0.35); }
+  *:focus-visible { outline: 2px solid rgb(var(--cyan)); outline-offset: 2px; border-radius: 6px; }
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--ink-3) / 0.35) transparent; }
+}
+
+@layer components {
+  /* Layered surface: restrained glass (one level of blur, never stacked) */
+  .panel {
+    position: relative;
+    border-radius: 1.25rem;
+    background: linear-gradient(180deg, rgb(var(--glass) / var(--glass-alpha)), rgb(var(--glass) / calc(var(--glass-alpha) - 0.15)));
+    border: 1px solid rgb(var(--line) / var(--line-alpha));
+    box-shadow: var(--shadow-panel);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+  .panel-solid {
+    border-radius: 1rem;
+    background: rgb(var(--surface-2) / 0.6);
+    border: 1px solid rgb(var(--line) / var(--line-alpha));
+  }
+  .hairline { border-color: rgb(var(--line) / var(--line-alpha)); }
+  .text-gradient {
+    background: linear-gradient(92deg, rgb(var(--ink)) 0%, rgb(var(--cyan)) 45%, rgb(var(--purple)) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .eyebrow { @apply text-2xs font-semibold uppercase tracking-[0.14em] text-ink-3; }
+  .num { font-variant-numeric: tabular-nums; }
+  .skeleton { position: relative; overflow: hidden; background: rgb(var(--line) / var(--line-alpha)); border-radius: .5rem; }
+  .skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(var(--line) / 0.08), transparent); animation: shimmer 1.6s infinite; }
+}
+
+/* Ambient brand lighting behind everything */
+.ambient {
+  background:
+    radial-gradient(60rem 40rem at 85% -10%, rgb(var(--purple) / 0.16), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 10%, rgb(var(--blue) / 0.14), transparent 60%),
+    radial-gradient(40rem 30rem at 50% 120%, rgb(var(--cyan) / 0.08), transparent 60%);
+}
+:root[data-theme='light'] .ambient {
+  background:
+    radial-gradient(60rem 40rem at 85% -10%, rgb(var(--purple) / 0.07), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 10%, rgb(var(--blue) / 0.07), transparent 60%);
+}
+
+/* React Flow theming */
+.react-flow { --xy-background-color: transparent; }
+.react-flow__attribution { display: none; }
+.react-flow__controls { box-shadow: none !important; }
+.react-flow__controls-button { background: rgb(var(--surface-2)) !important; border-color: rgb(var(--line) / var(--line-alpha)) !important; fill: rgb(var(--ink-2)) !important; }
+.react-flow__minimap { background: rgb(var(--surface)) !important; border-radius: 12px; }
+.react-flow__edge-path { stroke: rgb(var(--ink-3) / 0.6); }
+
+/* Reduced motion: user setting (data-motion) OR OS preference */
+:root[data-motion='reduced'] *, :root[data-motion='reduced'] *::before, :root[data-motion='reduced'] *::after {
+  animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}

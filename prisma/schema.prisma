@@ -1,0 +1,374 @@
+// Sampledge AI Research OS: Phase 1 data model (target for Phase 3).
+// Not yet wired: Phase 2 runs on the in-browser demo store (src/lib/store.ts) whose shapes mirror these models.
+// Multi-tenant: every business table carries tenantId; Postgres row-level security enforces isolation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Tenancy, identity, access
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  region    String   @default("eu") // data residency
+  createdAt DateTime @default(now())
+  users     Membership[]
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String
+  mfaEnabled  Boolean      @default(false)
+  ssoSubject  String?      @unique
+  memberships Membership[]
+  createdAt   DateTime     @default(now())
+}
+
+enum Role {
+  platform_admin
+  executive
+  project_manager
+  survey_programmer
+  bizdev
+  data_processing
+  finance
+  panel_manager
+  vendor
+  client
+}
+
+model Membership {
+  id        String  @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      Role
+  // scoping for external roles: a vendor user is bound to one Vendor, a client user to one Client
+  vendorId  String?
+  clientId  String?
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+  user      User    @relation(fields: [userId], references: [id])
+  @@unique([tenantId, userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  actorId   String?
+  actorType String   // user | agent | system
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  at        DateTime @default(now())
+  @@index([tenantId, entity, entityId])
+}
+
+// ───────────────────────── Commercial
+model Client {
+  id        String  @id @default(cuid())
+  tenantId  String
+  name      String
+  sector    String?
+  projects  Project[]
+  opportunities Opportunity[]
+}
+
+enum AudienceType {
+  B2B
+  B2C
+  Healthcare
+}
+
+enum CrmStage {
+  NewRFQ
+  Qualifying
+  Feasibility
+  QuoteSent
+  Negotiation
+  Won
+  Lost
+}
+
+model Opportunity {
+  id          String       @id @default(cuid())
+  tenantId    String
+  clientId    String
+  title       String
+  stage       CrmStage     @default(NewRFQ)
+  ownerId     String
+  audience    AudienceType
+  countries   String[]
+  sampleSize  Int
+  incidence   Float
+  loiMinutes  Int
+  valueCents  BigInt
+  currency    String       @default("USD")
+  probability Float
+  lossReason  String?
+  sourceEmail String?      // Email-to-RFQ origin
+  client      Client       @relation(fields: [clientId], references: [id])
+  quotes      Quote[]
+  project     Project?
+  createdAt   DateTime     @default(now())
+}
+
+model Quote {
+  id            String   @id @default(cuid())
+  tenantId      String
+  opportunityId String
+  version       Int
+  cpiSellCents  Int
+  cpiCostCents  Int      // internal only: never exposed to client role
+  marginPct     Float
+  status        String   // draft | pending_approval | sent | accepted | rejected
+  approvedById  String?
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  createdAt     DateTime @default(now())
+}
+
+// ───────────────────────── Projects (the shared record)
+enum LifecycleStage {
+  RFQReceived
+  Feasibility
+  Quotation
+  ClientApproval
+  ProjectSetup
+  SurveyProgramming
+  QA
+  SampleAllocation
+  SoftLaunch
+  FullLaunch
+  FieldworkMonitoring
+  DataProcessing
+  Reporting
+  ClientSignOff
+  Invoice
+  ProjectClosure
+}
+
+model Project {
+  id            String         @id @default(cuid())
+  tenantId      String
+  code          String
+  name          String
+  clientId      String
+  opportunityId String?        @unique
+  audience      AudienceType
+  countries     String[]
+  stage         LifecycleStage @default(ProjectSetup)
+  ownerId       String
+  startDate     DateTime
+  deadline      DateTime
+  target        Int
+  budgetCents   BigInt
+  client        Client         @relation(fields: [clientId], references: [id])
+  opportunity   Opportunity?   @relation(fields: [opportunityId], references: [id])
+  surveys       Survey[]
+  allocations   Allocation[]
+  quotas        QuotaCell[]
+  tasks         Task[]
+  invoices      Invoice[]
+  @@unique([tenantId, code])
+}
+
+model Task {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String
+  title     String
+  assignee  String?
+  dueAt     DateTime?
+  status    String
+  dependsOn String[]
+  project   Project  @relation(fields: [projectId], references: [id])
+}
+
+// ───────────────────────── Survey engine
+model Survey {
+  id         String          @id @default(cuid())
+  tenantId   String
+  projectId  String?
+  name       String
+  status     String          // draft | in_qa | published | closed
+  project    Project?        @relation(fields: [projectId], references: [id])
+  versions   SurveyVersion[]
+  responses  Response[]
+}
+
+model SurveyVersion {
+  id          String   @id @default(cuid())
+  surveyId    String
+  version     Int
+  definition  Json     // SurveyDef (src/lib/survey/engine.ts): questions, rules, quotas, languages
+  qaReport    Json?
+  publishedAt DateTime?
+  approvedById String?
+  survey      Survey   @relation(fields: [surveyId], references: [id])
+  @@unique([surveyId, version])
+}
+
+model QuotaCell {
+  id         String  @id @default(cuid())
+  projectId  String
+  surveyId   String?
+  label      String
+  condition  Json    // Condition AST
+  target     Int
+  count      Int     @default(0)
+  hard       Boolean @default(true)
+  project    Project @relation(fields: [projectId], references: [id])
+}
+
+model Response {
+  id            String   @id @default(cuid())
+  tenantId      String
+  surveyId      String
+  surveyVersion Int
+  respondentRef String   // pseudonymous; panelist identity resolved only via Panelist with permission
+  source        String   // panel:<brand> | vendor:<id> | preview
+  outcome       String   // complete | screenout | overquota | partial
+  answers       Json
+  qualityFlags  String[]
+  startedAt     DateTime
+  completedAt   DateTime?
+  survey        Survey   @relation(fields: [surveyId], references: [id])
+  @@index([surveyId, outcome])
+}
+
+// ───────────────────────── Supply
+model Vendor {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  verified     Boolean  @default(false)
+  hqCountry    String
+  coverage     String[]
+  audiences    AudienceType[]
+  rateCard     Json     // CPI by audience × IR × LOI band
+  qualityScore Float?
+  reliability  Float?
+  allocations  Allocation[]
+}
+
+model FeasibilityRequest {
+  id         String  @id @default(cuid())
+  tenantId   String
+  vendorId   String
+  opportunityId String?
+  request    Json
+  response   Json?   // real supplier response; estimates are never stored here
+  status     String
+}
+
+model Allocation {
+  id         String  @id @default(cuid())
+  projectId  String
+  vendorId   String
+  completes  Int
+  cpiCents   Int
+  poNumber   String?
+  status     String  // proposed | approved | live | closed
+  project    Project @relation(fields: [projectId], references: [id])
+  vendor     Vendor  @relation(fields: [vendorId], references: [id])
+}
+
+// ───────────────────────── Panels
+model PanelBrand {
+  id        String     @id // turn2opinion | myfrequentrewards | myhealthopinions
+  tenantId  String
+  name      String
+  domain    String
+  adapter   Json?      // integration adapter config; null = not connected
+  panelists Panelist[]
+  rewardPolicies RewardPolicy[]
+}
+
+model Panelist {
+  id           String   @id @default(cuid())
+  brandId      String
+  externalRef  String?
+  status       String   // active | dormant | suspended | deleted
+  profile      Json     // demographic + professional (non-sensitive)
+  qualityScore Float?
+  points       Int      @default(0)
+  brand        PanelBrand @relation(fields: [brandId], references: [id])
+  consents     Consent[]
+  health       HealthProfile?
+}
+
+/// Stored in a separate, encrypted schema with stricter access policies.
+model HealthProfile {
+  panelistId String  @id
+  segment    String  // hcp | patient | caregiver
+  data       Bytes   // envelope-encrypted JSON
+  panelist   Panelist @relation(fields: [panelistId], references: [id])
+}
+
+model Consent {
+  id         String   @id @default(cuid())
+  panelistId String
+  purpose    String
+  granted    Boolean
+  at         DateTime @default(now())
+  panelist   Panelist @relation(fields: [panelistId], references: [id])
+}
+
+model RewardPolicy {
+  id          String  @id @default(cuid())
+  brandId     String
+  category    String  // e.g. short | high (configurable, not hard-coded)
+  maxLoi      Int
+  points      Int
+  minQuality  Float
+  redemptionThreshold Int
+  brand       PanelBrand @relation(fields: [brandId], references: [id])
+}
+
+// ───────────────────────── Finance
+model Invoice {
+  id          String  @id @default(cuid())
+  tenantId    String
+  projectId   String
+  number      String
+  amountCents BigInt
+  currency    String
+  status      String  // draft | sent | paid | overdue
+  project     Project @relation(fields: [projectId], references: [id])
+}
+
+// ───────────────────────── Automation
+model Agent {
+  id        String  @id
+  tenantId  String
+  name      String
+  enabled   Boolean @default(true)
+  costCapUsd Float
+  scopes    String[]
+}
+
+model Workflow {
+  id        String @id @default(cuid())
+  tenantId  String
+  name      String
+  version   Int
+  graph     Json   // nodes + edges (trigger/condition/agent/approval/action/delay)
+}
+
+model ApprovalRequest {
+  id         String   @id @default(cuid())
+  tenantId   String
+  agentId    String
+  kind       String   // purchase | quote | payment | publish | release | delete | bulk_comms | reject_respondents
+  payload    Json
+  status     String   // pending | approved | rejected
+  decidedById String?
+  decidedAt  DateTime?
+}
