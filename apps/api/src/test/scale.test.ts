@@ -25,7 +25,8 @@ after(async () => { await b?.close(); await teardown(); });
 
 const on = (base: string) => (method: string, p: string, token: string, body?: unknown, headers: Record<string, string> = {}) =>
   fetch(`${base}/api/v1${p}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
-    .then(async (r) => ({ status: r.status, headers: r.headers, body: await r.json().catch(() => null) }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .then(async (r) => ({ status: r.status, headers: r.headers, body: (await r.json().catch(() => null)) as any }));
 
 describe('two API instances on one database', () => {
   it('accepts a session from the other instance and ends it everywhere on sign-out', async () => {
