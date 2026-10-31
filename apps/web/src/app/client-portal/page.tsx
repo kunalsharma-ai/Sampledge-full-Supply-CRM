@@ -9,6 +9,7 @@ import { fmtMoney, fmtNum, fmtPct } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Bar, Button, EmptyState, Field, inputCls, PageHeader, Panel, PanelHeader } from '@/components/ui/primitives';
 import { DataTable, LiveOnly, Loadable } from '@/components/ui/data';
+import { DeliverablesPanel } from '@/components/client/deliverables';
 
 function ClientInner() {
   const s = useOS();
@@ -77,6 +78,8 @@ function ClientInner() {
         </div>
       </div>
 
+      <div className="mt-6"><DeliverablesPanel /></div>
+
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         <Panel>
           <PanelHeader eyebrow="Invoices" title="Billing" info="Only issued invoices are shown. Drafts stay internal until finance issues them." />
@@ -111,7 +114,7 @@ export default function ClientPortalPage() {
   return (
     <div>
       <PageHeader eyebrow="Client Portal" title={role === 'client' ? 'Your research, live' : 'What clients see'}
-        subtitle={role === 'client' ? 'Project progress, sign-offs, invoices and a direct line to your team.' : 'The client view, scoped per client. Clients never see supplier costs, margins or vendors.'}
+        subtitle={role === 'client' ? 'Project progress, sign-offs, deliverables, invoices and a direct line to your team.' : 'The client view, scoped per client. Clients never see supplier costs, margins or vendors.'}
         actions={role !== 'client' && <Badge tone="blue">Internal preview: all clients</Badge>} />
       <LiveOnly what="Client invoices, sign-offs and messages"><ClientInner /></LiveOnly>
     </div>

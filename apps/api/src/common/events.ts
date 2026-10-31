@@ -19,7 +19,8 @@ export type EventType =
   | 'invoice.issued'
   | 'payable.paid'
   | 'message.queued'
-  | 'diy.requested';
+  | 'diy.requested'
+  | 'deliverable.released';
 
 /** Writes an event in the caller's transaction: it exists only if the change commits. */
 export function emit(tx: Prisma.TransactionClient, tenantId: string, type: EventType, payload: Record<string, unknown>) {
