@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { prismaOptions } from './db-adapter';
 import { tenantScope } from './tenant-scope';
 
 /**
@@ -15,7 +16,7 @@ import { tenantScope } from './tenant-scope';
 @Injectable()
 export class PrismaService extends PrismaClient {
   constructor() {
-    super();
+    super(prismaOptions());
     const base = this as PrismaClient;
     const setTenant = (client: { $executeRaw: PrismaClient['$executeRaw'] }, id: string) => client.$executeRaw`SELECT set_config('app.tenant_id', ${id}, true)`;
     const ext = base.$extends({

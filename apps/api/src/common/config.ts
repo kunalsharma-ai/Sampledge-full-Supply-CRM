@@ -1,3 +1,6 @@
+// Reads apps/api/.env first (Prisma 6 used to load it as a side effect of creating a client).
+import 'dotenv/config';
+
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   jwtSecret: process.env.JWT_SECRET ?? '',
