@@ -17,3 +17,4 @@ export * from './methods';
 export * from './extract';
 export * from './results';
 export * from './dp';
+export * from './explore';

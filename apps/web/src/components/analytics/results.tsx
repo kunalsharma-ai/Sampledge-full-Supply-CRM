@@ -9,6 +9,7 @@ import { useOS } from '@/lib/store';
 import { cn, fmtNum, fmtPct } from '@/lib/utils';
 import { Badge, Bar, Button, DemoBadge, EmptyState, Field, inputCls, Panel, PanelHeader, Segmented } from '@/components/ui/primitives';
 import { LiveOnly, Loadable } from '@/components/ui/data';
+import { ExploreViews } from './explore';
 
 type SurveyRow = { id: string; name: string; status: string; completes: number; project?: { code: string } };
 type Results = {
@@ -109,7 +110,10 @@ function Inner() {
       <Loadable q={res}>{(r) => r.base === 0 ? (
         <Panel><EmptyState title="No completed interviews yet" body="Results appear here as respondents complete the published survey. Staff previews never count." /></Panel>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-2">{r.questions.map((q) => <QuestionCard key={q.id} q={q} banner={r.banner} />)}</div>
+        <>
+          <ExploreViews sid={sid} filters={{ excludeFlagged: exclude, weighted }} tick={tick} />
+          <div className="grid gap-6 xl:grid-cols-2">{r.questions.map((q) => <QuestionCard key={q.id} q={q} banner={r.banner} />)}</div>
+        </>
       )}</Loadable>
 
       {canQuality && (

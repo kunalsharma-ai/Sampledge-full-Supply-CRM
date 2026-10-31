@@ -1,4 +1,5 @@
-import { Body, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
+import type { Response } from 'express';
+import { Body, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { lifecycle, type LifecycleStage } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -6,6 +7,7 @@ import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { emit } from '../common/events';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { redactMargins } from '../common/redact';
 import { parse } from '../common/zod';
@@ -50,11 +52,11 @@ export class ProjectsService {
     return { tenantId: ctx.tenantId, ...(ctx.role === 'client' ? { clientId: ctx.clientId ?? '__none__' } : {}) };
   }
 
-  async list(ctx: Ctx, q: z.infer<typeof ListQuery>) {
+  async list(ctx: Ctx, q: z.infer<typeof ListQuery>, { want: _w, ...page }: Page = DEFAULT_PAGE) {
     const rows = await this.db.project.findMany({
       where: { ...this.scope(ctx), ...(q.stage ? { stage: q.stage } : {}), ...(q.clientId ? { clientId: q.clientId } : {}), ...(q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {}) },
       include: { quotas: { orderBy: { key: 'asc' } }, allocations: true, surveys: { select: { id: true, name: true, status: true } } },
-      orderBy: { code: 'asc' },
+      orderBy: [{ code: 'asc' }, { id: 'asc' }], ...page,
     });
     return rows.map((r) => redactMargins(ctx, r));
   }
@@ -130,7 +132,7 @@ export class ProjectsService {
 export class ProjectsController {
   constructor(private s: ProjectsService) {}
 
-  @Get() list(@Caller() ctx: Ctx, @Query() q: unknown) { return this.s.list(ctx, parse(ListQuery, q)); }
+  @Get() async list(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.list(ctx, parse(ListQuery, q), pg), pg.want, res); }
   @Get(':id') get(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.get(ctx, id); }
 
   @Post() @Write() @RequirePerm('edit:projects')

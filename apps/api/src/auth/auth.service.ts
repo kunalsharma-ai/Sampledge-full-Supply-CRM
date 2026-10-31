@@ -7,6 +7,7 @@ import { AuditService } from '../common/audit.service';
 import { config } from '../common/config';
 import type { Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
+import { enterTenant } from '../common/tenant-scope';
 
 /** Compared against when the email is unknown, so response time does not reveal which emails exist. */
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
@@ -49,6 +50,8 @@ export class AuthService {
   }
 
   private async issue(userId: string, tenantId: string, method: 'password' | 'sso' = 'password') {
+    // The workspace is known from here on: the session and audit rows are written under its scope.
+    enterTenant(tenantId);
     const expiresAt = new Date(Date.now() + config.sessionHours * 3600_000);
     const s = await this.db.session.create({ data: { userId, tenantId, expiresAt } });
     const token = await this.jwt.signAsync({ sid: s.id, typ: 'session' }, { expiresIn: `${config.sessionHours}h` });

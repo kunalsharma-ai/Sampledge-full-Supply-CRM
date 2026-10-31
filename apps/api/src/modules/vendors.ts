@@ -1,8 +1,10 @@
-import { Controller, Get, Injectable, NotFoundException, Param, Query } from '@nestjs/common';
+import type { Response } from 'express';
+import { Controller, Get, Injectable, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import { rankVendors, type Vendor as CoreVendor } from '@sampledge/core';
 import type { Vendor } from '@prisma/client';
 import { z } from 'zod';
 import { Caller, ForModule, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { redactAllocation, redactVendor } from '../common/redact';
 import { parse } from '../common/zod';
@@ -24,8 +26,8 @@ export class VendorsService {
     return { tenantId: ctx.tenantId, ...(ctx.role === 'vendor' ? { id: ctx.vendorId ?? '__none__' } : {}) };
   }
 
-  async list(ctx: Ctx) {
-    const rows = await this.db.vendor.findMany({ where: this.where(ctx), include: { _count: { select: { allocations: { where: { status: { in: ['approved', 'live'] } } } } } }, orderBy: { name: 'asc' } });
+  async list(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.vendor.findMany({ where: this.where(ctx), include: { _count: { select: { allocations: { where: { status: { in: ['approved', 'live'] } } } } } }, orderBy: [{ name: 'asc' }, { id: 'asc' }], ...page });
     return rows.map((v) => redactVendor(ctx, { ...toCoreVendor(v), demo: true }));
   }
 
@@ -36,11 +38,11 @@ export class VendorsService {
     return { ...redactVendor(ctx, toCoreVendor(rest)), allocations: allocations.map((a) => redactAllocation(ctx, a)) };
   }
 
-  async allocations(ctx: Ctx) {
+  async allocations(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
     const rows = await this.db.allocation.findMany({
       where: { tenantId: ctx.tenantId, ...(ctx.role === 'vendor' ? { vendorId: ctx.vendorId ?? '__none__' } : {}) },
       include: { project: { select: { code: true, name: true, countries: true, audience: true, deadline: true } }, vendor: { select: { name: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page,
     });
     return rows.map((a) => redactAllocation(ctx, a));
   }
@@ -56,9 +58,9 @@ export class VendorsService {
 @Controller()
 export class VendorsController {
   constructor(private s: VendorsService) {}
-  @Get('vendors') list(@Caller() ctx: Ctx) { return this.s.list(ctx); }
+  @Get('vendors') async list(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.list(ctx, pg), pg.want, res); }
   @Get('vendors/:id') get(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.get(ctx, id); }
-  @Get('allocations') allocations(@Caller() ctx: Ctx) { return this.s.allocations(ctx); }
+  @Get('allocations') async allocations(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.allocations(ctx, pg), pg.want, res); }
 }
 
 @ForModule('crm')

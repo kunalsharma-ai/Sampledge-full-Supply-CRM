@@ -1,4 +1,4 @@
-# Implementation status: Phase 6
+# Implementation status: Phase 6 + known-limitation fixes (v0.7.0)
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
@@ -111,6 +111,9 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | **Respondent quality flags** at completion: speeder (< ⅓ of LOI, min 60 s), straight-liner (matrix with 4+ rows), duplicate respondent reference, gibberish open end | Functional, tested. Flags never remove anyone |
 | Respondent rejection: request → *Rejecting respondents* approval (not the requester) → excluded from results and its quota place released | Functional, tested |
 | **Methods lab**: MaxDiff (balanced design + counting scores), choice-based conjoint (level-balanced design + aggregate MNL part-worths, importances, share simulator), Van Westendorp, Gabor-Granger, TURF (exhaustive or greedy) | Functional engines in `packages/core`, unit-tested. The lab runs them on **simulated respondents**, labelled as such. Hierarchical Bayes is not implemented |
+| **Respondent flow (Sankey)** between any two single-choice or NPS questions (NPS grouped into promoters, passives, detractors), weighted when weighting is on | Functional (API + UI), tested. Computed from recorded completes |
+| **Fieldwork trend**: completes per day or week of completion, with NPS, a mean, or the share choosing an answer per period | Functional, tested |
+| **Segmentation**: weighted k-means (k = 2–5) on standardised rating, NPS and numeric answers, segment profiles (largest differences from the total), 2D map on the first two principal components, share of variance explained | Functional, tested. A starting point for analysis, not a validated typology |
 | Demo dataset view (n=1,200): weighting, k-means segmentation, 3D/2D views, Sankey, trends, narrative, presentation | Simulated data, functional statistics (unchanged from Phase 2) |
 | PDF report, scheduled report delivery | Planned (Phase 6) |
 
@@ -192,14 +195,12 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 Integrations and Admin & Security are navigable placeholders that state their scope; the security posture endpoint is available to administrators through the API.
 
 ## Known limitations
-- Survey results read recorded responses; the segmentation, Sankey and trend views still use the simulated demo dataset.
 - SSO and the Claude provider are tested against local stubs only.
-- Public respondent routes, sign-in and the worker run without a tenant in the database scope; they rely on their explicit tenant filters.
+- Public respondent routes and sign-in run as the system only until they resolve the workspace (the survey or the membership); from then on the database enforces that tenant. The worker handles each event as its tenant. The first lookup on those routes (survey or response by id, user by e-mail) is still unscoped by design.
 - The Claude path of the AI gateway has only been tested against a stub server.
 - The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.
 - The CRM quote builder and Survey Studio QA run in the browser; the API has equivalent endpoints, used for persistence and enforcement.
-- Notification read state is per role, not per user.
-- Lists are not cursor-paginated yet except panelists; fine for demo volumes.
+- List endpoints return up to 500 rows per page by default (cursor paging with `take`/`cursor` and `X-Next-Cursor`); the web app reads the first page, which covers demo volumes.
 - Finance, Comms Hub and both portals need the live API; in the offline demo they say so instead of simulating records.
 - The account switcher signs in with the seeded demo password. Turn it off with `NEXT_PUBLIC_DEMO_LOGINS=false`.
 - The 3D globe needs WebGL; without it the 2D map is shown automatically.
