@@ -122,6 +122,7 @@ function Notifications() {
   const [open, setOpen] = useState(false);
   const n = useOS((s) => s.notifications);
   const markAll = useOS((s) => s.markAllRead);
+  const markRead = useOS((s) => s.markRead);
   const unread = n.filter((x) => !x.read).length;
   return (
     <div className="relative">
@@ -142,7 +143,7 @@ function Notifications() {
               <ul className="max-h-[380px] overflow-y-auto">
                 {n.map((x) => (
                   <li key={x.id} className="border-b hairline px-4 py-3 last:border-0">
-                    <Link href={`/${x.module}`} onClick={() => setOpen(false)} className="flex gap-3">
+                    <Link href={`/${x.module}`} onClick={() => { markRead(x.id); setOpen(false); }} className="flex gap-3">
                       <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', x.read ? 'bg-ink-3/30' : 'bg-cyan shadow-[0_0_8px_rgb(var(--cyan))]')} />
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-medium">{x.title}</span>
@@ -302,7 +303,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </AnimatePresence>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t hairline px-6 py-4 text-2xs text-ink-3">
           <span>Sampledge AI Research OS · Phase 6 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
-          <span className="flex items-center gap-2"><Badge tone="neutral">v0.6.0</Badge> No external integrations connected</span>
+          <span className="flex items-center gap-2"><Badge tone="neutral">v0.7.0</Badge> No external integrations connected</span>
         </footer>
       </div>
       <CommandPalette />

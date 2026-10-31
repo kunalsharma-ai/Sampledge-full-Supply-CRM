@@ -1,10 +1,12 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Injectable, NotFoundException, Param, Post } from '@nestjs/common';
+import type { Response } from 'express';
+import { BadRequestException, Body, Controller, Get, HttpCode, Injectable, NotFoundException, Param, Post, Query, Res } from '@nestjs/common';
 import { can } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, Write, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
@@ -45,8 +47,8 @@ export class FinanceService {
     };
   }
 
-  async invoices(ctx: Ctx) {
-    const rows = await this.db.invoice.findMany({ where: this.clientScope(ctx), orderBy: { createdAt: 'desc' } });
+  async invoices(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.invoice.findMany({ where: this.clientScope(ctx), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page });
     const projects = new Map((await this.db.project.findMany({ where: { id: { in: rows.map((r) => r.projectId) } }, select: { id: true, code: true, name: true } })).map((p) => [p.id, p]));
     const clients = new Map((await this.db.client.findMany({ where: { tenantId: ctx.tenantId }, select: { id: true, name: true } })).map((c) => [c.id, c.name]));
     return rows.map((r) => ({ ...r, project: projects.get(r.projectId), clientName: clients.get(r.clientId) }));
@@ -87,15 +89,15 @@ export class FinanceService {
     return u;
   }
 
-  async purchaseOrders(ctx: Ctx) {
-    const rows = await this.db.purchaseOrder.findMany({ where: this.vendorScope(ctx), include: { payables: true }, orderBy: { issuedAt: 'desc' } });
+  async purchaseOrders(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.purchaseOrder.findMany({ where: this.vendorScope(ctx), include: { payables: true }, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], ...page });
     const vendors = new Map((await this.db.vendor.findMany({ where: { tenantId: ctx.tenantId }, select: { id: true, name: true } })).map((v) => [v.id, v.name]));
     const projects = new Map((await this.db.project.findMany({ where: { tenantId: ctx.tenantId }, select: { id: true, code: true } })).map((p) => [p.id, p.code]));
     return rows.map((r) => ({ ...r, vendorName: vendors.get(r.vendorId), projectCode: projects.get(r.projectId) }));
   }
 
-  async payables(ctx: Ctx) {
-    const rows = await this.db.payable.findMany({ where: this.vendorScope(ctx), include: { purchaseOrder: { select: { number: true, projectId: true } } }, orderBy: { dueAt: 'asc' } });
+  async payables(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.payable.findMany({ where: this.vendorScope(ctx), include: { purchaseOrder: { select: { number: true, projectId: true } } }, orderBy: [{ dueAt: 'asc' }, { id: 'asc' }], ...page });
     const vendors = new Map((await this.db.vendor.findMany({ where: { tenantId: ctx.tenantId }, select: { id: true, name: true } })).map((v) => [v.id, v.name]));
     return rows.map((r) => ({ ...r, vendorName: vendors.get(r.vendorId) }));
   }
@@ -121,9 +123,9 @@ export class FinanceController {
   constructor(private s: FinanceService) {}
 
   @Get('finance/summary') summary(@Caller() ctx: Ctx) { return this.s.summary(ctx); }
-  @Get('invoices') invoices(@Caller() ctx: Ctx) { return this.s.invoices(ctx); }
-  @Get('purchase-orders') pos(@Caller() ctx: Ctx) { return can(ctx.role, 'view:vendor_bids') || ctx.role === 'vendor' ? this.s.purchaseOrders(ctx) : []; }
-  @Get('payables') payables(@Caller() ctx: Ctx) { return can(ctx.role, 'view:vendor_bids') || ctx.role === 'vendor' ? this.s.payables(ctx) : []; }
+  @Get('invoices') async invoices(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.invoices(ctx, pg), pg.want, res); }
+  @Get('purchase-orders') async pos(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return can(ctx.role, 'view:vendor_bids') || ctx.role === 'vendor' ? paged(await this.s.purchaseOrders(ctx, pg), pg.want, res) : []; }
+  @Get('payables') async payables(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return can(ctx.role, 'view:vendor_bids') || ctx.role === 'vendor' ? paged(await this.s.payables(ctx, pg), pg.want, res) : []; }
 
   @Write() @Post('invoices')
   draft(@Caller() ctx: Ctx, @Body() b: unknown) { return this.s.draftInvoice(ctx, parse(z.object({ projectId: z.string() }), b).projectId); }

@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { paged, pageArgs } from '../common/paging';
+import { pageInMemory, paged, pageArgs } from '../common/paging';
 import { can, evaluate, lifecycleToOps, type LifecycleStage } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -23,7 +23,7 @@ export class ApprovalsService {
 
   /** Approvals the caller requested or may decide. Client users only see publish requests on their projects. */
   async list(ctx: Ctx, status?: string) {
-    const rows = await this.db.approval.findMany({ where: { tenantId: ctx.tenantId, ...(status ? { status } : {}) }, orderBy: { createdAt: 'desc' } });
+    const rows = await this.db.approval.findMany({ where: { tenantId: ctx.tenantId, ...(status ? { status } : {}) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
     let visible = rows.filter((a) => a.requestedBy === ctx.userId || this.canDecide(ctx, a.kind));
     if (ctx.role === 'client') {
       const mine = new Set((await this.db.project.findMany({ where: { tenantId: ctx.tenantId, clientId: ctx.clientId ?? '__none__' }, select: { id: true } })).map((p) => p.id));
@@ -130,7 +130,8 @@ export class ApprovalsService {
 @Controller('approvals')
 export class ApprovalsController {
   constructor(private s: ApprovalsService) {}
-  @Get() list(@Caller() ctx: Ctx, @Query('status') status?: string) { return this.s.list(ctx, status); }
+  /** Visibility is decided per approval in memory, so this list pages after filtering. */
+  @Get() async list(@Caller() ctx: Ctx, @Query() q: Record<string, string>, @Res({ passthrough: true }) res: Response) { return pageInMemory(await this.s.list(ctx, typeof q.status === 'string' ? q.status : undefined), q, res); }
 
   @Post(':id/decision') @HttpCode(200)
   decide(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) {
@@ -143,15 +144,29 @@ export class ApprovalsController {
 export class OpsController {
   constructor(private db: PrismaService, private audit: AuditService) {}
 
+  /** Notifications for the caller's role, newest first, with `read` for this person. */
   @Get('notifications')
-  notifications(@Caller() ctx: Ctx) {
-    return this.db.notification.findMany({ where: { tenantId: ctx.tenantId, OR: [{ roles: { isEmpty: true } }, { roles: { has: ctx.role } }] }, orderBy: { createdAt: 'desc' }, take: 50 });
+  async notifications(@Caller() ctx: Ctx) {
+    const rows = await this.db.notification.findMany({
+      where: { tenantId: ctx.tenantId, OR: [{ roles: { isEmpty: true } }, { roles: { has: ctx.role } }] },
+      orderBy: { createdAt: 'desc' }, take: 50, include: { reads: { where: { userId: ctx.userId }, select: { readAt: true } } },
+    });
+    return rows.map(({ reads, ...n }) => ({ ...n, read: reads.length > 0, readAt: reads[0]?.readAt ?? null }));
   }
 
   @Post('notifications/read-all') @HttpCode(200)
   async readAll(@Caller() ctx: Ctx) {
-    const r = await this.db.notification.updateMany({ where: { tenantId: ctx.tenantId, read: false, OR: [{ roles: { isEmpty: true } }, { roles: { has: ctx.role } }] }, data: { read: true } });
+    const unread = await this.db.notification.findMany({ where: { tenantId: ctx.tenantId, OR: [{ roles: { isEmpty: true } }, { roles: { has: ctx.role } }], reads: { none: { userId: ctx.userId } } }, select: { id: true } });
+    const r = await this.db.notificationRead.createMany({ data: unread.map((n) => ({ tenantId: ctx.tenantId, notificationId: n.id, userId: ctx.userId })), skipDuplicates: true });
     return { updated: r.count };
+  }
+
+  @Post('notifications/:id/read') @HttpCode(200)
+  async readOne(@Caller() ctx: Ctx, @Param('id') id: string) {
+    const n = await this.db.notification.findFirst({ where: { id, tenantId: ctx.tenantId, OR: [{ roles: { isEmpty: true } }, { roles: { has: ctx.role } }] }, select: { id: true } });
+    if (!n) throw new NotFoundException('Notification not found');
+    await this.db.notificationRead.upsert({ where: { notificationId_userId: { notificationId: id, userId: ctx.userId } }, create: { tenantId: ctx.tenantId, notificationId: id, userId: ctx.userId }, update: {} });
+    return { id, read: true };
   }
 
   @ForModule('automation') @Get('agents')

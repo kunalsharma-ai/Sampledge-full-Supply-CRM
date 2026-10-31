@@ -139,11 +139,16 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
     data: seed.approvals.map((a) => ({ id: a.id, tenantId: t, agentId: a.agentId, kind: a.kind, title: `${a.title} (demo)`, projectId: a.projectId ?? null, amount: a.amount ?? null, requestedBy: `agent:${a.agentId}`, createdAt: new Date(a.requested), payload: { demo: true } })),
   });
   const minutes: Record<string, number> = { '8m': 8, '21m': 21, '46m': 46, '1h': 60, '3h': 180 };
-  await db.notification.createMany({
+  const notes = await db.notification.createManyAndReturn({
     data: seed.notificationsSeed.map((n) => ({
-      tenantId: t, title: n.title, body: n.body, module: n.module, read: n.read, createdAt: new Date(seed.DEMO_NOW.getTime() - (minutes[n.time] ?? 0) * 60_000),
+      tenantId: t, title: n.title, body: n.body, module: n.module, createdAt: new Date(seed.DEMO_NOW.getTime() - (minutes[n.time] ?? 0) * 60_000),
       roles: roles.filter((r) => access(r.id, n.module as ModuleId) !== 'none').map((r) => r.id as Role),
     })),
+  });
+  // Read state is per person: the seed's already-read notifications start read for everyone who sees them.
+  const members = await db.membership.findMany({ where: { tenantId: t } });
+  await db.notificationRead.createMany({
+    data: notes.flatMap((n, i) => (seed.notificationsSeed[i].read ? members.filter((m) => !n.roles.length || n.roles.includes(m.role)).map((m) => ({ tenantId: t, notificationId: n.id, userId: m.userId })) : [])),
   });
 
   await db.messageTemplate.createMany({

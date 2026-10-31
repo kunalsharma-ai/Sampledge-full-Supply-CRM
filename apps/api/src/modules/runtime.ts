@@ -10,6 +10,7 @@ import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 import { SurveysService } from './surveys';
+import { enterTenant } from '../common/tenant-scope';
 
 /** Thrown inside the completion transaction when a hard cell filled up between check and write. */
 class QuotaRace extends Error {}
@@ -39,6 +40,7 @@ export class RuntimeService {
   async start(surveyId: string, body: { source?: string; respondent?: string; preview?: boolean }, staff: Ctx | undefined) {
     const s = await this.db.survey.findUnique({ where: { id: surveyId } });
     if (!s || !s.hasDefinition) throw new NotFoundException('Survey not found');
+    enterTenant(s.tenantId);
     let source = body.source ?? 'direct';
     if (body.preview || s.status !== 'Published') {
       if (!staff || staff.tenantId !== s.tenantId || access(staff.role, 'survey-studio') === 'none') throw new ForbiddenException('This survey is not live');
@@ -55,6 +57,7 @@ export class RuntimeService {
   async state(responseId: string) {
     const r = await this.db.response.findUnique({ where: { id: responseId } });
     if (!r) throw new NotFoundException('Session not found');
+    enterTenant(r.tenantId);
     const def = await this.surveys.definition(r.surveyId, r.version);
     const st: RunState = { cursor: r.cursor, answers: r.answers as Answers, path: r.path, outcome: (r.outcome ?? undefined) as Outcome | undefined };
     return { responseId: r.id, outcome: r.outcome, ...this.render(def, st, r.id) };
@@ -63,6 +66,7 @@ export class RuntimeService {
   async answer(responseId: string, qid: string, value: Answer) {
     const r = await this.db.response.findUnique({ where: { id: responseId } });
     if (!r) throw new NotFoundException('Session not found');
+    enterTenant(r.tenantId);
     if (r.outcome) throw new BadRequestException(`This session already ended (${r.outcome})`);
     const def = await this.surveys.definition(r.surveyId, r.version);
     const prev: RunState = { cursor: r.cursor, answers: r.answers as Answers, path: r.path };

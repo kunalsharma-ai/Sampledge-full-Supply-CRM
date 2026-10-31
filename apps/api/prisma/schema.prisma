@@ -91,10 +91,23 @@ model Notification {
   title     String
   body      String
   module    String
-  read      Boolean  @default(false)
   createdAt DateTime @default(now())
+  reads     NotificationRead[]
 
   @@index([tenantId, createdAt])
+}
+
+/// Read state is per person: one row when a user has read a notification.
+model NotificationRead {
+  id             String       @id @default(cuid())
+  tenantId       String
+  notificationId String
+  userId         String
+  readAt         DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([tenantId, userId])
 }
 
 // ───────────────────────── Commercial

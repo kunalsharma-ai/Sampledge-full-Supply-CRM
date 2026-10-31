@@ -78,7 +78,7 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | GET | `/approvals?status` | requests the caller made or may decide (`canDecide` per row). Client: publish requests on own projects; vendor: none |
 | POST | `/approvals/:id/decision` | `{ decision: approved|rejected, note? }`. Needs the kind's permission (quotes → `approve:quotes`, purchases → `approve:purchase`, payments → `approve:payments`, publishing → `approve:publish`, respondent rejection → `edit:projects`, high-volume comms → `edit:automations`; datasets and deletions → platform admin or executive). Requester cannot decide. Effect applied in the same transaction |
 | GET | `/agents` · PATCH `/agents/:id` | module `automation`; toggling needs `edit:automations` |
-| GET | `/notifications` · POST `/notifications/read-all` | filtered to the caller's role |
+| GET | `/notifications` · POST `/notifications/read-all` · POST `/notifications/:id/read` | filtered to the caller's role; `read`/`readAt` are per person |
 | GET | `/audit?entity&entityId&take` | module `admin` |
 | GET | `/dashboard/summary` | module `command-center`; KPIs computed from the database. 🔒 `grossMargin` |
 
@@ -149,6 +149,8 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | PATCH | `/dp/responses/:rid/codes` `{questionId, codes[]}` | manual coding |
 | GET | `/dp/surveys/:id/tables.xlsx?banner&weighted` | Excel workbook (Notes, Tables) |
 
+`GET /surveys/:id/explore?from&to&trendQ&trendCode&interval=day|week&k=2..6&excludeFlagged&weighted` returns `{ base, weighted, synthetic, options{flow,segmentation,trend}, flow, trend, segments }`; each of `flow`, `trend`, `segments` is `{ ok: true, data }` or `{ ok: false, error }` so one view that cannot be built does not fail the others.
+
 `/surveys/:id/results` and `report.pptx` accept `weighted=true`; results add `weighted`, `weightedBase`, `effectiveBase`, `synthetic`, `weightingAvailable`, and `coded` rows on coded open ends.
 
 ## Platform
@@ -159,4 +161,4 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
 | GET | `/metrics` | Prometheus text; requires `Authorization: Bearer $METRICS_TOKEN`, 404 otherwise |
 
-**Headers.** Writes accept `Idempotency-Key` (8–100 of `[A-Za-z0-9_.:-]`): a retry with the same key and body returns the stored response with `Idempotent-Replayed: true`; a different body gives 422; a retry during the first request gives 409. `GET /audit`, `/comms/messages` and `/ai/usage` take `take` and `cursor` and return `X-Next-Cursor` when more rows exist. Every response has `X-Request-Id`; error bodies include `requestId`.
+**Headers.** Writes accept `Idempotency-Key` (8–100 of `[A-Za-z0-9_.:-]`): a retry with the same key and body returns the stored response with `Idempotent-Replayed: true`; a different body gives 422; a retry during the first request gives 409. `GET /audit`, `/comms/messages`, `/ai/usage`, `/projects`, `/clients`, `/opportunities`, `/surveys`, `/approvals`, `/invoices`, `/purchase-orders`, `/payables`, `/vendors`, `/allocations`, `/diy/requests` and `/feasibility` take `take` and `cursor` and return `X-Next-Cursor` when more rows exist (lists default to 500 rows per page). Every response has `X-Request-Id`; error bodies include `requestId`.

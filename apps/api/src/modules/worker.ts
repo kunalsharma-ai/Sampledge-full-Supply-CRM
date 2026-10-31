@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { approvalKinds, fallbackDeciders, type ApprovalKind } from '../common/approvals';
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
+import { asTenant } from '../common/tenant-scope';
 
 type Tx = Prisma.TransactionClient;
 type Ev = { id: string; tenantId: string; type: string; payload: Record<string, string | number>; createdAt: Date };
@@ -84,11 +85,12 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
       batch.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
       for (const ev of batch) {
         try {
-          await this.db.$transaction(async (tx) => {
+          // Each event is handled as its tenant, so the database refuses rows from any other workspace.
+          await asTenant(ev.tenantId, () => this.db.$transaction(async (tx) => {
             await this.handle(tx, ev);
             await tx.outboxEvent.update({ where: { id: ev.id }, data: { processedAt: new Date(), lastError: null } });
             await live(tx, { t: ev.tenantId, type: ev.type });
-          });
+          }));
         } catch (e) {
           this.log.warn(`event ${ev.type} ${ev.id} failed: ${(e as Error).message}`);
           await this.db.outboxEvent.update({ where: { id: ev.id }, data: { lastError: String((e as Error).message).slice(0, 500), lockedUntil: null } });

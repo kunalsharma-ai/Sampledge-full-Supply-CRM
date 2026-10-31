@@ -1,8 +1,10 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Post, Query } from '@nestjs/common';
+import type { Response } from 'express';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Post, Query, Res } from '@nestjs/common';
 import { countries, estimateCpi, estimateCapacity, rankVendors, type Audience } from '@sampledge/core';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, Write, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
@@ -71,8 +73,8 @@ export class DiyService {
   }
 
   /** The client's own DIY requests with a client-facing status. No margins or internal owners. */
-  async mine(ctx: Ctx) {
-    const rows = await this.db.opportunity.findMany({ where: { tenantId: ctx.tenantId, channel: 'diy', ...(ctx.role === 'client' ? { clientId: ctx.clientId ?? '__none__' } : {}) }, orderBy: { createdAt: 'desc' }, include: { quotes: { where: { status: 'sent' }, orderBy: { version: 'desc' }, take: 1 } } });
+  async mine(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.opportunity.findMany({ where: { tenantId: ctx.tenantId, channel: 'diy', ...(ctx.role === 'client' ? { clientId: ctx.clientId ?? '__none__' } : {}) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page, include: { quotes: { where: { status: 'sent' }, orderBy: { version: 'desc' }, take: 1 } } });
     const status: Record<string, string> = { 'New RFQ': 'Received', Qualifying: 'Being reviewed', Feasibility: 'Checking supplier feasibility', 'Quote Sent': 'Quote sent', Negotiation: 'In discussion', Won: 'Commissioned', Lost: 'Closed' };
     return rows.map((o) => ({ id: o.id, title: o.title, audience: o.audience, countries: o.countries, sampleSize: o.sampleSize, incidence: o.incidence, loi: o.loi, status: status[o.stage] ?? o.stage, createdAt: o.createdAt, quote: o.quotes[0] ? { total: o.quotes[0].total, cpi: o.quotes[0].cpiSell } : null, projectId: o.projectId }));
   }
@@ -88,7 +90,7 @@ export class DiyController {
     return this.s.estimate(ctx, parse(Spec, { audience: q.audience, countries: (q.countries ?? '').split(',').filter(Boolean), sampleSize: Number(q.sampleSize), incidence: Number(q.incidence), loi: Number(q.loi) }));
   }
 
-  @Get('requests') mine(@Caller() ctx: Ctx) { return this.s.mine(ctx); }
+  @Get('requests') async mine(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.mine(ctx, pg), pg.want, res); }
 
   @Post('requests') @Write()
   submit(@Caller() ctx: Ctx, @Body() b: unknown) {

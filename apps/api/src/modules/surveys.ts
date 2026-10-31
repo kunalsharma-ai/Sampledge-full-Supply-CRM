@@ -1,12 +1,13 @@
 import { BadRequestException, Body, Controller, Get, Header, Injectable, NotFoundException, Param, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
-import { runQA, surveyResults, type SurveyDef } from '@sampledge/core';
+import { flowQuestions, responseFlow, responseSegments, responseTrend, runQA, segmentationVariables, surveyResults, type SurveyDef } from '@sampledge/core';
 import { buildReport } from './report';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 
@@ -47,6 +48,12 @@ export type ResultsOpts = { banner?: string; excludeFlagged?: boolean; weighted?
 export type DpConfig = { weighting?: { targets: Record<string, Record<string, number>>; stats: unknown; appliedAt: string; by: string }; codeframes?: Record<string, { code: string; label: string; keywords: string[] }[]> };
 const flag = z.enum(['true', 'false']).optional().transform((v) => v === 'true');
 export const resultsQuery = (q: unknown): ResultsOpts => parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: flag, weighted: flag }), q);
+export type ExploreOpts = { excludeFlagged?: boolean; weighted?: boolean; from?: string; to?: string; trendQ?: string; trendCode?: string; interval?: 'day' | 'week'; k?: number };
+const qid = z.string().max(40).optional();
+export const exploreQuery = (q: unknown): ExploreOpts => parse(z.object({
+  excludeFlagged: flag, weighted: flag, from: qid, to: qid, trendQ: qid, trendCode: qid,
+  interval: z.enum(['day', 'week']).optional(), k: z.coerce.number().int().min(2).max(6).optional(),
+}), q);
 
 @Injectable()
 export class SurveysService {
@@ -56,8 +63,8 @@ export class SurveysService {
     return { tenantId: ctx.tenantId, ...(ctx.role === 'client' ? { project: { clientId: ctx.clientId ?? '__none__' } } : {}) };
   }
 
-  async list(ctx: Ctx) {
-    const rows = await this.db.survey.findMany({ where: this.where(ctx), include: { project: { select: { id: true, code: true, name: true } }, _count: { select: { responses: { where: { outcome: 'complete', source: { not: 'preview' }, rejectedAt: null } } } } }, orderBy: { name: 'asc' } });
+  async list(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.survey.findMany({ where: this.where(ctx), include: { project: { select: { id: true, code: true, name: true } }, _count: { select: { responses: { where: { outcome: 'complete', source: { not: 'preview' }, rejectedAt: null } } } } }, orderBy: [{ name: 'asc' }, { id: 'asc' }], ...page });
     return rows.map(({ _count, ...s }) => ({ ...s, completes: _count.responses }));
   }
 
@@ -169,6 +176,33 @@ export class SurveysService {
     };
   }
 
+  /**
+   * Flow (Sankey), fieldwork trend and segmentation over the same completed responses that
+   * results() uses. Each view reports its own error instead of failing the others.
+   */
+  async explore(ctx: Ctx, id: string, o: ExploreOpts = {}) {
+    const s = await this.get(ctx, id);
+    if (!s.definition) throw new BadRequestException('This survey has no programmed definition yet');
+    const rows = await this.db.response.findMany({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null }, select: { id: true, answers: true, flags: true, weight: true, completedAt: true, source: true } });
+    const used = o.excludeFlagged ? rows.filter((r) => !r.flags.length) : rows;
+    const weighted = !!o.weighted && !!(s.dp as DpConfig | null)?.weighting;
+    const data = used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never>, completedAt: r.completedAt, ...(weighted ? { weight: r.weight } : {}) }));
+    const qs = s.definition.questions;
+    const flowable = flowQuestions(qs);
+    const segVars = segmentationVariables(qs).map((v) => ({ id: v.id, label: v.label }));
+    const attempt = <T,>(f: () => T): { ok: true; data: T } | { ok: false; error: string } => { try { return { ok: true, data: f() }; } catch (e) { return { ok: false, error: (e as Error).message }; } };
+    // Default flow: first single-choice question into the NPS question (or the last one).
+    const from = o.from ?? flowable[0]?.id;
+    const to = o.to ?? (qs.find((q) => q.type === 'nps' && q.id !== from)?.id ?? flowable.filter((q) => q.id !== from).slice(-1)[0]?.id);
+    return {
+      survey: { id: s.id, name: s.name }, base: data.length, weighted, synthetic: rows.filter((r) => r.source.startsWith('synthetic:')).length,
+      options: { flow: flowable, segmentation: segVars, trend: qs.filter((q) => ['nps', 'numeric', 'single', 'multi'].includes(q.type)).map((q) => ({ id: q.id, text: q.text, type: q.type, options: q.options?.map((x) => ({ code: x.code, label: x.label })) ?? [] })) },
+      flow: from && to ? attempt(() => responseFlow(qs, data, from, to)) : { ok: false as const, error: 'This survey needs two single-choice or NPS questions for a flow' },
+      trend: attempt(() => responseTrend(qs, data, { interval: o.interval, questionId: o.trendQ, code: o.trendCode })),
+      segments: attempt(() => responseSegments(qs, data, { k: o.k ?? 3 })),
+    };
+  }
+
   async report(ctx: Ctx, id: string, o: ResultsOpts = {}) {
     const r = await this.results(ctx, id, o);
     if (!r.base) throw new BadRequestException('No completed responses to report on yet');
@@ -228,7 +262,7 @@ export class SurveysController {
   constructor(private s: SurveysService) {}
 
   /** Listed for Insight Studio too (names and status only), so analysts can pick a survey. */
-  @ForModule('analytics') @Get() list(@Caller() ctx: Ctx) { return this.s.list(ctx); }
+  @ForModule('analytics') @Get() async list(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.list(ctx, pg), pg.want, res); }
   @Get(':id') get(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.get(ctx, id); }
   @Get(':id/versions') versions(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.versions(ctx, id); }
 
@@ -242,6 +276,11 @@ export class SurveysController {
   async exportCsv(@Caller() ctx: Ctx, @Param('id') id: string, @Res({ passthrough: true }) res: Response) {
     res.setHeader('content-disposition', `attachment; filename="${id}-responses.csv"`);
     return this.s.csv(ctx, id);
+  }
+
+  @ForModule('analytics') @Get(':id/explore')
+  explore(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown) {
+    return this.s.explore(ctx, id, exploreQuery(q));
   }
 
   @ForModule('analytics') @Get(':id/results')

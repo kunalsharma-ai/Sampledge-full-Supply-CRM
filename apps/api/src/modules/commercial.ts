@@ -1,10 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Injectable, NotFoundException, Param, Patch, Post } from '@nestjs/common';
+import type { Response } from 'express';
+import { BadRequestException, Body, Controller, Get, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { crmStages, estimateCpi, type CrmStage, type Vendor as CoreVendor } from '@sampledge/core';
 import { z } from 'zod';
 import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { emit } from '../common/events';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { redactMargins } from '../common/redact';
 import { parse } from '../common/zod';
@@ -29,15 +31,15 @@ const StageBody = z.object({ stage: z.enum(crmStages as unknown as [CrmStage, ..
 export class CommercialService {
   constructor(private db: PrismaService, private audit: AuditService) {}
 
-  clients(ctx: Ctx) {
+  clients(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
     return this.db.client.findMany({
       where: { tenantId: ctx.tenantId, ...(ctx.role === 'client' ? { id: ctx.clientId ?? '__none__' } : {}) },
-      orderBy: { name: 'asc' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }], ...page,
     });
   }
 
-  async opportunities(ctx: Ctx) {
-    const rows = await this.db.opportunity.findMany({ where: { tenantId: ctx.tenantId }, include: { quotes: { orderBy: { version: 'desc' } } }, orderBy: { createdAt: 'desc' } });
+  async opportunities(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
+    const rows = await this.db.opportunity.findMany({ where: { tenantId: ctx.tenantId }, include: { quotes: { orderBy: { version: 'desc' } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page });
     return rows.map((r) => redactMargins(ctx, r));
   }
 
@@ -147,10 +149,10 @@ export class CommercialController {
   constructor(private s: CommercialService) {}
 
   @ForModule('projects') @Get('clients')
-  clients(@Caller() ctx: Ctx) { return this.s.clients(ctx); }
+  async clients(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.clients(ctx, pg), pg.want, res); }
 
   @ForModule('crm') @Get('opportunities')
-  list(@Caller() ctx: Ctx) { return this.s.opportunities(ctx); }
+  async list(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.opportunities(ctx, pg), pg.want, res); }
 
   @ForModule('crm') @Get('opportunities/:id')
   get(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.opportunity(ctx, id); }

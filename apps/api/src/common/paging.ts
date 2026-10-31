@@ -18,3 +18,14 @@ export function paged<T extends { id: string }>(rows: T[], want: number, res?: R
   res?.setHeader('X-Next-Cursor', page[page.length - 1].id);
   return page;
 }
+
+export type Page = ReturnType<typeof pageArgs>;
+/** What a service uses when called without paging arguments (internal callers): up to 500 rows. */
+export const DEFAULT_PAGE: Page = { take: 501, want: 500 };
+
+/** Paging for lists filtered in memory after the query (same contract as `paged`). */
+export function pageInMemory<T extends { id: string }>(rows: T[], q: unknown, res?: Response, max = 500, def = 500) {
+  const { want, cursor } = pageArgs(q, max, def);
+  const start = cursor ? rows.findIndex((r) => r.id === cursor.id) + 1 : 0;
+  return paged(rows.slice(start, start + want + 1), want, res);
+}

@@ -74,6 +74,7 @@ type Actions = {
   toggleAgent: (id: string) => void;
   decideApproval: (id: string, d: 'approved' | 'rejected') => void;
   markAllRead: () => void;
+  markRead: (id: string) => void;
   resetDemo: () => void;
   boot: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -269,6 +270,11 @@ export const useOS = create<State & Actions>()(
         markAllRead: () => {
           set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) }));
           if (live()) void sync(api('/notifications/read-all', { method: 'POST' }));
+        },
+        markRead: (id) => {
+          if (get().notifications.find((n) => n.id === id)?.read) return;
+          set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) }));
+          if (live()) void sync(api(`/notifications/${id}/read`, { method: 'POST' }));
         },
         resetDemo: () => {
           if (live()) {

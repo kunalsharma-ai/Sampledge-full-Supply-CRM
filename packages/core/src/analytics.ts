@@ -75,12 +75,12 @@ export function crosstab(d: Resp[], w: number[], row: CatVar, col: CatVar, metri
 /** Deterministic k-means (k-means++ seeding from fixed RNG). */
 export function kmeans(points: number[][], k = 3, iters = 25) {
   const r = rng(99);
-  const cents: number[][] = [points[Math.floor(r() * points.length)]];
+  const cents: number[][] = [points[Math.floor(r() * points.length)].slice()];
   while (cents.length < k) {
     const d2 = points.map((p) => Math.min(...cents.map((c) => c.reduce((s, v, i) => s + (v - p[i]) ** 2, 0))));
     let x = r() * d2.reduce((s, v) => s + v, 0);
     let idx = 0; for (; idx < d2.length; idx++) { x -= d2[idx]; if (x <= 0) break; }
-    cents.push(points[Math.min(idx, points.length - 1)]);
+    cents.push(points[Math.min(idx, points.length - 1)].slice());
   }
   let assign = points.map(() => 0);
   for (let t = 0; t < iters; t++) {

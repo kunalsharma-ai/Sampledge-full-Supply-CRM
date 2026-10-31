@@ -1,8 +1,10 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Post } from '@nestjs/common';
+import type { Response } from 'express';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Post, Query, Res } from '@nestjs/common';
 import { can, rankVendors } from '@sampledge/core';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, Write, type Ctx } from '../common/context';
+import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
@@ -60,10 +62,10 @@ export class FeasibilityService {
   }
 
   /** Vendor portal inbox (vendor: own requests only; internal roles: all). No client identity. */
-  async inbox(ctx: Ctx) {
+  async inbox(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
     const rows = await this.db.feasibilityRequest.findMany({
       where: { tenantId: ctx.tenantId, ...(ctx.role === 'vendor' ? { vendorId: ctx.vendorId ?? '__none__' } : {}) },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page,
     });
     return rows.map(({ opportunityId, ...r }) => ({ ...r, reference: `RFQ-${opportunityId.slice(-6).toUpperCase()}` }));
   }
@@ -102,7 +104,7 @@ export class FeasibilityController {
   list(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.forOpportunity(ctx, id); }
 
   @ForModule('vendor-portal') @Get('feasibility')
-  inbox(@Caller() ctx: Ctx) { return this.s.inbox(ctx); }
+  async inbox(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.inbox(ctx, pg), pg.want, res); }
 
   @ForModule('vendor-portal') @Write({ allowScoped: true }) @Post('feasibility/:id/respond') @HttpCode(200)
   respond(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) {
