@@ -13,9 +13,10 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   const apiGet = (path) => p.evaluate(async (u) => (await fetch(u)).json(), `/api/v1${path}`);
   const apiSend = (method, path, body) => p.evaluate(async ([m, u, b]) => { const r = await fetch(u, { method: m, headers: { 'content-type': 'application/json' }, body: JSON.stringify(b ?? {}) }); return { status: r.status, body: await r.json() }; }, [method, `/api/v1${path}`, body]);
   const until = async (fn, what) => { for (let i = 0; i < 60; i++) { if (await fn()) return true; await p.waitForTimeout(250); } throw new Error(`timed out: ${what}`); };
-  // Pages render after the session and records load, so wait for the app frame, not just the network.
+  // Pages render after the session and records load, so wait for the app frame. Not 'networkidle':
+  // the live-updates stream keeps a request open for as long as the page is.
   const go = async (path) => {
-    await p.goto(B + path, { waitUntil: 'networkidle' });
+    await p.goto(B + path, { waitUntil: 'load' });
     try { await p.locator('#main').waitFor({ timeout: 20000 }); } catch (e) { await p.screenshot({ path: 'e2e-failure.png' }); throw new Error(`${path}: app frame did not render (url ${p.url()})`); }
     await p.waitForTimeout(300);
   };
@@ -31,7 +32,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   };
 
   // 1 Unauthenticated users land on sign-in
-  await p.goto(B + '/command-center', { waitUntil: 'networkidle' });
+  await p.goto(B + '/command-center', { waitUntil: 'load' });
   await p.waitForURL(/\/login/, { timeout: 15000 });
   ok('Signed-out visit redirects to /login', p.url().includes('/login?next=%2Fcommand-center'));
 
@@ -48,7 +49,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   const title = (await p.locator('[role=dialog] .font-display').first().textContent()).trim();
   await p.locator('[role=dialog] button', { hasText: /^Won$/ }).click();
   await p.getByText(/Project SE-26\d+ created/).first().waitFor({ timeout: 15000 });
-  await p.reload({ waitUntil: 'networkidle' });
+  await p.reload({ waitUntil: 'load' });
   const projects = await apiGet('/projects');
   ok(`Won deal "${title}" creates a project that survives reload`, projects.some((x) => x.name === title));
 
@@ -90,7 +91,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
 
   // 8 Respondent runtime (public page, server-side routing)
   const r = await b.newPage();
-  await r.goto(B + '/r/sv-cloud?src=e2e', { waitUntil: 'networkidle' });
+  await r.goto(B + '/r/sv-cloud?src=e2e', { waitUntil: 'load' });
   await r.getByRole('button', { name: 'Not employed' }).click();
   await r.getByRole('button', { name: 'Next' }).click();
   await r.getByText('Thanks for your time').waitFor({ timeout: 10000 });
@@ -179,7 +180,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   // A second browser signed in as Business Development should be told live when the client submits.
   const ctx2 = await b.newContext({ viewport: { width: 1300, height: 900 } });
   const q2 = await ctx2.newPage();
-  await q2.goto(B + '/login', { waitUntil: 'networkidle' });
+  await q2.goto(B + '/login', { waitUntil: 'load' });
   await q2.getByLabel('Work email').fill('bizdev@demo.sampledge.test');
   await q2.getByLabel('Password').fill('demo1234');
   await q2.getByRole('button', { name: 'Sign in', exact: true }).click();
