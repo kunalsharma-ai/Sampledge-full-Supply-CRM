@@ -29,12 +29,13 @@ const brief = (v: unknown) => {
 function Overview({ users }: { users: Member[] | null }) {
   const sec = useLive<Security>('/admin/security');
   const sso = useLive<{ enabled: boolean; label: string | null }>('/auth/sso/config');
+  const saml = useLive<{ enabled: boolean; label: string | null }>('/auth/saml/config');
   const r = sec.data?.rowLevelSecurity;
   const mfa = users ? users.filter((u) => u.mfaEnabled).length : 0;
   const checks = [
     { ok: !!r?.enforced, title: 'Row-level security enforced', body: r ? `${r.tablesWithForcedPolicies} of ${r.tablesWithTenantColumn} tenant tables have forced policies. ${r.tenantSeenByDatabase === 'matches your tenant' ? 'The database is scoped to this workspace.' : 'The database is not scoped to this workspace on this request.'}` : 'Checking…' },
     { ok: r ? !r.roleBypassesRls : false, title: 'API runs as an ordinary database role', body: r ? (r.note ?? `Connected as "${r.databaseRole}", which cannot bypass the policies.`) : 'Checking…' },
-    { ok: !!sso.data?.enabled, title: 'Single sign-on', body: sso.data?.enabled ? `On: ${sso.data.label}.` : 'Off. People sign in with a password and optional authenticator code. Set the OIDC_ variables to turn it on.' },
+    { ok: !!(sso.data?.enabled || saml.data?.enabled), title: 'Single sign-on', body: [sso.data?.enabled && `OpenID Connect on: ${sso.data.label}.`, saml.data?.enabled && `SAML on: ${saml.data.label}.`].filter(Boolean).join(' ') || 'Off. People sign in with a password and optional authenticator code. Set the OIDC_ or SAML_ variables to turn it on.' },
     { ok: users ? mfa === users.length : false, title: 'Two-step sign-in', body: users ? `${mfa} of ${users.length} people use an authenticator app.` : 'Checking…' },
   ];
   return (

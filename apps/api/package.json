@@ -20,6 +20,7 @@
     "@nestjs/jwt": "11.0.0",
     "@nestjs/platform-express": "11.1.6",
     "@nestjs/throttler": "6.4.0",
+    "@node-saml/node-saml": "5.2.0",
     "@prisma/client": "6.19.0",
     "@sampledge/core": "*",
     "bcryptjs": "3.0.2",
@@ -49,6 +50,7 @@
     "concurrently": "9.2.1",
     "prisma": "6.19.0",
     "smtp-server": "^3.13.6",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "xml-crypto": "6.4.0"
   }
 }
