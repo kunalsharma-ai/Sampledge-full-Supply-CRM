@@ -185,6 +185,7 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET | `/admin/audit/facets` | record types and actions in the audit trail, with counts |
 | GET | `/live` | Server-Sent Events: `change` `{type}` for the workspace, `notification` `{type,module,title}` for the caller's role |
 | GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
+| GET · POST | `/auth/saml/config` · `/auth/saml/metadata` · `/auth/saml/start?next=` · POST `/auth/saml/acs` · `/auth/saml/finish` | SAML 2.0 sign-in (public). The ACS validates and hands over to `/finish`, which checks the browser's flow cookie before setting the session |
 | GET | `/metrics` | Prometheus text; requires `Authorization: Bearer $METRICS_TOKEN`, 404 otherwise |
 | GET | `/integrations` | `integrations` module: `[{id, name, group, state: connected\|configured\|development\|off\|not_built, detail, settings[{name, set}], lastActivity}]`; read from server settings and recent activity, never returns secret values. The panel rows show settings only to the workspace that owns the panels |
 

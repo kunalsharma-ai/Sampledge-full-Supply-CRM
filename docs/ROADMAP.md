@@ -15,7 +15,8 @@
 | **Panel project sync (v0.11.0)** ✅ | Project, markets and quotas sent to the panel; reach check; live status; idempotent response import; backend patch for the panel team (models, migration, Sampledge routes) | 8 tests against a stand-in of the panel routes; panel-side routes tested on MongoDB 7; not yet run against the live panels |
 | **Admin & Security** ✅ | People and roles (granting Platform Admin is approval-gated), sign out everywhere, audit trail viewer with filters, live security posture, role matrix | 7 new API tests |
 | **SMTP e-mail (Comms Hub)** ✅ | SMTP delivery adapter, off until `SMTP_HOST` and `SMTP_FROM` are set; sent-once, blind copies, failed and not-sent states with reasons | 5 tests against a local SMTP server |
-| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; SAML; SMS adapter; AI evaluation scores on Claude (needs an API key); external pen test | |
+| **SAML sign-in** ✅ | SAML 2.0 single sign-on next to OpenID Connect: service metadata, signed-assertion checks, replay and cross-browser protection, login button, Integrations row | 8 tests against a stand-in identity provider; not yet run against a real provider |
+| Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; SMS adapter; real-provider SSO checks; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4
 - **Postgres outbox instead of Redis.** Events commit with the change that caused them, and the worker claims them with `FOR UPDATE SKIP LOCKED`. This removes a service and a failure mode; the claim function is the single place to swap in a broker if volume calls for it.
