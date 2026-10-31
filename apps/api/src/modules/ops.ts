@@ -130,6 +130,14 @@ export class ApprovalsService {
         if (r.survey.projectId) await tx.project.update({ where: { id: r.survey.projectId }, data: { completes: { decrement: 1 } } });
         return `Interview rejected and removed from results; ${freed} quota place${freed === 1 ? '' : 's'} released`;
       }
+      case 'Granting admin access': {
+        if (!ok) return 'Request rejected; role unchanged';
+        const m = await tx.membership.findFirst({ where: { tenantId, userId: String(p.userId) } });
+        if (!m || m.role === 'vendor' || m.role === 'client') return 'Member is no longer eligible; role unchanged';
+        if (m.role === 'platform_admin') return 'Already a platform admin';
+        await tx.membership.update({ where: { id: m.id }, data: { role: 'platform_admin' } });
+        return `Role changed from ${m.role} to platform_admin`;
+      }
       case 'Deleting records': {
         if (!p.panelistId) return ok ? 'Recorded' : 'Rejected';
         if (!ok) {

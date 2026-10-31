@@ -200,7 +200,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Admin & Security feature | Status | Notes |
 |---|---|---|
 | Security posture: row-level security, database role, SSO and two-step sign-in coverage | Functional | Read from Postgres on each visit (`GET /admin/security`), not from configuration |
-| People and roles: members, role, two-step state, active sessions, last sign-in | Functional, tested | Platform admins change internal roles; vendor and client accounts keep theirs; nobody changes their own role, so a workspace always keeps a platform admin. Audited |
+| People and roles: members, role, two-step state, active sessions, last sign-in | Functional, tested | Platform admins change internal roles; vendor and client accounts keep theirs; nobody changes their own role, so a workspace always keeps a platform admin. Granting Platform Admin is an approval decided by someone else. Audited |
 | Sign out everywhere | Functional, tested | Revokes a member's live sessions in this workspace; audited |
 | Audit trail viewer with record type, action and actor filters | Functional, tested | Append-only; written in the same transaction as each change |
 | Role matrix | Functional | The same matrix the API guards use |

@@ -50,15 +50,26 @@ describe('admin: people and roles', () => {
     assert.equal((await as('platform_admin').patch(`/admin/users/${iso}/role`, { role: 'executive' })).status, 404, 'other tenants’ members are not found');
   });
 
-  it('one admin can demote another, and the change applies at once', async () => {
+  it('granting admin needs someone else’s approval; demotion applies at once', async () => {
     const me = (await as('platform_admin').get('/admin/users')).body.find((u: { you: boolean }) => u.you).id;
     // Admins cannot change their own role, so a workspace always keeps at least one platform admin.
-    assert.equal((await as('platform_admin').patch(`/admin/users/${pm2Id}/role`, { role: 'platform_admin' })).status, 200);
+    const req = await as('platform_admin').patch(`/admin/users/${pm2Id}/role`, { role: 'platform_admin' });
+    assert.equal(req.status, 200, JSON.stringify(req.body));
+    assert.equal(req.body.changed, false, 'granting admin waits for an approval');
+    assert.equal((await as('pm2').get('/auth/me')).body.role, 'project_manager');
+    assert.equal((await as('platform_admin').patch(`/admin/users/${pm2Id}/role`, { role: 'platform_admin' })).status, 400, 'one open request at a time');
+    assert.equal((await as('platform_admin').post(`/approvals/${req.body.approvalId}/decision`, { decision: 'approved' })).status, 403, 'the requester cannot decide');
+    assert.equal((await as('project_manager').post(`/approvals/${req.body.approvalId}/decision`, { decision: 'approved' })).status, 403, 'a project manager cannot decide');
+    const ok = await as('executive').post(`/approvals/${req.body.approvalId}/decision`, { decision: 'approved' });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.match(ok.body.effect, /platform_admin/);
+    assert.equal((await as('pm2').get('/auth/me')).body.role, 'platform_admin');
     assert.equal((await as('pm2').patch(`/admin/users/${me}/role`, { role: 'executive' })).status, 200);
     assert.equal((await as('platform_admin').post(`/admin/users/${pm2Id}/sessions/revoke`)).status, 403, 'the demoted admin loses write access at once');
     assert.equal((await as('pm2').patch(`/admin/users/${pm2Id}/role`, { role: 'executive' })).status, 403, 'pm2 cannot demote itself either');
     const back = await call('PATCH', `/admin/users/${me}/role`, { role: 'platform_admin' }, h.tokens.pm2);
     assert.equal(back.status, 200);
+    assert.equal((await as('executive').post(`/approvals/${back.body.approvalId}/decision`, { decision: 'approved' })).status, 200);
     assert.equal((await as('platform_admin').patch(`/admin/users/${pm2Id}/role`, { role: 'project_manager' })).status, 200);
     const solo = await as('platform_admin').get('/admin/users');
     assert.equal(solo.body.filter((u: { role: string }) => u.role === 'platform_admin').length, 1);

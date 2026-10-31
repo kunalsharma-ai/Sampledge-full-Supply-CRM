@@ -5,6 +5,7 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, NotFoundException, Param, Patch, Post } from '@nestjs/common';
 import type { Role } from '@sampledge/core';
 import { z } from 'zod';
+import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
@@ -47,7 +48,10 @@ export class AdminController {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** Changes a member's role. Not your own, not to or from vendor/client, and never the last platform admin. */
+  /**
+   * Changes a member's role. Not your own, not to or from vendor/client, and never the last platform admin.
+   * Granting platform admin is a 'Granting admin access' approval that someone else decides.
+   */
   @Patch('users/:id/role')
   @Write()
   async setRole(@Caller() ctx: Ctx, @Param('id') id: string, @Body() body: unknown) {
@@ -61,6 +65,13 @@ export class AdminController {
       if (m.role === 'platform_admin') {
         const admins = await tx.membership.count({ where: { tenantId: ctx.tenantId, role: 'platform_admin' } });
         if (admins <= 1) throw new BadRequestException('This is the last platform admin. Make someone else an admin first.');
+      }
+      if (role === 'platform_admin') {
+        const open = await tx.approval.findFirst({ where: { tenantId: ctx.tenantId, kind: 'Granting admin access', status: 'pending', payload: { path: ['userId'], equals: id } } });
+        if (open) throw new BadRequestException('A request to make this person a platform admin is already waiting for a decision.');
+        const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'Granting admin access', title: `Make ${m.user.name} a Platform Admin (now ${m.role})`, requestedBy: ctx.userId, payload: { userId: id, from: m.role } });
+        await this.audit.log(ctx, 'role.change_requested', 'User', id, { name: m.user.name, role: m.role }, { name: m.user.name, role, approvalId: ap.id }, tx);
+        return { id, role: m.role, changed: false, approvalId: ap.id };
       }
       await tx.membership.update({ where: { id: m.id }, data: { role } });
       // A role change takes effect on the next request; existing sessions stay valid but read the new role.

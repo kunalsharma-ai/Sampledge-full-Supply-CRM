@@ -70,7 +70,7 @@ function People({ q, write }: { q: ReturnType<typeof useLive<Member[]>>; write: 
   const [busy, setBusy] = useState<string | null>(null);
   const setRole = async (u: Member, role: Role) => {
     setBusy(u.id);
-    await act(() => api(`/admin/users/${u.id}/role`, { method: 'PATCH', body: { role } }), `${u.name} is now ${roleLabel(role)}`);
+    await act(() => api<{ approvalId?: string }>(`/admin/users/${u.id}/role`, { method: 'PATCH', body: { role } }), (r) => r.approvalId ? `Request sent: someone else approves ${u.name} as Platform Admin in AI Automation → Approvals` : `${u.name} is now ${roleLabel(role)}`);
     setBusy(null); q.reload();
   };
   const signOut = async (u: Member) => {
@@ -81,7 +81,7 @@ function People({ q, write }: { q: ReturnType<typeof useLive<Member[]>>; write: 
   return (
     <Panel>
       <PanelHeader eyebrow="People and roles" title="Who can sign in to this workspace"
-        info="Role changes apply on the person's next request. Vendor and client accounts are tied to their vendor or client record, so their role is fixed here."
+        info="Role changes apply on the person's next request. Making someone a Platform Admin needs an approval from another admin or an executive. Vendor and client accounts are tied to their vendor or client record, so their role is fixed here."
         actions={<SearchInput value={search} onChange={setSearch} placeholder="Search people…" className="w-56" />} />
       <Loadable q={q}>{(rows) => {
         const list = rows.filter((u) => `${u.name} ${u.email} ${roleLabel(u.role)}`.toLowerCase().includes(search.toLowerCase()));
