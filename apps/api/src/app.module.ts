@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule, ThrottlerStorage } from '@nestjs/throt
 import { SharedThrottlerStorage } from './common/rate-limit-store';
 import { PanelBackend } from './integrations/panel-backend';
 import { PanelBackendController, PanelBackendService } from './integrations/panel-backend.controller';
+import { PanelSyncService } from './integrations/panel-sync.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
@@ -62,7 +63,7 @@ class HealthController {
   async health() {
     await this.db.$queryRaw`SELECT 1`;
     const pending = await this.db.outboxEvent.count({ where: { processedAt: null } });
-    return { status: 'ok', db: 'ok', version: '0.10.0', outboxPending: pending };
+    return { status: 'ok', db: 'ok', version: '0.11.0', outboxPending: pending };
   }
 }
 
@@ -74,7 +75,7 @@ class HealthController {
   controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController, AdminController, DpController, SsoController, LiveController, PanelBackendController, IntegrationsController],
   providers: [
     PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, LiveHub,
-    SharedThrottlerStorage, PanelBackend, PanelBackendService, IntegrationsService,
+    SharedThrottlerStorage, PanelBackend, PanelBackendService, PanelSyncService, IntegrationsService,
     { provide: ThrottlerStorage, useExisting: SharedThrottlerStorage },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
