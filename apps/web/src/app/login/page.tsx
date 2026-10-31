@@ -14,7 +14,11 @@ function LoginForm() {
   const params = useSearchParams();
   const next = params.get('next') || '/command-center';
   const [sso, setSso] = useState<{ enabled: boolean; label: string | null } | null>(null);
-  useEffect(() => { fetch('/api/v1/auth/sso/config').then((r) => (r.ok ? r.json() : null)).then(setSso).catch(() => setSso(null)); }, []);
+  const [saml, setSaml] = useState<{ enabled: boolean; label: string | null } | null>(null);
+  useEffect(() => {
+    fetch('/api/v1/auth/sso/config').then((r) => (r.ok ? r.json() : null)).then(setSso).catch(() => setSso(null));
+    fetch('/api/v1/auth/saml/config').then((r) => (r.ok ? r.json() : null)).then(setSaml).catch(() => setSaml(null));
+  }, []);
   const mode = useOS((s) => s.mode);
   const session = useOS((s) => s.session);
   const signIn = useOS((s) => s.signIn);
@@ -77,6 +81,7 @@ function LoginForm() {
           <Button type="submit" variant="primary" className="w-full" disabled={!!busy}>{busy === 'form' ? <Loader2 size={14} className="animate-spin" /> : null}{challenge ? 'Verify' : 'Sign in'}</Button>
           {challenge && <button type="button" className="w-full text-center text-2xs text-ink-3 hover:text-ink" onClick={() => { setChallenge(null); setCode(''); }}>Use a different account</button>}
           {sso?.enabled && !challenge && <a href={`/api/v1/auth/sso/start?next=${encodeURIComponent(next)}`} className="flex h-9 w-full items-center justify-center rounded-xl border hairline text-[13px] font-medium hover:bg-surface-2/60">{sso.label}</a>}
+          {saml?.enabled && !challenge && <a href={`/api/v1/auth/saml/start?next=${encodeURIComponent(next)}`} className="flex h-9 w-full items-center justify-center rounded-xl border hairline text-[13px] font-medium hover:bg-surface-2/60">{saml.label}</a>}
         </form>
 
         {demoLoginsEnabled && !challenge && (

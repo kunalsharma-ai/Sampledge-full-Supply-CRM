@@ -66,13 +66,14 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
   private lastSweep = 0;
   private lastImport = 0;
-  /** Housekeeping once an hour: expired idempotency keys and finished rate-limit windows. */
+  /** Housekeeping once an hour: expired idempotency keys, finished rate-limit windows, expired SAML keys. */
   async sweep() {
     this.lastSweep = Date.now();
     const keys = await this.db.idempotencyKey.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 24 * 3600_000) } } });
     if (keys.count) this.log.log(`swept ${keys.count} expired idempotency keys`);
     const buckets = await this.db.rateLimitBucket.deleteMany({ where: { resetAt: { lt: new Date(Date.now() - 3600_000) }, OR: [{ blockedUntil: null }, { blockedUntil: { lt: new Date() } }] } });
     if (buckets.count) this.log.log(`swept ${buckets.count} old rate-limit windows`);
+    await this.db.samlCache.deleteMany({ where: { expiresAt: { lt: new Date() } } });
     // A panel call still "sending" after 10 minutes was interrupted mid-request: a person checks
     // the panel before anything is sent again.
     const stuck = await this.db.panelCall.updateMany({ where: { status: 'sending', createdAt: { lt: new Date(Date.now() - 600_000) } }, data: { status: 'needs_review', error: 'Interrupted while sending; check the panel before retrying' } });

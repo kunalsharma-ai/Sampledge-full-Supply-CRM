@@ -637,3 +637,13 @@ model PanelResponse {
   @@unique([tenantId, panel, responseID])
   @@index([tenantId, projectId, status])
 }
+
+/// SAML request IDs and used assertions, shared by every API instance. Not tenant data.
+model SamlCache {
+  key       String   @id
+  value     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
