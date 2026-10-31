@@ -7,7 +7,7 @@ export function parse<S extends ZodTypeAny>(schema: S, input: unknown): z.output
   if (!r.success) {
     throw new BadRequestException({
       message: 'Validation failed',
-      issues: r.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      issues: r.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
     });
   }
   return r.data;

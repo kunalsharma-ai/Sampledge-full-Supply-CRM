@@ -122,7 +122,7 @@ export class CommsController {
     return this.s.preview(ctx, x.audience, x.target);
   }
   @Post('render') render(@Caller() ctx: Ctx, @Body() b: unknown) {
-    const x = parse(z.object({ key: z.string(), vars: z.record(z.string().max(500)).default({}) }), b);
+    const x = parse(z.object({ key: z.string(), vars: z.record(z.string(), z.string().max(500)).default({}) }), b);
     return this.s.render(ctx, x.key, x.vars);
   }
   @Write({ allowScoped: true }) @Post('messages')

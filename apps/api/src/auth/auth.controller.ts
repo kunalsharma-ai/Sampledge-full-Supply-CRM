@@ -59,8 +59,14 @@ export class AuthController {
   }
 
   @Post('mfa/enroll')
-  enroll(@Caller() ctx: Ctx) {
-    return this.auth.enrollMfa(ctx);
+  enroll(@Caller() ctx: Ctx, @Body() body: unknown) {
+    return this.auth.enrollMfa(ctx, parse(z.object({ code: z.string().regex(/^\d{6}$/).optional() }), body ?? {}).code);
+  }
+
+  @Post('mfa/disable')
+  @HttpCode(200)
+  disable(@Caller() ctx: Ctx, @Body() body: unknown) {
+    return this.auth.disableMfa(ctx, parse(z.object({ code: z.string().regex(/^\d{6}$/) }), body).code);
   }
 
   @Post('mfa/activate')

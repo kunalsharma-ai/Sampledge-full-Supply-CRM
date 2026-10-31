@@ -251,7 +251,7 @@ function CrmInner() {
               <PanelHeader eyebrow="Funnel" title="Stage conversion" />
               <EChart ariaLabel="Sales funnel" height={260} deps={[s.opportunities]} option={() => ({
                 tooltip: { trigger: 'item', formatter: '{b}: {c}' },
-                series: [{ type: 'funnel', left: 10, right: 10, top: 6, bottom: 6, gap: 3, sort: 'none', minSize: '18%', label: { color: '#fff', fontSize: 11, formatter: '{b}  {c}' }, itemStyle: { borderWidth: 0 },
+                series: [{ type: 'funnel', left: 10, right: 10, top: 6, bottom: 6, gap: 3, sort: 'none', minSize: '18%', label: { position: 'inside', color: '#fff', fontSize: 11, formatter: '{b}  {c}' }, itemStyle: { borderWidth: 0 },
                   data: crmStages.slice(0, 6).map((st, i) => ({ name: st, value: s.opportunities.filter((o) => crmStages.indexOf(o.stage) >= i && o.stage !== 'Lost').length, itemStyle: { color: [palette.blue, '#2F7CFB', palette.cyan, palette.purple, palette.magenta, palette.emerald][i] } })) }],
               })} />
             </Panel>
@@ -275,7 +275,7 @@ function CrmInner() {
               <PanelHeader eyebrow="Win / loss" title="Outcomes and loss reasons" />
               <EChart ariaLabel="Win loss" height={260} deps={[s.opportunities]} option={() => ({
                 tooltip: { trigger: 'item' },
-                series: [{ type: 'pie', radius: ['52%', '78%'], padAngle: 2, itemStyle: { borderRadius: 6 }, label: { color: 'inherit', fontSize: 11 },
+                series: [{ type: 'pie', radius: ['44%', '66%'], padAngle: 2, itemStyle: { borderRadius: 6 }, label: { color: 'inherit', fontSize: 11, formatter: '{b}\n{c}', alignTo: 'edge', edgeDistance: 6, overflow: 'none' }, labelLine: { length: 8, length2: 0 },
                   data: [{ name: 'Won', value: won.length, itemStyle: { color: palette.emerald } }, ...['Price', 'Timeline', 'Feasibility'].map((r, i) => ({ name: `Lost: ${r}`, value: lost.filter((o) => o.lossReason === r).length, itemStyle: { color: [palette.danger, palette.orange, palette.magenta][i] } }))].filter((d) => d.value > 0) }],
               })} />
             </Panel>

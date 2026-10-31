@@ -13,6 +13,7 @@
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
+import { prismaOptions } from './common/db-adapter';
 import bcrypt from 'bcryptjs';
 
 export type NewWorkspace = { name: string; slug: string; adminEmail: string; adminName: string };
@@ -51,7 +52,7 @@ function arg(argv: string[], name: string) {
 }
 
 async function main(argv: string[]) {
-  const db = new PrismaClient();
+  const db = new PrismaClient(prismaOptions());
   try {
     if (argv[0] === 'list') {
       console.table((await listWorkspaces(db)).map((t) => ({ ...t, createdAt: t.createdAt.toISOString().slice(0, 10) })));

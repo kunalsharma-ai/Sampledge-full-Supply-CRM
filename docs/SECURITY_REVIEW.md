@@ -33,14 +33,14 @@ The few signed-in routes without a module check (approvals, notifications, own a
 | Package | Severity | Why it is not fixed here | Exposure |
 |---|---|---|---|
 | `multer` (via NestJS) | High | The fix needs NestJS 12 | Multer handles file uploads, and no route accepts multipart uploads (documents come as base64 JSON). Not reachable |
-| `prisma`, `@prisma/config`, `effect`, `deepmerge-ts` | High | The fix is Prisma 7, a major migration | Config and CLI tooling, not request handling |
-| `zod` | High | The fix is Zod 4, a breaking API change across every validator | Memory use on oversized arrays with constraints. JSON bodies are capped at 12 MB (for base64 questionnaire uploads), which bounds the cost; only some arrays in the schemas set a max length |
 | `image-size` (via pptxgenjs) | High | Its fix is a major version under pptxgenjs | Only parses images the app itself puts in PowerPoint reports, never uploads |
 | `exceljs` → `archiver`, `glob`, `minimatch`, `uuid` | Moderate | npm's only "fix" is a downgrade to exceljs 3.4 | Used to write spreadsheets, and none of the affected functions get user input |
-| `echarts` (web) | Moderate | The fix is ECharts 6 | Chart labels are survey and project names typed by signed-in staff of the same workspace. The CSP allows `'unsafe-inline'` scripts (needed by Next), so it is not a backstop here. Worth doing with the next UI update |
-| `next` → `postcss` (web) | High | The fix is Next 16 | Build-time CSS processing of the app's own styles |
 
-Recommended next: plan the Prisma 7 and Zod 4 upgrades together as one dedicated change.
+
+## Follow-up (same day): major upgrades and two-step sign-in
+
+- **Upgraded:** Prisma 7 (driver adapter on node-postgres, `apps/api/prisma.config.ts`), Zod 4, Next 16 and ECharts 6. That closes the Prisma, Zod, Next/PostCSS and ECharts advisories. The web app now has no known advisories. The API's remaining ones are the `multer`, `image-size` and `exceljs` rows above.
+- **Two-step sign-in could be switched off with just a session.** `POST /auth/mfa/enroll` used to replace the secret and turn two-step sign-in off for anyone holding the session, so a stolen session cookie could remove it. Now, once it is on, re-enrolling needs a current code. The new device stays pending until its first code is accepted, and turning it off (`POST /auth/mfa/disable`) also needs a code. Both are audited and tested.
 
 ## Outside this repository: the Turn2Opinion panel backend
 

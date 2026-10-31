@@ -6,6 +6,7 @@
  */
 import 'dotenv/config';
 import { Prisma, PrismaClient, type Role } from '@prisma/client';
+import { prismaOptions } from './common/db-adapter';
 import { access, brandSurvey, cloudSurvey, cxResponses, cxSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
 import bcrypt from 'bcryptjs';
 
@@ -211,7 +212,7 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
 }
 
 if (require.main === module) {
-  const db = new PrismaClient();
+  const db = new PrismaClient(prismaOptions());
   runSeed(db)
     .then((r) => {
       console.log('Seeded (demo data):', r);

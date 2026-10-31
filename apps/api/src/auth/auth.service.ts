@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { permissionsFor, moduleAccess, type ModuleId } from '@sampledge/core';
 import bcrypt from 'bcryptjs';
@@ -83,18 +83,35 @@ export class AuthService {
   }
 
   /** Begins TOTP enrolment. MFA turns on only after a valid code is confirmed. */
-  async enrollMfa(ctx: Ctx) {
+  /** Starts (or restarts) enrolment. When two-step sign-in is already on, a current code is required,
+   * so a stolen session alone cannot turn it off or move it to another device. */
+  async enrollMfa(ctx: Ctx, currentCode?: string) {
+    const user = await this.db.user.findUniqueOrThrow({ where: { id: ctx.userId } });
+    if (user.mfaEnabled && (!currentCode || !user.mfaSecret || !authenticator.check(currentCode, user.mfaSecret))) {
+      throw new ForbiddenException('Two-step sign-in is already on: enter a current code from your authenticator app to set up a new device');
+    }
     const secret = authenticator.generateSecret();
-    await this.db.user.update({ where: { id: ctx.userId }, data: { mfaSecret: secret, mfaEnabled: false } });
+    // A replacement stays pending until activated; the current device keeps working until then.
+    await this.db.user.update({ where: { id: ctx.userId }, data: user.mfaEnabled ? { mfaPendingSecret: secret } : { mfaSecret: secret } });
     return { secret, otpauthUrl: authenticator.keyuri(ctx.email, 'Sampledge Research OS', secret) };
+  }
+
+  async disableMfa(ctx: Ctx, code: string) {
+    const user = await this.db.user.findUniqueOrThrow({ where: { id: ctx.userId } });
+    if (!user.mfaEnabled || !user.mfaSecret) return { mfaEnabled: false };
+    if (!authenticator.check(code, user.mfaSecret)) throw new BadRequestException('Code is incorrect');
+    await this.db.user.update({ where: { id: ctx.userId }, data: { mfaEnabled: false, mfaSecret: null, mfaPendingSecret: null } });
+    await this.audit.log(ctx, 'auth.mfa_disabled', 'User', ctx.userId);
+    return { mfaEnabled: false };
   }
 
   async activateMfa(ctx: Ctx, code: string) {
     const user = await this.db.user.findUniqueOrThrow({ where: { id: ctx.userId } });
-    if (!user.mfaSecret) throw new BadRequestException('Start enrolment first');
-    if (!authenticator.check(code, user.mfaSecret)) throw new BadRequestException('Code is incorrect');
-    await this.db.user.update({ where: { id: ctx.userId }, data: { mfaEnabled: true } });
-    await this.audit.log(ctx, 'auth.mfa_enabled', 'User', ctx.userId);
+    const secret = user.mfaEnabled ? user.mfaPendingSecret : user.mfaSecret;
+    if (!secret) throw new BadRequestException('Start enrolment first');
+    if (!authenticator.check(code, secret)) throw new BadRequestException('Code is incorrect');
+    await this.db.user.update({ where: { id: ctx.userId }, data: { mfaEnabled: true, mfaSecret: secret, mfaPendingSecret: null } });
+    await this.audit.log(ctx, user.mfaEnabled ? 'auth.mfa_device_changed' : 'auth.mfa_enabled', 'User', ctx.userId);
     return { mfaEnabled: true };
   }
 }

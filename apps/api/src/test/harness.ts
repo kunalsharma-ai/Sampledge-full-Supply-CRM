@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { prismaOptions } from '../common/db-adapter';
 
 const base = process.env.DATABASE_URL ?? 'postgresql://sampledge:sampledge@localhost:5432/sampledge?schema=public';
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? base.replace(/\/([^/?]+)(\?|$)/, '/sampledge_test$2');
@@ -57,7 +58,7 @@ export async function login(email: string, password = DEMO_PASSWORD) {
 }
 
 export async function setup() {
-  const admin = new PrismaClient({ datasources: { db: { url: base } } });
+  const admin = new PrismaClient(prismaOptions(base));
   const exists = await admin.$queryRaw<unknown[]>`SELECT 1 FROM pg_database WHERE datname = 'sampledge_test'`;
   if (!exists.length) await admin.$executeRawUnsafe('CREATE DATABASE sampledge_test');
   await admin.$disconnect();
@@ -66,7 +67,7 @@ export async function setup() {
   const { runSeed } = await import('../seed');
   const { createApp } = await import('../bootstrap');
   const { EventsWorker } = await import('../modules/worker');
-  h.db = new PrismaClient();
+  h.db = new PrismaClient(prismaOptions());
   await runSeed(h.db, { panelists: 200 });
   h.app = await createApp();
   await h.app.listen(0);

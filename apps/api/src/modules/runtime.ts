@@ -29,7 +29,7 @@ export function exitUrl(a: { completeUrl: string | null; screenoutUrl: string | 
 /** Thrown inside the completion transaction when a hard cell filled up between check and write. */
 class QuotaRace extends Error {}
 
-const AnswerValue: z.ZodType<Answer> = z.union([z.string().max(10_000), z.number(), z.array(z.string().max(200)).max(200), z.record(z.string().max(200))]);
+const AnswerValue: z.ZodType<Answer> = z.union([z.string().max(10_000), z.number(), z.array(z.string().max(200)).max(200), z.record(z.string(), z.string().max(200))]);
 
 /**
  * Respondent runtime. Respondents are anonymous: the response id is the session token.

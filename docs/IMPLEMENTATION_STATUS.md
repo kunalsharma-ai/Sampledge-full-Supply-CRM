@@ -11,7 +11,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Capability | Status | Notes |
 |---|---|---|
 | Sign-in (email + password), httpOnly session cookie, revocable sessions, logout | Functional | bcrypt hashes; JWT carries only a session id checked against the `Session` table |
-| TOTP two-factor (enrol, activate, challenge at sign-in) | Functional (API) | no enrolment screen in the UI yet; tested via API |
+| TOTP two-factor (enrol, activate, move to a new device, turn off, challenge at sign-in) | Functional, tested | **Your account** page (key icon in the top bar) with QR code; changing device or turning it off needs a current code |
 | SSO: OpenID Connect (authorization code + PKCE, signed ID token, nonce, state) | Functional, tested against a local stub provider only | users must already belong to the workspace |
 | SSO: SAML 2.0 (SP-initiated, signed assertions, issuer, audience, time window, InResponseTo, one-time use, same-browser finish) | Functional, tested against a stand-in provider only | users must already belong to the workspace; no single logout or encrypted assertions; request IDs shared across API instances in Postgres |
 | Role-based access: module access, permissions, read-only enforcement | Functional | one matrix in `packages/core/src/roles.ts` drives both the UI and the API guards |
@@ -219,7 +219,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 
 ## Known limitations
 - SSO (OpenID Connect and SAML), the Claude provider, SMTP, SMS and the panel backend are tested against local stand-ins only. Each needs a check in staging with real credentials (see SETUP_GUIDE.md).
-- Some dependency advisories remain open because their fixes are major upgrades (Prisma 7, Zod 4, Next 16, ECharts 6) or affect code paths the app does not use; each one is assessed in SECURITY_REVIEW.md.
+- A few API dependency advisories remain open (multer, image-size, exceljs's archiver chain): they affect code paths the app does not use or have no non-breaking fix. Each is assessed in SECURITY_REVIEW.md.
 - Public respondent routes and sign-in run as the system only until they resolve the workspace (the survey or the membership); from then on the database enforces that tenant. The worker handles each event as its tenant. The first lookup on those routes (survey or response by id, user by e-mail) is still unscoped by design.
 - The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.
 - The CRM quote builder and Survey Studio QA run in the browser; the API has equivalent endpoints, used for persistence and enforcement.

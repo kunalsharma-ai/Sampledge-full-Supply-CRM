@@ -71,6 +71,21 @@ describe('authentication', () => {
     const step2 = await call('POST', '/auth/mfa/verify', { challenge: step1.body.challenge, code: authenticator.generate(e.body.secret), returnToken: true });
     assert.equal(step2.status, 200);
     assert.equal((await call('GET', '/auth/me', undefined, step2.body.token)).body.role, 'data_processing');
+
+    // Once on, a session alone cannot reset it: re-enrolling needs a current code.
+    assert.equal((await call('POST', '/auth/mfa/enroll', {}, t)).status, 403);
+    const e2 = await call('POST', '/auth/mfa/enroll', { code: authenticator.generate(e.body.secret) }, t);
+    assert.equal(e2.status, 201);
+    assert.notEqual(e2.body.secret, e.body.secret);
+    assert.equal((await call('GET', '/auth/me', undefined, t)).body.user.mfaEnabled, true, 'still on while the new device is pending');
+    assert.equal((await call('POST', '/auth/mfa/activate', { code: authenticator.generate(e2.body.secret) }, t)).status, 200);
+    assert.ok(await h.db.auditLog.findFirst({ where: { action: 'auth.mfa_device_changed' } }));
+
+    // Turning it off needs a code from the current device.
+    assert.equal((await call('POST', '/auth/mfa/disable', { code: '000000' }, t)).status, 400);
+    assert.equal((await call('POST', '/auth/mfa/disable', { code: authenticator.generate(e2.body.secret) }, t)).status, 200);
+    const after = await call('POST', '/auth/login', { email: demoEmail('data_processing'), password: DEMO_PASSWORD });
+    assert.equal(after.body.mfaRequired, false, 'password alone again');
   });
 });
 

@@ -105,7 +105,7 @@ Events carry ids, not denormalised copies, and every handler is idempotent (a PO
 
 | Concern | Choice | Where |
 |---|---|---|
-| App framework | Next.js 15 App Router, React 19, TypeScript strict | `apps/web/src/app` |
+| App framework | Next.js 16 App Router, React 19, TypeScript strict | `apps/web/src/app` |
 | Styling | Tailwind 3 mapped to CSS-variable tokens; dark/light/system | `src/app/globals.css`, `tailwind.config.ts` |
 | Motion | Motion for React (layout, page transitions, counters); CSS for loops | `components/ui`, `components/shell` |
 | 3D | React Three Fiber + Drei, lazy-loaded, paused offscreen, 2D fallbacks | `components/three` |

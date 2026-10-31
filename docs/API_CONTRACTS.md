@@ -14,7 +14,9 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | POST | `/auth/mfa/verify` | `{ challenge, code }` → sets cookie |
 | POST | `/auth/logout` | revokes the session |
 | GET | `/auth/me` | user, tenant, role, vendorId/clientId, permissions, module access |
-| POST | `/auth/mfa/enroll` · `/auth/mfa/activate` | TOTP secret + otpauth URL; activate with a valid code |
+| POST | `/auth/mfa/enroll` | `{ code? }` → TOTP secret + otpauth URL. When two-step sign-in is already on, `code` (from the current device) is required (403 otherwise) and the new secret stays pending until activated |
+| POST | `/auth/mfa/activate` | `{ code }` from the new secret: turns two-step sign-in on, or moves it to the new device. Audited |
+| POST | `/auth/mfa/disable` | `{ code }` from the current device: turns two-step sign-in off. Audited |
 
 ## Projects and clients (module `projects`)
 | Method | Path | Notes |
