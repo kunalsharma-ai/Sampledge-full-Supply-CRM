@@ -28,6 +28,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Cursor paging | Functional on audit log, messages and AI usage (`X-Next-Cursor`); other lists are small and unpaged |
 | Security headers | API: CSP `default-src none`, no framing, nosniff. Web: CSP (scripts need `unsafe-inline` for Next bootstrap), Permissions-Policy, COOP, optional HSTS |
 | Observability | Request ids, JSON access logs, Prometheus metrics. No tracing backend connected |
+| Integrations page (`/integrations`) | Functional: one honest list of every outside system (three panels, Claude, SSO, email/SMS, accounting, storage/BI, metrics) with its real state from the API server's settings and last activity. Shows whether each setting is present, never its value |
 | Backup and restore | Scripts written and a round trip verified in the build container |
 | Load test | Script and measured runs on one and two instances (see DEPLOYMENT.md); not a sizing guarantee | |
 | Several API instances + separate worker | Functional, verified: `scripts/multi-instance-check.mjs` (15 checks: sessions, sign-out, idempotency replay, outbox processed by the separate worker, live updates across instances, shared sign-in limit) passes locally and runs in CI on every pull request against two API processes and a separate worker | no sticky sessions needed |

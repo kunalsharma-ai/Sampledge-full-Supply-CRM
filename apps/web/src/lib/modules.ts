@@ -28,7 +28,7 @@ export const modules: ModuleDef[] = [
   { id: 'client-portal', label: 'Client Portal', href: '/client-portal', icon: 'Building2', group: 'Commercial', phase: 4, blurb: 'What clients see: progress, deliverables, approvals.' },
   { id: 'vendor-portal', label: 'Vendor Portal', href: '/vendor-portal', icon: 'Truck', group: 'Commercial', phase: 4, blurb: 'What suppliers see: opportunities, allocations, payments.' },
 
-  { id: 'integrations', label: 'Integrations', href: '/modules/integrations', icon: 'Plug', group: 'Platform', phase: 6, blurb: 'Adapters for panels, email, storage and BI.' },
+  { id: 'integrations', label: 'Integrations', href: '/integrations', icon: 'Plug', group: 'Platform', phase: 6, blurb: 'Adapters for panels, email, storage and BI.' },
   { id: 'admin', label: 'Admin & Security', href: '/admin', icon: 'ShieldCheck', group: 'Platform', phase: 6, blurb: 'People and roles, sessions, audit trail and security posture.' },
   { id: 'design-system', label: 'Design System', href: '/design-system', icon: 'Palette', group: 'Platform', phase: 2, blurb: 'Tokens, themes and the component library.' },
 ];
