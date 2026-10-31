@@ -303,7 +303,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </AnimatePresence>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t hairline px-6 py-4 text-2xs text-ink-3">
           <span>Sampledge AI Research OS · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
-          <span className="flex items-center gap-2"><Badge tone="neutral">v0.8.0</Badge> No external integrations connected</span>
+          <span className="flex items-center gap-2"><Badge tone="neutral">v0.9.0</Badge> No external integrations connected</span>
         </footer>
       </div>
       <CommandPalette />

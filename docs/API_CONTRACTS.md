@@ -125,6 +125,8 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 |---|---|---|---|
 | GET | `/ai/status` | any signed-in | provider, model, connected, monthSpendUsd, monthCalls, capUsd, tasks[] |
 | GET | `/ai/usage?take=50` | `admin` | recent `AiCall` rows |
+| GET | `/ai/evals` | `admin` | evaluation set scored on the rule-based implementations: `{provider, model, at, tasks[{task, version, cases, passed, checks, checksPassed, criticalFailed, costUsd, results[]}], totals}` |
+| POST | `/ai/evals/run` | `admin` (write) | same report from the connected model; 400 without a model or once the monthly cap is spent; the run's cost is logged as one `AiCall` (`task: evals.run`) |
 | POST | `/ai/rfq-extract` `{text}` | `crm` | `{audience, countries[], sampleSize, incidence, loi, title, missing[]}` |
 | POST | `/ai/questionnaire` `{text}` or `{fileName, base64}` | `survey-studio` | `.docx .xlsx .pdf .txt .csv .md`, ≤ 8 MB. Returns `{source, chars, text, result}`; `result.data.questions[]`. Nothing is saved |
 | GET | `/ai/projects/:id/summary` | `projects` | `{headline, bullets[], risks[{level,text}], nextSteps[]}`; budget facts only for `view:margins` |

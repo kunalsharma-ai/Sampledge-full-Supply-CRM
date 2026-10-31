@@ -143,7 +143,7 @@ GSAP was listed as optional; Motion covers every animation in Phase 2, so GSAP i
 ## 5. Security model
 
 **Enforced today (application layer):**
-- Sessions: bcrypt password hashes; the JWT holds only a session id, checked against the `Session` table on every request, so logout and revocation take effect immediately. httpOnly, SameSite=Lax cookie (`COOKIE_SECURE=true` behind HTTPS). Optional TOTP MFA. Sign-in rate limit per IP. Unknown emails and wrong passwords return the same error after a constant-cost hash compare.
+- Sessions: bcrypt password hashes; the JWT holds only a session id, checked against the `Session` table on every request, so logout and revocation take effect immediately. httpOnly, SameSite=Lax cookie (`COOKIE_SECURE=true` behind HTTPS). Optional TOTP MFA. Sign-in rate limit per IP, counted in Postgres so it holds across API instances. Unknown emails and wrong passwords return the same error after a constant-cost hash compare.
 - A global guard resolves the session, then checks the role's module access from `packages/core/src/roles.ts` (writes need `full`) and the route's permission keys. Services add tenant scoping and ownership for scoped roles (vendor → own vendor; client → own client).
 - Redaction happens in the API: roles without `view:margins` never receive cost or margin fields; roles without `view:vendor_bids` never receive other vendors' rate cards, payables or allocation CPIs.
 - The human-approval gate is server-side: consequential actions create an `Approval`; only a role with that kind's permission, other than the requester, can decide; the effect runs in the same transaction as the decision.

@@ -1,7 +1,8 @@
 import { Controller, Get, Header, Headers, Module, NotFoundException } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule, ThrottlerStorage } from '@nestjs/throttler';
+import { SharedThrottlerStorage } from './common/rate-limit-store';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
@@ -58,7 +59,7 @@ class HealthController {
   async health() {
     await this.db.$queryRaw`SELECT 1`;
     const pending = await this.db.outboxEvent.count({ where: { processedAt: null } });
-    return { status: 'ok', db: 'ok', version: '0.8.0', outboxPending: pending };
+    return { status: 'ok', db: 'ok', version: '0.9.0', outboxPending: pending };
   }
 }
 
@@ -70,6 +71,8 @@ class HealthController {
   controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController, AdminController, DpController, SsoController, LiveController],
   providers: [
     PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, LiveHub,
+    SharedThrottlerStorage,
+    { provide: ThrottlerStorage, useExisting: SharedThrottlerStorage },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },

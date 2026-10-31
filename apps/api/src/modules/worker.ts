@@ -63,11 +63,13 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private lastSweep = 0;
-  /** Housekeeping once an hour: expired idempotency keys and long-revoked sessions. */
+  /** Housekeeping once an hour: expired idempotency keys and finished rate-limit windows. */
   async sweep() {
     this.lastSweep = Date.now();
     const keys = await this.db.idempotencyKey.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 24 * 3600_000) } } });
     if (keys.count) this.log.log(`swept ${keys.count} expired idempotency keys`);
+    const buckets = await this.db.rateLimitBucket.deleteMany({ where: { resetAt: { lt: new Date(Date.now() - 3600_000) }, OR: [{ blockedUntil: null }, { blockedUntil: { lt: new Date() } }] } });
+    if (buckets.count) this.log.log(`swept ${buckets.count} old rate-limit windows`);
   }
 
   async tick(): Promise<number> {

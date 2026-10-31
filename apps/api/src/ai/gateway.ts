@@ -28,6 +28,10 @@ export type AiTask<I, O> = {
   maxTokens?: number;
 };
 
+export type Generated<O> =
+  | { kind: 'ok'; data: O; inputTokens: number; outputTokens: number; costUsd: number; model: string }
+  | { kind: 'refused' | 'invalid' | 'error'; inputTokens: number; outputTokens: number; costUsd: number; model: string | null; error: string };
+
 export type AiResult<O> = {
   data: O;
   provider: 'rules' | 'anthropic';
@@ -90,6 +94,25 @@ export class AiGateway {
       await record(r);
       return r;
     }
+    const out = await this.generate(task, input);
+    const fb = (status: AiResult<O>['status'], note: string) => ({ ...fallback(status, note), costUsd: out.costUsd });
+    if (out.kind === 'ok') {
+      const r: AiResult<O> = { data: out.data, provider: 'anthropic', model: out.model, status: 'ok', note: `Drafted by ${out.model}. Review before use.`, costUsd: out.costUsd };
+      await record(r, out);
+      return r;
+    }
+    const r = out.kind === 'refused' ? fb('refused', 'The model declined this request: rule-based result')
+      : out.kind === 'invalid' ? fb('fallback', 'Model output did not match the expected structure: rule-based result')
+      : fb('error', `AI provider unavailable (${out.error}): rule-based result`);
+    await record(r, out);
+    return r;
+  }
+
+  /**
+   * One model call for a task, validated against its schema. No logging, budget or fallback: `run`
+   * adds those, and the evaluation runner uses this directly to score the model itself.
+   */
+  async generate<I, O>(task: AiTask<I, O>, input: I): Promise<Generated<O>> {
     try {
       const msg = await this.anthropic().beta.messages.create({
         model: AI_MODEL,
@@ -103,30 +126,19 @@ export class AiGateway {
       const inputTokens = msg.usage.input_tokens;
       const outputTokens = msg.usage.output_tokens;
       const costUsd = (inputTokens * PRICE.input + outputTokens * PRICE.output) / 1_000_000;
-      if (msg.stop_reason === 'refusal') {
-        const r = { ...fallback('refused', 'The model declined this request: rule-based result'), costUsd };
-        await record(r, { inputTokens, outputTokens, error: msg.stop_details?.category ?? 'refusal' });
-        return r;
-      }
+      const usage = { inputTokens, outputTokens, costUsd, model: msg.model };
+      if (msg.stop_reason === 'refusal') return { kind: 'refused', ...usage, error: msg.stop_details?.category ?? 'refusal' };
       // Parsed here rather than with .parse() so refusals and truncated output fall back cleanly.
       const text = msg.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
       let parsed: unknown = null;
-      try { parsed = JSON.parse(text); } catch { /* invalid JSON → fallback below */ }
+      try { parsed = JSON.parse(text); } catch { /* invalid JSON → invalid below */ }
       const check = parsed == null ? null : task.schema.safeParse(parsed);
-      if (!check?.success) {
-        const r = { ...fallback('fallback', 'Model output did not match the expected structure: rule-based result'), costUsd };
-        await record(r, { inputTokens, outputTokens, error: msg.stop_reason === 'max_tokens' ? 'max_tokens' : 'invalid_output' });
-        return r;
-      }
-      const r: AiResult<O> = { data: check.data, provider: 'anthropic', model: msg.model, status: 'ok', note: `Drafted by ${msg.model}. Review before use.`, costUsd };
-      await record(r, { inputTokens, outputTokens });
-      return r;
+      if (!check?.success) return { kind: 'invalid', ...usage, error: msg.stop_reason === 'max_tokens' ? 'max_tokens' : 'invalid_output' };
+      return { kind: 'ok', data: check.data, ...usage };
     } catch (e) {
       const kind = e instanceof Anthropic.RateLimitError ? 'rate_limited' : e instanceof Anthropic.AuthenticationError ? 'auth' : e instanceof Anthropic.APIError ? `api_${e.status}` : e instanceof Anthropic.APIConnectionError ? 'connection' : 'error';
       this.log.warn(`${task.name}: ${kind}`);
-      const r = fallback('error', `AI provider unavailable (${kind}): rule-based result`);
-      await record(r, { error: kind });
-      return r;
+      return { kind: 'error', inputTokens: 0, outputTokens: 0, costUsd: 0, model: null, error: kind };
     }
   }
 }
