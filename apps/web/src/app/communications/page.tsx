@@ -52,8 +52,8 @@ function Composer({ onSent }: { onSent: () => void }) {
     } catch { /* toast not needed: templates list came from the same API */ }
   };
   const send = async () => {
-    const r = await act(() => api<{ needsApproval: boolean; recipients: number }>('/comms/messages', { method: 'POST', body: { channel, audience, target, subject, body } }),
-      (x) => (x.needsApproval ? `${fmtNum(x.recipients)} recipients: sent for approval before anything is queued` : 'Queued. The development adapter records it; nothing leaves the system.'));
+    const r = await act(() => api<{ needsApproval: boolean; recipients: number; adapter?: string }>('/comms/messages', { method: 'POST', body: { channel, audience, target, subject, body } }),
+      (x) => (x.needsApproval ? `${fmtNum(x.recipients)} recipients: sent for approval before anything is queued` : `Queued. Delivery: ${x.adapter ?? 'see the delivery log'}.`));
     if (r) { setSubject(''); setBody(''); onSent(); }
   };
 
@@ -83,7 +83,7 @@ function Composer({ onSent }: { onSent: () => void }) {
           )}
         </div>
         <Field label="Subject"><input className={inputCls} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} /></Field>
-        <Field label="Message" hint={audience === 'panel' ? 'Placeholders such as {{handle}} are stored as written. Per-member merge arrives with a real delivery adapter.' : undefined}><textarea className={`${inputCls} h-28 py-2`} value={body} onChange={(e) => setBody(e.target.value)} maxLength={10000} /></Field>
+        <Field label="Message" hint={audience === 'panel' ? 'Placeholders such as {{handle}} are stored as written. Panel members are e-mailed by the panel’s own site, so these are recorded here, not sent.' : undefined}><textarea className={`${inputCls} h-28 py-2`} value={body} onChange={(e) => setBody(e.target.value)} maxLength={10000} /></Field>
 
         <div className={cn('rounded-xl p-3 text-[12.5px]', preview?.needsApproval ? 'bg-orange/10' : 'bg-surface-2/40')} aria-live="polite">
           {preview ? (
@@ -113,9 +113,9 @@ function CommsInner() {
     <>
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Messages (latest 200)" value={msgs.data?.length ?? 0} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
-        <KpiCard label="Recorded by dev adapter" value={count('delivered_dev')} format={(n) => fmtNum(n)} color="rgb(var(--emerald))" />
+        <KpiCard label="Sent or recorded" value={count('sent') + count('delivered_dev')} format={(n) => fmtNum(n)} color="rgb(var(--emerald))" />
         <KpiCard label="Awaiting approval" value={count('pending_approval')} format={(n) => fmtNum(n)} status={{ tone: count('pending_approval') ? 'warn' : 'ok', text: 'High-volume gate' }} color="rgb(var(--orange))" />
-        <KpiCard label="Recipients reached" value={(msgs.data ?? []).filter((m) => m.status === 'delivered_dev').reduce((s, m) => s + m.recipients, 0)} format={(n) => fmtNum(n)} color="rgb(var(--cyan))" />
+        <KpiCard label="Recipients reached" value={(msgs.data ?? []).filter((m) => m.status === 'delivered_dev' || m.status === 'sent').reduce((s, m) => s + m.recipients, 0)} format={(n) => fmtNum(n)} color="rgb(var(--cyan))" />
       </div>
       <div className="grid gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
         <Composer onSent={() => setTick((t) => t + 1)} />
@@ -134,7 +134,7 @@ function CommsInner() {
               { key: 'r', label: 'Recipients', align: 'right', render: (m) => fmtNum(m.recipients) },
               { key: 'b', label: 'By', render: (m) => <span className="text-ink-3">{m.createdBy}</span> },
               { key: 'w', label: 'Created', render: (m) => shortDate(m.createdAt) },
-              { key: 'st', label: 'Status', render: (m) => <Badge tone={messageTone[m.status]} dot>{messageLabel[m.status]}</Badge> },
+              { key: 'st', label: 'Status', render: (m) => <span title={m.error ?? m.adapter ?? undefined}><Badge tone={messageTone[m.status]} dot>{messageLabel[m.status]}</Badge></span> },
             ]} />
           )}</Loadable>
         </Panel>
@@ -143,11 +143,17 @@ function CommsInner() {
   );
 }
 
+function AdapterBadge() {
+  const a = useLive<{ mode: 'development' | 'smtp'; name: string }>('/comms/adapter');
+  if (a.data?.mode === 'smtp') return <Badge tone="emerald">E-mail sends via {a.data.name}</Badge>;
+  return <Badge tone="orange">Development adapter: recorded, not sent</Badge>;
+}
+
 export default function CommsPage() {
   return (
     <div>
       <PageHeader eyebrow="Comms Hub" title="Outbound communications" subtitle="Client, vendor, panel and team messages with templates, consent filtering and an approval gate for high-volume sends."
-        actions={<Badge tone="orange">Development adapter: recorded, not sent</Badge>} />
+        actions={<AdapterBadge />} />
       <LiveOnly what="Messages and delivery records"><CommsInner /></LiveOnly>
     </div>
   );
