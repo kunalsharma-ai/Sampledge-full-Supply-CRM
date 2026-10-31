@@ -594,3 +594,46 @@ model PanelCall {
 
   @@index([tenantId, createdAt])
 }
+
+/// A Sampledge project linked to a project on one of the panels, and where the response import is up to.
+model PanelSync {
+  id             String    @id @default(cuid())
+  tenantId       String
+  panel          String    // t2o | mfr | mho
+  projectId      String
+  pid            String    // the project's code, used as the panel's pid
+  body           Json      // what was last sent
+  syncedAt       DateTime?
+  syncedBy       String?
+  cursor         String?   // response feed position
+  importedAt     DateTime?
+  importError    String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([tenantId, panel, projectId])
+}
+
+/// One respondent's outcome on a panel, as the panel reported it. Pseudonymous: respondentID only.
+model PanelResponse {
+  id             String    @id @default(cuid())
+  tenantId       String
+  panel          String
+  projectId      String
+  responseID     String    // the panel's id for the response
+  respondentID   String?
+  marketID       String?
+  quotaID        String?
+  status         String    // invited | started | complete | terminate | overquota | qualityterminate | dropout
+  qualityReasons String[]  @default([])
+  startedAt      DateTime?
+  endedAt        DateTime?
+  loiMinutes     Float?
+  deviceType     String?
+  points         Int       @default(0)
+  profile        Json?     // countryCode, region, ageBand, gender, category
+  panelUpdatedAt DateTime?
+  importedAt     DateTime  @default(now())
+
+  @@unique([tenantId, panel, responseID])
+  @@index([tenantId, projectId, status])
+}

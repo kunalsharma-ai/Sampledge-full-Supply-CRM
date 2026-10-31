@@ -11,6 +11,9 @@ Sampledge connects to the Turn2Opinion backend, the one service behind Turn2Opin
 | `PANEL_T2O_TOKEN`, `PANEL_MFR_TOKEN`, `PANEL_MHO_TOKEN` | Long-lived app token issued by that panel's backend (`/api/v1/user/apps`). Tokens only work on the host that issued them, so each panel needs its own |
 | `PANEL_BACKEND_TENANT` | Slug of the workspace allowed to use the connection (default `sampledge-demo`) |
 | `PANEL_TIMEOUT_MS` | Per-request timeout (default 15000) |
+| `PANEL_SAMPLEDGE_PATH` | Where the panel mounted its Sampledge routes (default `/api/v1/sampledge`) |
+| `PANEL_IMPORT_INTERVAL_MS` | How often the worker imports responses for synced projects (default 0 = only from the screen) |
+| `PANEL_IMPORT_MAX_PAGES` | Pages per import run (default 20, 200 responses each) |
 
 A panel with no URL or no token shows as **Not connected**, and every call to it is refused with 503.
 
@@ -30,15 +33,30 @@ Approved actions become a `PanelCall` row, and the outbox worker sends each one 
 
 Errors from the backend come back as 502 with the backend's message, never as 401 or 403, so they are not mistaken for the user's own Sampledge session failing. A 403 from the backend is explained as a token issued for a different panel host.
 
-## Not built yet: waiting on the backend's formats
-The description types most request and response bodies only as `object`. Before Sampledge can fill these in or read them, it needs one real example of the request and the reply for each of:
-- `PUT /api/v1/project/`: create or sync a project from Sampledge
-- `POST /api/v1/feasibility/`: the filter format
-- `POST /api/v1/project/{id}` and `PATCH /api/v1/project/{id}`: the invite and soft-launch bodies
-- `POST /api/v1/user/apps`: app sign-in, if tokens should be renewed automatically rather than configured
-- `PUT /api/v1/integration/new-survey` and `POST /api/v1/integration/response/{responseID}`: survey and response hand-off
+## Project sync and response import (v0.11.0)
+The panel team was sent a patch for their backend (models, migration and `routes/sampledge.js`; copy in [`panel-backend-patch/`](panel-backend-patch/)) that adds the routes below, in the formats from the agreed requirements doc. Sampledge calls them under `PANEL_SAMPLEDGE_PATH` (default `/api/v1/sampledge`).
 
-Until then, the invite and soft-launch bodies are typed by the requester in the backend's own format and sent unchanged once approved.
+| Sampledge | Panel route | Notes |
+|---|---|---|
+| Reach check | `POST /feasibility` `{country, filters, activeWithinDays}` | Counts panelists who are consented to invitations, active and recently active |
+| Sync project | `PUT /project` | One market per country (`<code>-<country>`), quotas per market. Sends no invitations |
+| Panel status | `GET /project/{pid}` | Counts per market and quota, incidence, median length |
+| Import responses | `GET /project/{pid}/responses?cursor=` | Pages from the saved cursor; upserts `PanelResponse`, so re-running never double counts |
+| Respondent profile, profile questions | `GET /respondent-profile/{id}`, `GET /questions` | Pseudonymous only |
+
+How a project is translated:
+- Quota conditions on `gender`, `age` and `region` become panel filters automatically. Other conditions (on survey questions the panel does not know) are listed in the preview, and the sync is refused until someone gives panel filters for them.
+- The target is split evenly across countries unless completes per market are given. Quota targets are scaled to each market's share.
+- Incidence is sent as a percentage (Sampledge stores a fraction). CPI sent is the project's cost CPI.
+- Imported rows keep only respondentID, outcome, quality reasons, times, device and the pseudonymous profile (country, region, age band, gender, category). Anything else the panel sends is dropped.
+- Imported counts are shown beside the project's own and never overwrite `Project.completes`, which also counts other suppliers.
+- Import runs from the screen, or every `PANEL_IMPORT_INTERVAL_MS` in the worker (off by default), at most `PANEL_IMPORT_MAX_PAGES` pages per run.
+
+Tested against a local stand-in of these routes (8 tests); the routes themselves were tested on the panel side against MongoDB 7 (20 tests). **Not yet run against the live panels.**
+
+## Still needed from the backend
+- `POST /api/v1/project/{id}` and `PATCH /api/v1/project/{id}`: the invite and soft-launch bodies. Until then they are typed by the requester and sent unchanged once approved.
+- `POST /api/v1/user/apps`: app sign-in, if tokens should be renewed automatically rather than configured.
 
 ## Security observations on the description (for the backend team)
 If the description reflects the running service, these routes accept requests with **no sign-in**:

@@ -12,6 +12,7 @@ import { EChart, axis } from '@/components/charts/echart';
 import { PanelistDirectory } from '@/components/panels/directory';
 import { PanelImport } from '@/components/panels/import';
 import { PanelBackendPanel } from '@/components/panels/backend';
+import { PanelSyncPanel } from '@/components/panels/sync';
 
 type Sel = 'all' | PanelBrand['id'];
 type RewardCat = { id: string; name: string; maxLoi: number; points: number; minQuality: number };
@@ -195,6 +196,7 @@ export default function PanelsPage() {
       <PanelistDirectory />
 
       <PanelBackendPanel />
+      <PanelSyncPanel />
 
       <Panel className="mt-6">
         <PanelHeader eyebrow="Integration" title="Connect existing panel websites" actions={<Badge tone="orange">Adapters not connected</Badge>} />

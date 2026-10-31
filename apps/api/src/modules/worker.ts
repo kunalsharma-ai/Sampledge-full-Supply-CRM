@@ -7,6 +7,7 @@ import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { asTenant } from '../common/tenant-scope';
 import { PanelBackend, PanelBackendError, PANELS, type PanelId } from '../integrations/panel-backend';
+import { PanelSyncService } from '../integrations/panel-sync.service';
 
 type Tx = Prisma.TransactionClient;
 type Ev = { id: string; tenantId: string; type: string; payload: Record<string, string | number>; createdAt: Date };
@@ -40,7 +41,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private log = new Logger('EventsWorker');
-  constructor(private db: PrismaService, private panels: PanelBackend) {}
+  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService) {}
 
   onApplicationBootstrap() {
     if (process.env.WORKER_INLINE === 'false') return;
@@ -56,6 +57,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private lastSweep = 0;
+  private lastImport = 0;
   /** Housekeeping once an hour: expired idempotency keys and finished rate-limit windows. */
   async sweep() {
     this.lastSweep = Date.now();
@@ -72,6 +74,12 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   async tick(): Promise<number> {
     if (this.running) return 0;
     if (Date.now() - this.lastSweep > 3600_000) await this.sweep().catch((e) => this.log.error(e));
+    // Response import from the panels for synced projects, every PANEL_IMPORT_INTERVAL_MS (off when 0).
+    const every = Number(process.env.PANEL_IMPORT_INTERVAL_MS ?? 0);
+    if (every > 0 && Date.now() - this.lastImport > every) {
+      this.lastImport = Date.now();
+      void this.panelSync.importAll().then((r) => r.received && this.log.log(`imported ${r.received} panel response(s)`)).catch((e) => this.log.error(e));
+    }
     this.running = true;
     try {
       const batch = await this.db.$queryRaw<Ev[]>`
