@@ -17,6 +17,7 @@ import { Badge, Button, DemoBadge, Skeleton } from '@/components/ui/primitives';
 import { Assistant } from './assistant';
 import { CommandPalette } from './command-palette';
 import { Logo } from './logo';
+import { LiveBridge } from './live';
 
 export const icons: Record<string, LucideIcon> = {
   Orbit, KanbanSquare, Bot, MessagesSquare, Workflow, Users, Database, ChartScatter, Sparkles, Target, Globe2, Landmark, Building2, Truck, Plug, ShieldCheck, Palette,
@@ -300,11 +301,12 @@ export function Shell({ children }: { children: ReactNode }) {
           </motion.main>
         </AnimatePresence>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t hairline px-6 py-4 text-2xs text-ink-3">
-          <span>Sampledge AI Research OS · Phase 5 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
-          <span className="flex items-center gap-2"><Badge tone="neutral">v0.5.0</Badge> No external integrations connected</span>
+          <span>Sampledge AI Research OS · Phase 6 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
+          <span className="flex items-center gap-2"><Badge tone="neutral">v0.6.0</Badge> No external integrations connected</span>
         </footer>
       </div>
       <CommandPalette />
+      <LiveBridge />
       <Assistant />
       <Toaster />
     </div>

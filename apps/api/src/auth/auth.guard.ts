@@ -6,6 +6,7 @@ import type { Request } from 'express';
 import { config } from '../common/config';
 import { MODULE, PERMS, PUBLIC, WRITE, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
+import { tenantScope } from '../common/tenant-scope';
 
 /**
  * Global guard, in order:
@@ -26,6 +27,9 @@ export class AuthGuard implements CanActivate {
     if (ctx) req.ctx = ctx;
     if (isPublic) return true;
     if (!ctx) throw new UnauthorizedException('Sign in required');
+    // From here on the database enforces the caller's tenant as well (row-level security).
+    const scope = tenantScope.getStore();
+    if (scope) scope.tenantId = ctx.tenantId;
 
     const mod = this.reflector.getAllAndOverride<ModuleId | undefined>(MODULE, targets);
     if (mod) {

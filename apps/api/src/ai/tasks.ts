@@ -2,7 +2,7 @@
  * Prompt registry. Each task: versioned prompt, typed output, and the rule-based implementation
  * used when no model is connected or the model's answer is unusable.
  */
-import { countries, extractRfq, parseQuestionnaire } from '@sampledge/core';
+import { countries, extractRfq, parseQuestionnaire, suggestCodeframe } from '@sampledge/core';
 import { z } from 'zod/v4';
 import type { AiTask } from './gateway';
 
@@ -129,4 +129,29 @@ export const projectSummary: AiTask<ProjectFacts, SummaryOut> = {
   },
 };
 
-export const tasks = [rfqExtract, questionnaireStructure, projectSummary];
+// ───────────────────────── Open-end codeframe
+const Codeframe = z.object({
+  codes: z.array(z.object({
+    code: z.string().describe('short id such as C1'),
+    label: z.string().describe('theme name a client would understand'),
+    keywords: z.array(z.string()).describe('single lowercase words that signal this theme in an answer'),
+  })),
+});
+export type CodeframeOut = z.infer<typeof Codeframe>;
+
+export const openEndCodeframe: AiTask<{ question: string; answers: string[]; maxCodes: number }, CodeframeOut> = {
+  name: 'openend.codeframe',
+  version: 1,
+  description: 'Open-ended answers → draft codeframe (themes and keywords) for a coder to review',
+  schema: Codeframe,
+  maxTokens: 8000,
+  system: [
+    'You build codeframes for market-research open-ended answers.',
+    'Group answers into distinct, mutually exclusive themes. Name each theme in plain words. Do not invent themes that no answer supports.',
+    'Keywords must be single lowercase words that appear in the answers; they are used for automatic first-pass coding, which a human coder reviews.',
+  ].join('\n'),
+  render: ({ question, answers, maxCodes }) => `<question>${question}</question>\nAt most ${maxCodes} codes.\n<answers>\n${answers.map((a) => `- ${a}`).join('\n')}\n</answers>`,
+  rules: ({ answers, maxCodes }) => ({ codes: suggestCodeframe(answers, maxCodes) }),
+};
+
+export const tasks = [rfqExtract, questionnaireStructure, projectSummary, openEndCodeframe];

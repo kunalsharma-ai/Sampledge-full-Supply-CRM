@@ -7,7 +7,7 @@
 import PptxGenJS from 'pptxgenjs';
 import type { surveyResults } from '@sampledge/core';
 
-type Results = ReturnType<typeof surveyResults> & { survey: { name: string; version: number }; flagged: number; rejected: number; excludedFlagged: boolean };
+type Results = ReturnType<typeof surveyResults> & { survey: { name: string; version: number }; flagged: number; rejected: number; excludedFlagged: boolean; synthetic?: number };
 
 const INK = '0B1020';
 const MUTED = '5B6478';
@@ -27,6 +27,8 @@ export async function buildReport(r: Results): Promise<Buffer> {
   title.addText('Survey results', { x: 0.6, y: 3.1, w: 12, h: 0.6, fontSize: 20, color: '9FB4FF', fontFace: 'Arial' });
   const notes = [
     `Base: ${r.base.toLocaleString('en-US')} completed interviews (questionnaire v${r.survey.version})`,
+    r.synthetic ? `${r.synthetic.toLocaleString('en-US')} of these are SYNTHETIC demo interviews, not real respondents` : null,
+    r.weighted ? `Weighted (rim weighting); effective base ${r.effectiveBase.toLocaleString('en-US')}` : 'Unweighted',
     r.rejected ? `${r.rejected} rejected interview(s) excluded` : null,
     r.excludedFlagged ? `${r.flagged} quality-flagged interview(s) excluded` : r.flagged ? `Includes ${r.flagged} quality-flagged interview(s)` : null,
     r.banner ? `Columns by ${r.banner.id}: letters mark a column significantly higher than the lettered column (95%, two-proportion z-test, n ≥ 30)` : null,
@@ -56,6 +58,11 @@ export async function buildReport(r: Results): Promise<Buffer> {
     } else if (q.type === 'matrix') {
       const header = [{ text: '' }, ...(q.rows[0]?.dist ?? []).map((d) => ({ text: d.label }))];
       s.addTable([header, ...q.rows.map((row) => [{ text: row.label }, ...row.dist.map((d) => ({ text: pct(d.pct) }))])], { x: 0.5, y: 1.7, w: 12.3, fontSize: 11, fontFace: 'Arial', color: INK, border: { type: 'solid', color: 'D8DEEA', pt: 0.5 }, autoPage: true });
+    } else if (q.type === 'text' && q.coded?.length) {
+      const coded = [...q.coded].sort((a, b) => a.pct - b.pct);
+      s.addChart(pptx.ChartType.bar, [{ name: q.id, labels: coded.map((x) => x.label), values: coded.map((x) => Math.round(x.pct * 1000) / 10) }], {
+        x: 0.5, y: 1.6, w: 12.3, h: 5.5, barDir: 'bar', chartColors: [CYAN], showValue: true, dataLabelFormatCode: '0"%"', valAxisMaxVal: 100, valAxisHidden: true, catAxisLabelFontSize: 12, dataLabelFontSize: 11,
+      });
     } else if (q.type === 'text') {
       s.addText(q.samples.slice(0, 8).map((t) => `“${t}”`).join('\n') || 'No answers', { x: 0.5, y: 1.7, w: 12.3, h: 5.3, fontSize: 13, color: INK, fontFace: 'Arial', valign: 'top' });
       s.addText(`Showing up to 8 of ${q.base} verbatims, unedited.`, { x: 0.5, y: 7.0, w: 12.3, h: 0.3, fontSize: 10, color: MUTED, fontFace: 'Arial' });

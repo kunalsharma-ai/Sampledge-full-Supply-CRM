@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Post, Req, UnprocessableEntityException } from '@nestjs/common';
+import { live } from '../common/live';
 import { access, answer, qualityFlags, displayOptions, evaluate, pipe, start, type Answer, type Answers, type Outcome, type RunState, type SurveyDef } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import type { Request } from 'express';
@@ -76,6 +77,7 @@ export class RuntimeService {
           await this.countComplete(tx, r.surveyId, def, next.answers);
           await this.save(tx, r.id, next, 'complete');
           if (flags.length) await tx.response.update({ where: { id: r.id }, data: { flags } });
+          await live(tx, { t: r.tenantId, type: 'response.completed', module: 'survey-studio' });
         });
       } catch (e) {
         if (!(e instanceof QuotaRace)) throw e;

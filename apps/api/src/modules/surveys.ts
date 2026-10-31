@@ -43,6 +43,11 @@ export const SurveyDefSchema = z.object({
   }
 });
 
+export type ResultsOpts = { banner?: string; excludeFlagged?: boolean; weighted?: boolean };
+export type DpConfig = { weighting?: { targets: Record<string, Record<string, number>>; stats: unknown; appliedAt: string; by: string }; codeframes?: Record<string, { code: string; label: string; keywords: string[] }[]> };
+const flag = z.enum(['true', 'false']).optional().transform((v) => v === 'true');
+export const resultsQuery = (q: unknown): ResultsOpts => parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: flag, weighted: flag }), q);
+
 @Injectable()
 export class SurveysService {
   constructor(private db: PrismaService, private audit: AuditService) {}
@@ -144,21 +149,30 @@ export class SurveysService {
     return { approval: ap, alreadyPending: false };
   }
 
-  /** Results from completed, non-rejected responses. Flagged interviews are included unless excluded. */
-  async results(ctx: Ctx, id: string, banner?: string, excludeFlagged = false) {
+  /**
+   * Results from completed, non-rejected responses. Flagged interviews are included unless excluded.
+   * `weighted` applies the Data Processing rim weights; coded open ends are tabulated with their codeframe.
+   */
+  async results(ctx: Ctx, id: string, o: ResultsOpts = {}) {
     const s = await this.get(ctx, id);
     if (!s.definition) throw new BadRequestException('This survey has no programmed definition yet');
-    const rows = await this.db.response.findMany({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null }, select: { id: true, answers: true, flags: true } });
-    const used = excludeFlagged ? rows.filter((r) => !r.flags.length) : rows;
+    const rows = await this.db.response.findMany({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null }, select: { id: true, answers: true, flags: true, weight: true, codes: true, source: true } });
+    const used = o.excludeFlagged ? rows.filter((r) => !r.flags.length) : rows;
     const rejected = await this.db.response.count({ where: { surveyId: id, rejectedAt: { not: null } } });
-    const res = surveyResults(s.definition.questions, used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never> })), banner);
-    return { survey: { id: s.id, name: s.name, version: s.currentVersion }, flagged: rows.filter((r) => r.flags.length).length, excludedFlagged: excludeFlagged, rejected, ...res };
+    const dp = (s.dp ?? {}) as DpConfig;
+    const hasWeights = !!dp.weighting;
+    const frames = Object.fromEntries(Object.entries(dp.codeframes ?? {}).map(([q, f]) => [q, [...f, { code: 'other', label: 'Other' }]]));
+    const res = surveyResults(s.definition.questions, used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never>, ...(o.weighted && hasWeights ? { weight: r.weight } : {}), codes: (r.codes ?? undefined) as Record<string, string[]> | undefined })), o.banner, frames);
+    return {
+      survey: { id: s.id, name: s.name, version: s.currentVersion }, flagged: rows.filter((r) => r.flags.length).length, excludedFlagged: !!o.excludeFlagged, rejected,
+      synthetic: rows.filter((r) => r.source.startsWith('synthetic:')).length, weightingAvailable: hasWeights, ...res,
+    };
   }
 
-  async report(ctx: Ctx, id: string, banner?: string, excludeFlagged = false) {
-    const r = await this.results(ctx, id, banner, excludeFlagged);
+  async report(ctx: Ctx, id: string, o: ResultsOpts = {}) {
+    const r = await this.results(ctx, id, o);
     if (!r.base) throw new BadRequestException('No completed responses to report on yet');
-    await this.audit.log(ctx, 'survey.report_exported', 'Survey', id, undefined, { base: r.base, banner: banner ?? null });
+    await this.audit.log(ctx, 'survey.report_exported', 'Survey', id, undefined, { base: r.base, banner: o.banner ?? null, weighted: r.weighted });
     return buildReport(r);
   }
 
@@ -232,14 +246,12 @@ export class SurveysController {
 
   @ForModule('analytics') @Get(':id/results')
   results(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown) {
-    const x = parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: z.enum(['true', 'false']).optional() }), q);
-    return this.s.results(ctx, id, x.banner, x.excludeFlagged === 'true');
+    return this.s.results(ctx, id, resultsQuery(q));
   }
 
   @ForModule('analytics') @Get(':id/report.pptx') @Header('content-type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
   async reportPptx(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
-    const x = parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: z.enum(['true', 'false']).optional() }), q);
-    const buf = await this.s.report(ctx, id, x.banner, x.excludeFlagged === 'true');
+    const buf = await this.s.report(ctx, id, resultsQuery(q));
     res.setHeader('content-disposition', `attachment; filename="${id}-report.pptx"`);
     return new StreamableFile(buf);
   }

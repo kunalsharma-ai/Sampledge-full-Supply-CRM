@@ -13,9 +13,10 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   const apiGet = (path) => p.evaluate(async (u) => (await fetch(u)).json(), `/api/v1${path}`);
   const apiSend = (method, path, body) => p.evaluate(async ([m, u, b]) => { const r = await fetch(u, { method: m, headers: { 'content-type': 'application/json' }, body: JSON.stringify(b ?? {}) }); return { status: r.status, body: await r.json() }; }, [method, `/api/v1${path}`, body]);
   const until = async (fn, what) => { for (let i = 0; i < 60; i++) { if (await fn()) return true; await p.waitForTimeout(250); } throw new Error(`timed out: ${what}`); };
-  // Pages render after the session and records load, so wait for the app frame, not just the network.
+  // Pages render after the session and records load, so wait for the app frame. Not 'networkidle':
+  // the live-updates stream keeps a request open for as long as the page is.
   const go = async (path) => {
-    await p.goto(B + path, { waitUntil: 'networkidle' });
+    await p.goto(B + path, { waitUntil: 'load' });
     try { await p.locator('#main').waitFor({ timeout: 20000 }); } catch (e) { await p.screenshot({ path: 'e2e-failure.png' }); throw new Error(`${path}: app frame did not render (url ${p.url()})`); }
     await p.waitForTimeout(300);
   };
@@ -31,7 +32,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   };
 
   // 1 Unauthenticated users land on sign-in
-  await p.goto(B + '/command-center', { waitUntil: 'networkidle' });
+  await p.goto(B + '/command-center', { waitUntil: 'load' });
   await p.waitForURL(/\/login/, { timeout: 15000 });
   ok('Signed-out visit redirects to /login', p.url().includes('/login?next=%2Fcommand-center'));
 
@@ -48,7 +49,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   const title = (await p.locator('[role=dialog] .font-display').first().textContent()).trim();
   await p.locator('[role=dialog] button', { hasText: /^Won$/ }).click();
   await p.getByText(/Project SE-26\d+ created/).first().waitFor({ timeout: 15000 });
-  await p.reload({ waitUntil: 'networkidle' });
+  await p.reload({ waitUntil: 'load' });
   const projects = await apiGet('/projects');
   ok(`Won deal "${title}" creates a project that survives reload`, projects.some((x) => x.name === title));
 
@@ -90,7 +91,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
 
   // 8 Respondent runtime (public page, server-side routing)
   const r = await b.newPage();
-  await r.goto(B + '/r/sv-cloud?src=e2e', { waitUntil: 'networkidle' });
+  await r.goto(B + '/r/sv-cloud?src=e2e', { waitUntil: 'load' });
   await r.getByRole('button', { name: 'Not employed' }).click();
   await r.getByRole('button', { name: 'Next' }).click();
   await r.getByText('Thanks for your time').waitFor({ timeout: 10000 });
@@ -155,6 +156,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   ok(`Four interviews recorded through the public runtime (${done.join(', ')})`, done.filter((x) => x === 'complete').length >= 3);
   await switchTo('survey_programmer');
   await go('/analytics');
+  await p.getByLabel('Survey', { exact: true }).selectOption('sv-cloud');
   await p.getByText(/^Base \d+ completes/).first().waitFor({ timeout: 15000 });
   ok('Insight Studio shows results computed from the recorded interviews', await p.getByRole('link', { name: 'PowerPoint report' }).isVisible());
   const pptx = await p.evaluate(async () => { const r = await fetch('/api/v1/surveys/sv-cloud/report.pptx'); return { s: r.status, t: r.headers.get('content-type'), n: (await r.arrayBuffer()).byteLength }; });
@@ -175,6 +177,16 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await p.getByText(/Rule-based: no AI model is connected/).first().waitFor({ timeout: 10000 });
   ok('Project status summary from the AI gateway', true);
 
+  // A second browser signed in as Business Development should be told live when the client submits.
+  const ctx2 = await b.newContext({ viewport: { width: 1300, height: 900 } });
+  const q2 = await ctx2.newPage();
+  await q2.goto(B + '/login', { waitUntil: 'load' });
+  await q2.getByLabel('Work email').fill('bizdev@demo.sampledge.test');
+  await q2.getByLabel('Password').fill('demo1234');
+  await q2.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await q2.waitForURL(/command-center/, { timeout: 20000 });
+  await q2.waitForTimeout(1500);
+
   await switchTo('client');
   await go('/diy');
   await p.getByText(/per complete/).first().waitFor({ timeout: 15000 });
@@ -184,13 +196,37 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await p.getByText(/Request sent/).first().waitFor({ timeout: 10000 });
   await p.getByText('E2E snack tracker').first().waitFor({ timeout: 10000 });
   ok('Client submits a DIY request with an indicative range', true);
+  await q2.getByText(/DIY request from/).first().waitFor({ timeout: 15000 });
+  ok('Business Development sees it live, pushed from the server', true);
+  await ctx2.close();
+
+  // 11 Phase 6: data processing (weighting, coding, tables) on the closed survey's synthetic interviews
+  await switchTo('data_processing');
+  await go('/data-processing');
+  await p.getByText('Completed interviews').first().waitFor({ timeout: 15000 });
+  await p.getByLabel('Weight on S1').check();
+  await p.getByLabel('Weight on S2').check();
+  await p.getByLabel('S2 18–34 target %').fill('30');
+  await p.getByLabel('S2 35–54 target %').fill('35');
+  await p.getByLabel('S2 55+ target %').fill('35');
+  await p.getByRole('button', { name: 'Apply weights' }).click();
+  await p.getByText(/Weights applied: efficiency/).first().waitFor({ timeout: 15000 });
+  ok('Rim weighting applied from the Data Processing screen', (await apiGet('/dp/surveys/sv-012')).weighting !== null);
+  await p.getByRole('radio', { name: 'Open-end coding' }).or(p.getByRole('button', { name: 'Open-end coding', exact: true })).first().click();
+  await p.getByRole('button', { name: 'Suggest codeframe' }).click();
+  await p.getByText(/codes suggested from/).first().waitFor({ timeout: 15000 });
+  await p.getByRole('button', { name: 'Save and code answers' }).click();
+  await p.getByText(/Codeframe saved; 600 answers coded/).first().waitFor({ timeout: 20000 });
+  ok('Open ends coded from a suggested codeframe', true);
+  const xlsx = await p.evaluate(async () => { const r = await fetch('/api/v1/dp/surveys/sv-012/tables.xlsx?banner=S1&weighted=true'); return { s: r.status, n: (await r.arrayBuffer()).byteLength }; });
+  ok('Weighted Excel tables download', xlsx.s === 200 && xlsx.n > 5000);
 
   await switchTo('platform_admin');
   await go('/automation');
   await p.getByText('Rule-based mode').waitFor({ timeout: 10000 });
   ok('Automation shows the AI gateway in rule-based mode with usage', await p.getByText(/project\.summary/).first().isVisible());
 
-  // 11 Vendor scope
+  // 12 Vendor scope
   await switchTo('vendor');
   await go('/command-center');
   ok('Vendor role blocked from Command Center', await p.getByText(/is not available to Sample Vendor/).isVisible());
@@ -207,7 +243,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   ok('Vendor answers feasibility in the portal', (await apiGet('/feasibility')).some((f) => f.status === 'responded'));
   ok('Vendor portal lists the new purchase order', await p.getByText(/PO-26\d+/).first().isVisible());
 
-  // 12 Sign out
+  // 13 Sign out
   await p.getByRole('button', { name: 'Sign out' }).click();
   await p.waitForURL(/\/login/, { timeout: 10000 });
   const me = await p.evaluate(async () => (await fetch('/api/v1/auth/me')).status);

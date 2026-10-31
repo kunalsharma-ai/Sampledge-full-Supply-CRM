@@ -18,7 +18,7 @@ export const modules: ModuleDef[] = [
 
   { id: 'survey-studio', label: 'Survey Studio', href: '/survey-studio', icon: 'Workflow', group: 'Research', phase: 2, blurb: 'Programming, visual logic, preview and automated QA.' },
   { id: 'panels', label: 'Panels', href: '/panels', icon: 'Users', group: 'Research', phase: 2, blurb: 'Turn2Opinion, MyFrequentRewards and MyHealthOpinions.' },
-  { id: 'data-processing', label: 'Data Processing', href: '/modules/data-processing', icon: 'Database', group: 'Research', phase: 6, blurb: 'Cleaning, coding, weighting and tabulation.' },
+  { id: 'data-processing', label: 'Data Processing', href: '/data-processing', icon: 'Database', group: 'Research', phase: 6, blurb: 'Cleaning, coding, weighting and tabulation.' },
   { id: 'analytics', label: 'Insight Studio', href: '/analytics', icon: 'ChartScatter', group: 'Research', phase: 2, blurb: 'Crosstabs, significance, segmentation and reporting.' },
   { id: 'diy', label: 'DIY Research', href: '/diy', icon: 'Sparkles', group: 'Research', phase: 5, blurb: 'Self-service study configuration and launch.' },
 
