@@ -20,7 +20,7 @@ import { applyQuotas, type Answers, type Outcome, type SurveyDef } from './core'
 import { access, type Role, type Vendor } from './core';
 import { setRegistries, vendors as vendorSeed } from './core';
 import {
-  api, ApiError, ApiUnreachable, demoEmail, DEMO_PASSWORD, fromApiOpp, fromApiProject, fromApiSurvey, relTime,
+  api, apiAll, ApiError, ApiUnreachable, demoEmail, DEMO_PASSWORD, fromApiOpp, fromApiProject, fromApiSurvey, relTime,
   type ApiAgent, type ApiApproval, type ApiNotification, type ApiSurvey, type ApiSurveyDetail, type Session,
 } from './api';
 
@@ -310,14 +310,14 @@ export const useOS = create<State & Actions>()(
           const has = (m: Parameters<typeof access>[1]) => access(role, m) !== 'none';
           try {
             const [projects, opportunities, vendors, surveys, approvals, notifications, agents, clients] = await Promise.all([
-              has('projects') ? orNull(api<Parameters<typeof fromApiProject>[0][]>('/projects')) : null,
-              has('crm') ? orNull(api<Parameters<typeof fromApiOpp>[0][]>('/opportunities')) : null,
-              has('marketplace') ? orNull(api<Vendor[]>('/vendors')) : null,
-              has('survey-studio') ? orNull(api<ApiSurvey[]>('/surveys')) : null,
+              has('projects') ? orNull(apiAll<Parameters<typeof fromApiProject>[0]>('/projects')) : null,
+              has('crm') ? orNull(apiAll<Parameters<typeof fromApiOpp>[0]>('/opportunities')) : null,
+              has('marketplace') ? orNull(apiAll<Vendor>('/vendors')) : null,
+              has('survey-studio') ? orNull(apiAll<ApiSurvey>('/surveys')) : null,
               orNull(api<ApiApproval[]>('/approvals')),
               orNull(api<ApiNotification[]>('/notifications')),
               has('automation') ? orNull(api<ApiAgent[]>('/agents')) : null,
-              has('projects') ? orNull(api<{ id: string; name: string; sector: string | null }[]>('/clients')) : null,
+              has('projects') ? orNull(apiAll<{ id: string; name: string; sector: string | null }>('/clients')) : null,
             ]);
             setRegistries(vendors ?? [], clients ?? []);
             const defs: Record<string, SurveyDef> = {};

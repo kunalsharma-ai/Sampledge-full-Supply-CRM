@@ -4,7 +4,7 @@
  * Their records (invoices, POs, messages, supplier answers) are never simulated in offline mode.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, apiPage, ApiError } from './api';
 import { useOS } from './store';
 
 export function useLive<T>(path: string | null, deps: unknown[] = []) {
@@ -19,6 +19,31 @@ export function useLive<T>(path: string | null, deps: unknown[] = []) {
   }, [live, path]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [load, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
   return { data, error, loading, reload: load, live };
+}
+
+/**
+ * `useLive` for paged lists: loads the first page, and `more()` appends the next one while the API
+ * reports more rows (X-Next-Cursor). A reload starts again from the first page.
+ */
+export function usePaged<T>(path: string | null, deps: unknown[] = []) {
+  const live = useOS((s) => s.mode === 'live' && !!s.session);
+  const [data, setData] = useState<T[] | null>(null);
+  const [next, setNext] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const load = useCallback(async () => {
+    if (!live || !path) return;
+    setLoading(true);
+    try { const r = await apiPage<T>(path); setData(r.rows); setNext(r.next); setError(null); } catch (e) { setError(e instanceof ApiError ? e.message : 'Could not reach the API'); } finally { setLoading(false); }
+  }, [live, path]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [load, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
+  const more = useCallback(async () => {
+    if (!path || !next || loadingMore) return;
+    setLoadingMore(true);
+    try { const r = await apiPage<T>(path, next); setData((d) => [...(d ?? []), ...r.rows]); setNext(r.next); } catch (e) { setError(e instanceof ApiError ? e.message : 'Could not reach the API'); } finally { setLoadingMore(false); }
+  }, [path, next, loadingMore]);
+  return { data, error, loading, reload: load, live, more, hasMore: !!next, loadingMore };
 }
 
 /** Runs a write, toasts the outcome and returns the result (null on failure). */

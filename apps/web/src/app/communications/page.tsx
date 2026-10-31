@@ -3,12 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Mail, MessageSquare, ShieldCheck, Smartphone, Users } from 'lucide-react';
 import { clients, panels, roles, vendors } from '@/lib/core';
 import { api, ApiError } from '@/lib/api';
-import { act, messageLabel, messageTone, shortDate, useLive, type Message, type Template } from '@/lib/live';
+import { act, messageLabel, messageTone, shortDate, useLive, usePaged, type Message, type Template } from '@/lib/live';
 import { useOS } from '@/lib/store';
 import { cn, fmtNum } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Button, EmptyState, Field, inputCls, PageHeader, Panel, PanelHeader, Segmented } from '@/components/ui/primitives';
-import { DataTable, LiveOnly, Loadable } from '@/components/ui/data';
+import { DataTable, LiveOnly, Loadable, LoadMore } from '@/components/ui/data';
 
 type Audience = 'client' | 'vendor' | 'panel' | 'internal';
 type Channel = 'email' | 'sms' | 'in_app';
@@ -105,14 +105,14 @@ function Composer({ onSent }: { onSent: () => void }) {
 function CommsInner() {
   const [tick, setTick] = useState(0);
   const [filter, setFilter] = useState<'all' | Message['status']>('all');
-  const msgs = useLive<Message[]>('/comms/messages?take=200', [tick]);
+  const msgs = usePaged<Message>('/comms/messages?take=200', [tick]);
   const rows = useMemo(() => (msgs.data ?? []).filter((m) => filter === 'all' || m.status === filter), [msgs.data, filter]);
   const count = (st: Message['status']) => (msgs.data ?? []).filter((m) => m.status === st).length;
 
   return (
     <>
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Messages (latest 200)" value={msgs.data?.length ?? 0} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
+        <KpiCard label={msgs.hasMore ? 'Messages (loaded so far)' : 'Messages'} value={msgs.data?.length ?? 0} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
         <KpiCard label="Sent or recorded" value={count('sent') + count('delivered_dev')} format={(n) => fmtNum(n)} color="rgb(var(--emerald))" />
         <KpiCard label="Awaiting approval" value={count('pending_approval')} format={(n) => fmtNum(n)} status={{ tone: count('pending_approval') ? 'warn' : 'ok', text: 'High-volume gate' }} color="rgb(var(--orange))" />
         <KpiCard label="Recipients reached" value={(msgs.data ?? []).filter((m) => m.status === 'delivered_dev' || m.status === 'sent').reduce((s, m) => s + m.recipients, 0)} format={(n) => fmtNum(n)} color="rgb(var(--cyan))" />
@@ -137,6 +137,7 @@ function CommsInner() {
               { key: 'st', label: 'Status', render: (m) => <span title={m.error ?? m.adapter ?? undefined}><Badge tone={messageTone[m.status]} dot>{messageLabel[m.status]}</Badge></span> },
             ]} />
           )}</Loadable>
+          <LoadMore q={msgs} count={msgs.data?.length} noun="messages" />
         </Panel>
       </div>
     </>
