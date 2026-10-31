@@ -9,6 +9,7 @@ import { fmtMoney, fmtNum } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Button, EmptyState, PageHeader, Panel, PanelHeader, Segmented } from '@/components/ui/primitives';
 import { DataTable, LiveOnly, Loadable, LoadMore } from '@/components/ui/data';
+import { CurrencySettings, ForecastActuals, Incentives, Reconciliation } from './ledgers';
 
 const invTone = { draft: 'neutral', issued: 'blue', paid: 'emerald', void: 'danger' } as const;
 const payTone = { open: 'blue', pending_approval: 'orange', paid: 'emerald' } as const;
@@ -18,7 +19,7 @@ function FinanceInner() {
   const role = useOS((s) => s.role);
   const write = access(role, 'finance') === 'full';
   const bids = can(role, 'view:vendor_bids') || role === 'vendor';
-  const [tab, setTab] = useState<'receivable' | 'payable'>(role === 'vendor' ? 'payable' : 'receivable');
+  const [tab, setTab] = useState<'receivable' | 'payable' | 'reconcile' | 'incentives' | 'forecast' | 'currencies'>(role === 'vendor' ? 'payable' : 'receivable');
   const [tick, setTick] = useState(0);
   const sum = useLive<FinanceSummary>('/finance/summary', [tick]);
   const inv = usePaged<Invoice>(role === 'vendor' ? null : '/invoices', [tick]);
@@ -31,20 +32,29 @@ function FinanceInner() {
   const requestPay = (p: Payable) => act(() => api(`/payables/${p.id}/request-payment`, { method: 'POST' }), 'Payment sent for approval. Someone with approve:payments decides it.').then(bump);
 
   const s = sum.data;
+  const base = s?.currency ?? 'USD';
+  const internal = role !== 'vendor' && role !== 'client';
   return (
     <>
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {role !== 'vendor' && <KpiCard label="Receivable (issued)" value={s?.receivable ?? 0} format={(n) => fmtMoney(n, false)} color="rgb(var(--blue))" />}
-        {role !== 'vendor' && <KpiCard label="Overdue receivable" value={s?.overdueReceivable ?? 0} format={(n) => fmtMoney(n, false)} status={{ tone: s?.overdueReceivable ? 'warn' : 'ok', text: s?.overdueReceivable ? 'Chase' : 'None overdue' }} color="rgb(var(--danger))" />}
-        {role !== 'vendor' && <KpiCard label="Collected" value={s?.collected ?? 0} format={(n) => fmtMoney(n, false)} color="rgb(var(--emerald))" />}
-        {role !== 'client' && <KpiCard label={role === 'vendor' ? 'Owed to you' : 'Payable to vendors'} value={s?.payable ?? 0} format={(n) => fmtMoney(n, false)} color="rgb(var(--orange))" />}
-        {role !== 'client' && <KpiCard label="Paid out" value={s?.paidOut ?? 0} format={(n) => fmtMoney(n, false)} color="rgb(var(--cyan))" />}
+        {role !== 'vendor' && <KpiCard label="Receivable (issued)" value={s?.receivable ?? 0} format={(n) => fmtMoney(n, false, base)} color="rgb(var(--blue))" />}
+        {role !== 'vendor' && <KpiCard label="Overdue receivable" value={s?.overdueReceivable ?? 0} format={(n) => fmtMoney(n, false, base)} status={{ tone: s?.overdueReceivable ? 'warn' : 'ok', text: s?.overdueReceivable ? 'Chase' : 'None overdue' }} color="rgb(var(--danger))" />}
+        {role !== 'vendor' && <KpiCard label="Collected" value={s?.collected ?? 0} format={(n) => fmtMoney(n, false, base)} color="rgb(var(--emerald))" />}
+        {role !== 'client' && <KpiCard label={role === 'vendor' ? 'Owed to you' : 'Payable to vendors'} value={s?.payable ?? 0} format={(n) => fmtMoney(n, false, base)} color="rgb(var(--orange))" />}
+        {role !== 'client' && <KpiCard label="Paid out" value={s?.paidOut ?? 0} format={(n) => fmtMoney(n, false, base)} color="rgb(var(--cyan))" />}
         {role !== 'client' && <KpiCard label="Purchase orders" value={s?.purchaseOrders ?? 0} format={(n) => fmtNum(n)} status={s?.awaitingApproval ? { tone: 'warn', text: `${s.awaitingApproval} payment(s) awaiting approval` } : undefined} color="rgb(var(--purple))" />}
       </div>
 
       {role !== 'vendor' && role !== 'client' && bids && (
-        <Segmented className="mb-4" label="Ledger" value={tab} onChange={setTab} options={[{ value: 'receivable', label: 'Client invoices' }, { value: 'payable', label: 'Vendor POs and payables' }]} />
+        <Segmented className="mb-4" label="Ledger" value={tab} onChange={setTab} options={[
+          { value: 'receivable', label: 'Client invoices' }, { value: 'payable', label: 'Vendor POs and payables' }, { value: 'reconcile', label: 'Reconciliation' },
+          { value: 'incentives', label: 'Incentives' }, { value: 'forecast', label: 'Forecast vs actuals' }, { value: 'currencies', label: 'Currencies' },
+        ]} />
       )}
+      {internal && tab === 'reconcile' && bids && <Reconciliation write={write} />}
+      {internal && tab === 'incentives' && <Incentives write={write} />}
+      {internal && tab === 'forecast' && <ForecastActuals />}
+      {internal && tab === 'currencies' && <CurrencySettings write={write} />}
 
       {tab === 'receivable' && role !== 'vendor' && (
         <Panel>
@@ -55,7 +65,7 @@ function FinanceInner() {
               { key: 'c', label: 'Client', render: (r) => r.clientName ?? r.clientId },
               { key: 'p', label: 'Project', render: (r) => <span title={r.project?.name}>{r.project?.code}</span> },
               { key: 'q', label: 'Completes', align: 'right', render: (r) => fmtNum(r.completes) },
-              { key: 'a', label: 'Amount', align: 'right', render: (r) => fmtMoney(r.amount, false) },
+              { key: 'a', label: 'Amount', align: 'right', render: (r) => fmtMoney(r.amount, false, r.currency) },
               { key: 'd', label: 'Due', render: (r) => shortDate(r.dueAt) },
               { key: 's', label: 'Status', render: (r) => <Badge tone={invTone[r.status]} dot>{r.status}</Badge> },
               { key: 'x', label: '', align: 'right', render: (r) => write && (r.status === 'draft' ? <Button size="sm" variant="primary" onClick={() => issue(r)}><Send size={12} /> Issue</Button> : r.status === 'issued' ? <Button size="sm" onClick={() => received(r)}><BadgeCheck size={12} /> Mark received</Button> : null) },
@@ -75,8 +85,8 @@ function FinanceInner() {
                 ...(role === 'vendor' ? [] : [{ key: 'v', label: 'Vendor', render: (r: PurchaseOrder) => r.vendorName }]),
                 { key: 'p', label: 'Project', render: (r) => r.projectCode },
                 { key: 'q', label: 'Completes', align: 'right', render: (r) => fmtNum(r.completes) },
-                { key: 'cpi', label: 'CPI', align: 'right', render: (r) => fmtCpi(r.cpi) },
-                { key: 'a', label: 'Amount', align: 'right', render: (r) => fmtMoney(r.amount, false) },
+                { key: 'cpi', label: 'CPI', align: 'right', render: (r) => r.currency === base ? fmtCpi(r.cpi) : Intl.NumberFormat('en-US', { style: 'currency', currency: r.currency }).format(r.cpi) },
+                { key: 'a', label: 'Amount', align: 'right', render: (r) => fmtMoney(r.amount, false, r.currency) },
                 { key: 'd', label: 'Issued', render: (r) => shortDate(r.issuedAt) },
               ]} />
             )}</Loadable>
@@ -88,7 +98,7 @@ function FinanceInner() {
               <DataTable rows={rows} empty={<EmptyState title="No payables" />} cols={[
                 { key: 'po', label: 'PO', render: (r) => r.purchaseOrder.number },
                 ...(role === 'vendor' ? [] : [{ key: 'v', label: 'Vendor', render: (r: Payable) => r.vendorName }]),
-                { key: 'a', label: 'Amount', align: 'right', render: (r) => fmtMoney(r.amount, false) },
+                { key: 'a', label: 'Amount', align: 'right', render: (r) => fmtMoney(r.amount, false, r.currency) },
                 { key: 'd', label: 'Due', render: (r) => shortDate(r.dueAt) },
                 { key: 's', label: 'Status', render: (r) => <Badge tone={payTone[r.status]} dot>{payLabel[r.status]}</Badge> },
                 { key: 'x', label: '', align: 'right', render: (r) => write && r.status === 'open' && <Button size="sm" variant="primary" onClick={() => requestPay(r)}>Request payment</Button> },
@@ -108,7 +118,7 @@ export default function FinancePage() {
   return (
     <div>
       <PageHeader eyebrow="Finance" title={role === 'vendor' ? 'Orders and payments' : role === 'client' ? 'Your invoices' : 'Receivables, POs and payables'}
-        subtitle="Invoices draft themselves at the Invoice stage, purchase orders when a sample purchase is approved. Vendor payments are approval-gated."
+        subtitle="Invoices draft themselves at the Invoice stage, purchase orders when a sample purchase is approved, each in the client's or vendor's currency. Vendor payments and incentive redemptions are approval-gated."
         actions={<Badge tone="orange">No accounting system connected</Badge>} />
       <LiveOnly what="Invoices, purchase orders and payables"><FinanceInner /></LiveOnly>
     </div>

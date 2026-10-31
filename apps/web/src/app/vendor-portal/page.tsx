@@ -1,16 +1,68 @@
 'use client';
 import { useState } from 'react';
-import { Inbox, PackageCheck, XCircle } from 'lucide-react';
-import { countryByCode } from '@/lib/core';
+import { Inbox, Link2, PackageCheck, XCircle } from 'lucide-react';
+import { access, countryByCode } from '@/lib/core';
 import { api } from '@/lib/api';
 import { act, fmtCpi, shortDate, useLive, type Feasibility, type Payable, type PurchaseOrder } from '@/lib/live';
 import { useOS } from '@/lib/store';
 import { cn, fmtMoney, fmtNum, fmtPct } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
-import { Badge, Button, EmptyState, Field, inputCls, PageHeader, Panel, PanelHeader } from '@/components/ui/primitives';
+import { Badge, Button, Drawer, EmptyState, Field, inputCls, PageHeader, Panel, PanelHeader } from '@/components/ui/primitives';
 import { DataTable, LiveOnly, Loadable } from '@/components/ui/data';
 
-type VendorAllocation = { id: string; completes: number; cpi?: number; status: string; createdAt: string; project: { code: string; name: string; countries: string[]; audience: string; deadline: string }; vendor: { name: string } };
+type VendorAllocation = {
+  id: string; vendorId: string; completes: number; cpi?: number; status: string; createdAt: string;
+  completeUrl: string | null; screenoutUrl: string | null; overquotaUrl: string | null;
+  project: { code: string; name: string; countries: string[]; audience: string; deadline: string; surveys: { id: string; name: string }[] }; vendor: { name: string };
+};
+const EXITS = [
+  { key: 'completeUrl', label: 'Complete', hint: 'Qualified and finished the survey' },
+  { key: 'screenoutUrl', label: 'Terminate (screened out)', hint: 'Did not match the target' },
+  { key: 'overquotaUrl', label: 'Over quota', hint: 'Matched, but the group was already full' },
+] as const;
+
+/** Entry links to hand to the supplier, and the exit links it wants respondents sent back to. */
+function LinksDrawer({ a, canEdit, onClose, onSaved }: { a: VendorAllocation; canEdit: boolean; onClose: () => void; onSaved: () => void }) {
+  const [urls, setUrls] = useState({ completeUrl: a.completeUrl ?? '', screenoutUrl: a.screenoutUrl ?? '', overquotaUrl: a.overquotaUrl ?? '' });
+  const [busy, setBusy] = useState(false);
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const bad = Object.values(urls).some((u) => u && !/^https:\/\/\S+$/.test(u));
+  const save = async () => {
+    setBusy(true);
+    const body = Object.fromEntries(Object.entries(urls).map(([k, v]) => [k, v.trim() || null]));
+    const r = await act(() => api(`/allocations/${a.id}/redirects`, { method: 'PATCH', body }), 'Exit links saved');
+    setBusy(false);
+    if (r) onSaved();
+  };
+  return (
+    <Drawer open onClose={onClose} title={`Survey links · ${a.project.code}`} subtitle={a.project.name}>
+      <div className="space-y-5 text-[13px]">
+        <section>
+          <h3 className="font-medium">Entry link</h3>
+          <p className="mt-1 text-2xs text-ink-3">Send respondents here. Replace RID with your own respondent id; it comes back to you on the exit link.</p>
+          {a.project.surveys.length ? a.project.surveys.map((s) => (
+            <div key={s.id} className="mt-2 rounded-lg bg-surface-2/50 p-2">
+              <div className="text-2xs text-ink-3">{s.name}</div>
+              <code className="block break-all text-[12px]">{`${origin}/r/${s.id}?a=${a.id}&rid=RID`}</code>
+            </div>
+          )) : <p className="mt-2 text-2xs text-ink-3">No published survey on this project yet.</p>}
+        </section>
+        <section className="space-y-3">
+          <h3 className="font-medium">Exit links</h3>
+          <p className="text-2xs text-ink-3">Where respondents go when they finish. Use https and put {'{rid}'} where your respondent id belongs. Nothing else about the respondent is added.</p>
+          {EXITS.map((x) => (
+            <Field key={x.key} label={x.label} hint={x.hint}>
+              <input className={inputCls} value={urls[x.key]} disabled={!canEdit} placeholder="https://your-panel.example/end?status=…&id={rid}" aria-label={`${x.label} link`}
+                onChange={(e) => setUrls({ ...urls, [x.key]: e.target.value })} />
+            </Field>
+          ))}
+          {bad && <p role="alert" className="text-2xs text-danger">Links must start with https://</p>}
+          {canEdit ? <Button variant="primary" disabled={busy || bad} onClick={save}>Save exit links</Button> : <p className="text-2xs text-ink-3">Read-only for your role.</p>}
+        </section>
+      </div>
+    </Drawer>
+  );
+}
 const fTone = { sent: 'orange', responded: 'emerald', declined: 'neutral' } as const;
 const fLabel = { sent: 'Awaiting your answer', responded: 'Answered', declined: 'Declined' } as const;
 
@@ -49,11 +101,14 @@ function VendorInner() {
   const allocs = useLive<VendorAllocation[]>('/allocations', [tick]);
   const pos = useLive<PurchaseOrder[]>('/purchase-orders', [tick]);
   const pay = useLive<Payable[]>('/payables', [tick]);
+  const [links, setLinks] = useState<VendorAllocation | null>(null);
+  const editLinks = isVendor || access(role, 'marketplace') === 'full';
   const waiting = inbox.data?.filter((f) => f.status === 'sent') ?? [];
   const owed = (pay.data ?? []).filter((p) => p.status !== 'paid').reduce((s, p) => s + p.amount, 0);
 
   return (
     <>
+      {links && <LinksDrawer a={links} canEdit={editLinks} onClose={() => setLinks(null)} onSaved={() => { setLinks(null); setTick((t) => t + 1); }} />}
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Requests awaiting answer" value={waiting.length} format={(n) => fmtNum(n)} status={{ tone: waiting.length ? 'warn' : 'ok', text: waiting.length ? 'Answer to be considered' : 'All answered' }} color="rgb(var(--orange))" />
         <KpiCard label="Allocations" value={allocs.data?.length ?? 0} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
@@ -98,6 +153,7 @@ function VendorInner() {
               { key: 'q', label: 'Completes', align: 'right', render: (r) => fmtNum(r.completes) },
               { key: 'cpi', label: 'CPI', align: 'right', render: (r) => fmtCpi(r.cpi) },
               { key: 's', label: 'Status', render: (r) => <Badge tone={r.status === 'proposed' ? 'orange' : r.status === 'closed' ? 'neutral' : 'emerald'} dot>{r.status === 'proposed' ? 'Awaiting approval' : r.status}</Badge> },
+              { key: 'l', label: '', render: (r) => <Button size="sm" variant="ghost" onClick={() => setLinks(r)} aria-label={`Survey links for ${r.project.code}`}><Link2 size={13} /> Links{r.completeUrl ? '' : ' ·'}</Button> },
             ]} />
           )}</Loadable>
         </Panel>
