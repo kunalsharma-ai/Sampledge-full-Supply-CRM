@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { approvalKinds, fallbackDeciders, type ApprovalKind } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
+import { emit } from '../common/events';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
@@ -47,31 +48,49 @@ export class ApprovalsService {
     const payload = (a.payload ?? {}) as Record<string, string | number>;
     const ok = decision === 'approved';
     return this.db.$transaction(async (tx) => {
-      const effect = await this.apply(tx, a.kind, payload, ok);
+      const effect = await this.apply(tx, ctx.tenantId, a.kind, payload, ok);
       const u = await tx.approval.update({ where: { id }, data: { status: decision, decidedBy: ctx.name, decidedAt: new Date(), payload: { ...payload, note: note ?? null, effect } as Prisma.InputJsonValue } });
       await this.audit.log(ctx, `approval.${decision}`, 'Approval', id, { status: 'pending' }, { status: decision, kind: a.kind, effect, note }, tx);
+      await emit(tx, ctx.tenantId, 'approval.decided', { approvalId: id, kind: a.kind, decision, requestedBy: a.requestedBy });
       return { approval: u, effect };
     });
   }
 
-  private async apply(tx: Prisma.TransactionClient, kind: string, p: Record<string, string | number>, ok: boolean): Promise<string> {
+  private async apply(tx: Prisma.TransactionClient, tenantId: string, kind: string, p: Record<string, string | number>, ok: boolean): Promise<string> {
     switch (kind) {
       case 'Publishing surveys': {
         if (!ok || !p.surveyId) return ok ? 'No survey linked' : 'Survey stays unpublished';
         await tx.survey.update({ where: { id: String(p.surveyId) }, data: { status: 'Published' } });
         await tx.surveyVersion.updateMany({ where: { surveyId: String(p.surveyId), version: Number(p.version) }, data: { publishedAt: new Date() } });
+        await emit(tx, tenantId, 'survey.published', { surveyId: String(p.surveyId), version: Number(p.version) });
         return `Survey published (v${p.version}); respondent links are live`;
       }
       case 'Purchasing sample': {
         if (!p.allocationId) return ok ? 'Recorded (no allocation linked; demo request)' : 'Rejected';
         await tx.allocation.update({ where: { id: String(p.allocationId) }, data: { status: ok ? 'approved' : 'closed' } });
-        return ok ? 'Allocation approved. No PO is transmitted: supplier integrations are not connected.' : 'Allocation closed';
+        if (ok) await emit(tx, tenantId, 'allocation.approved', { allocationId: String(p.allocationId) });
+        return ok ? 'Allocation approved; a purchase order and payable are being raised. Delivery to the supplier uses the development adapter (nothing leaves the system).' : 'Allocation closed';
       }
       case 'Sending binding quotations': {
         if (!p.quoteId) return ok ? 'Recorded (no quote linked; demo request)' : 'Rejected';
         await tx.quote.update({ where: { id: String(p.quoteId) }, data: { status: ok ? 'sent' : 'rejected' } });
         if (ok) await tx.opportunity.updateMany({ where: { id: String(p.opportunityId), stage: { in: ['New RFQ', 'Qualifying', 'Feasibility'] } }, data: { stage: 'Quote Sent', probability: 0.5 } });
-        return ok ? 'Quote marked sent. No email is sent until the Comms Hub (Phase 4) is connected.' : 'Quote rejected';
+        if (ok) await emit(tx, tenantId, 'quote.sent', { quoteId: String(p.quoteId) });
+        return ok ? 'Quote approved and queued to the client in the Comms Hub (development adapter: recorded, not emailed).' : 'Quote rejected';
+      }
+      case 'Issuing payments': {
+        if (!p.payableId) return ok ? 'Recorded (no payable linked; demo request)' : 'Rejected';
+        const pay = await tx.payable.update({ where: { id: String(p.payableId) }, data: ok ? { status: 'paid', paidAt: new Date() } : { status: 'open' } });
+        if (!ok) return 'Payment rejected; payable is open again';
+        await tx.vendor.update({ where: { id: pay.vendorId }, data: { pendingPayment: { decrement: pay.amount } } });
+        await emit(tx, tenantId, 'payable.paid', { payableId: pay.id });
+        return 'Payable marked paid. No money moves: payment rails are not connected.';
+      }
+      case 'High-volume communications': {
+        if (!p.messageId) return ok ? 'Recorded (no message linked; demo request)' : 'Rejected';
+        await tx.message.update({ where: { id: String(p.messageId) }, data: { status: ok ? 'queued' : 'cancelled' } });
+        if (ok) await emit(tx, tenantId, 'message.queued', { messageId: String(p.messageId) });
+        return ok ? 'Message queued for the development adapter (recorded, not sent)' : 'Message cancelled';
       }
       case 'Deleting records': {
         if (!p.panelistId) return ok ? 'Recorded' : 'Rejected';

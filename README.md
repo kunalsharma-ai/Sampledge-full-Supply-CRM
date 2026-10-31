@@ -1,8 +1,8 @@
 # Sampledge AI Research OS
 
-**Phase 3: functional core.** A Next.js web app on a NestJS + Postgres API, sharing one TypeScript domain package. Sign-in, roles, tenant isolation, projects, CRM and quotes, vendors and allocations, survey versions, a public respondent runtime with atomic quotas, panelists and consent, and human approvals all run on the database.
+**Phase 4: integrated workflow.** A Next.js web app on a NestJS + Postgres API, sharing one TypeScript domain package. Sign-in, roles, tenant isolation, projects, CRM and quotes, vendors and allocations, survey versions, a public respondent runtime with atomic quotas, panelists and consent, and human approvals all run on the database. Phase 4 connects them: a transactional outbox and worker hand work between modules, supplier feasibility, purchase orders, invoices and vendor payments, a Comms Hub, and client and vendor portals.
 
-Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected (no email, no supplier APIs, no panel-site APIs, no AI model).
+Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected: messages are recorded by a development adapter and never sent, "paid" is a record (no payment rail), and there are no supplier, panel-site or AI model APIs.
 
 ## Run it
 
@@ -36,7 +36,11 @@ node apps/web/e2e-smoke.cjs      # browser end-to-end on a running, freshly seed
 - **Survey Studio** (Survey Programmer): approve a QA fix (each edit is a new immutable version), then *Request publish*. Publishing is blocked while QA finds critical issues, and waits in **AI Automation → Approvals** for someone other than the requester.
 - **Respondent link:** once published, open `/r/sv-cloud`. Routing, validation and quota counting run on the server; `?preview=1` (signed in) never counts.
 - **Sample Exchange** (Project Manager): *Request PO approval* creates real allocation proposals on a project, each pending a purchase approval.
-- **Panels:** the panelist directory reads pseudonymous records, shows consent history, records withdrawals, and routes deletion through an approval.
+- **Panels:** the panelist directory reads pseudonymous records, shows consent history, records withdrawals, and routes deletion through an approval. *Connect existing panel websites → Choose CSV* validates and imports members (rows with emails or phone numbers are rejected).
+- **Supplier feasibility:** as Business Development, open an opportunity in the CRM and *Request feasibility*. Sign in as the Sample Vendor, answer in the **Vendor Portal**, and the next drafted quote is priced as supplier-confirmed.
+- **Purchase → PO → payment:** approve a sample purchase (as someone other than the requester) and a PO, payable and vendor email appear. In **Finance**, *Request payment* waits for an *Issuing payments* approval.
+- **Invoice:** move a project with completes to the *Invoice* stage; a draft appears in **Finance**. *Issue* it and the Client sees it in the **Client Portal**.
+- **Comms Hub:** send to a panel segment; consent withdrawals are excluded, and more than 100 recipients needs an approval. Every message shows as *Recorded (dev adapter)*.
 
 ## Layout
 ```

@@ -75,6 +75,31 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number } = {
     });
   }
 
+  // Finance records for work already in field or closed (demo): a PO and payable for each purchased
+  // allocation, a draft invoice for the project at the Invoice stage and a paid one for the closed project.
+  const purchased = await db.allocation.findMany({ where: { tenantId: t, status: { in: ['live', 'closed'] } }, include: { project: true }, orderBy: [{ projectId: 'asc' }, { vendorId: 'asc' }] });
+  for (const [i, a] of purchased.entries()) {
+    const amount = Math.round(a.completes * a.cpi);
+    const issuedAt = new Date(a.project.start);
+    const po = await db.purchaseOrder.create({ data: { tenantId: t, number: `PO-26${String(i + 1).padStart(4, '0')}`, vendorId: a.vendorId, projectId: a.projectId, allocationId: a.id, completes: a.completes, cpi: a.cpi, amount, status: 'issued', issuedAt } });
+    const closed = a.status === 'closed';
+    await db.payable.create({ data: { tenantId: t, vendorId: a.vendorId, purchaseOrderId: po.id, amount, status: closed ? 'paid' : 'open', dueAt: new Date(issuedAt.getTime() + 30 * day), paidAt: closed ? new Date(issuedAt.getTime() + 28 * day) : null } });
+    await db.message.create({ data: { tenantId: t, channel: 'email', audience: 'vendor', toRef: `vendor:${a.vendorId}`, recipients: 1, subject: `Purchase order ${po.number}`, body: `${a.completes} completes at $${a.cpi.toFixed(2)} CPI for project ${a.project.code}. Total $${amount.toLocaleString('en-US')}.`, status: 'delivered_dev', adapter: 'development (recorded, not sent)', relatedType: 'PurchaseOrder', relatedId: po.id, createdBy: 'system', createdAt: issuedAt, deliveredAt: issuedAt } });
+  }
+  let invN = 0;
+  for (const [pid, status] of [['pr-020', 'draft'], ['pr-024', 'paid']] as const) {
+    const p = seed.projects.find((x) => x.id === pid)!;
+    const issuedAt = status === 'paid' ? new Date(seed.DEMO_NOW.getTime() - 40 * day) : null;
+    await db.invoice.create({ data: { tenantId: t, number: `INV-26${String(++invN).padStart(4, '0')}`, clientId: p.clientId, projectId: p.id, completes: p.completes, cpi: p.cpiSell, amount: Math.round(p.completes * p.cpiSell), status, issuedAt, dueAt: issuedAt && new Date(issuedAt.getTime() + 30 * day), paidAt: status === 'paid' ? new Date(seed.DEMO_NOW.getTime() - 12 * day) : null } });
+  }
+
+  // Open feasibility requests (sent, unanswered) so the vendor portal has a brief to answer.
+  // No supplier answers are seeded: a response is a supplier confirmation and only a vendor gives one.
+  const op10 = seed.opportunities.find((o) => o.id === 'op-010')!;
+  for (const country of op10.countries) {
+    await db.feasibilityRequest.create({ data: { tenantId: t, opportunityId: op10.id, vendorId: 'vd-01', country, audience: op10.type, sampleSize: op10.sampleSize, incidence: op10.ir, loi: op10.loi, status: 'sent', dueAt: new Date(seed.DEMO_NOW.getTime() + 3 * day) } });
+  }
+
   for (const s of seed.surveys) {
     const isCloud = s.id === cloudSurvey.id;
     await db.survey.create({
@@ -107,6 +132,15 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number } = {
       tenantId: t, title: n.title, body: n.body, module: n.module, read: n.read, createdAt: new Date(seed.DEMO_NOW.getTime() - (minutes[n.time] ?? 0) * 60_000),
       roles: roles.filter((r) => access(r.id, n.module as ModuleId) !== 'none').map((r) => r.id as Role),
     })),
+  });
+
+  await db.messageTemplate.createMany({
+    data: [
+      { tenantId: t, key: 'panel_invite', name: 'Survey invitation', channel: 'email', subject: 'New survey for you: about {{loi}} minutes', body: 'Hi {{handle}}, a new survey matches your profile. It takes about {{loi}} minutes and earns {{points}} points. Take part: {{link}}' },
+      { tenantId: t, key: 'panel_reengage', name: 'Re-engagement', channel: 'email', subject: 'We miss your opinions', body: 'Hi {{handle}}, new surveys are waiting and your {{points}} points are still here. Update your profile to get better matches.' },
+      { tenantId: t, key: 'client_fieldwork_update', name: 'Client fieldwork update', channel: 'email', subject: '{{project}}: fieldwork update', body: 'Fieldwork is at {{completes}} of {{target}} completes. Incidence is tracking at {{ir}}. Next update tomorrow.' },
+      { tenantId: t, key: 'vendor_top_up', name: 'Vendor top-up request', channel: 'email', subject: 'Top-up request for {{project}}', body: 'Could you deliver {{n}} more completes for {{project}} by {{date}} at the agreed CPI? Please confirm in the vendor portal.' },
+    ],
   });
 
   // Synthetic, pseudonymous panelists. No names, contact details or health records.

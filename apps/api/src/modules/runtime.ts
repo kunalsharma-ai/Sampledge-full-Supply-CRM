@@ -5,6 +5,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import type { Ctx } from '../common/context';
 import { Public } from '../common/context';
+import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 import { SurveysService } from './surveys';
@@ -99,6 +100,10 @@ export class RuntimeService {
       if (!cell) continue;
       const n = await tx.$executeRaw`UPDATE "QuotaCell" SET "count" = "count" + 1 WHERE "id" = ${cell.id} AND ("hard" = false OR "count" < "target")`;
       if (n === 0) throw new QuotaRace();
+      if (cell.count + 1 >= cell.target) {
+        const now = await tx.quotaCell.findUniqueOrThrow({ where: { id: cell.id } });
+        if (now.count === now.target) await emit(tx, cell.tenantId, 'quota.filled', { quotaCellId: cell.id, surveyId, label: cell.label });
+      }
     }
     const s = await tx.survey.findUniqueOrThrow({ where: { id: surveyId }, select: { projectId: true } });
     if (s.projectId) await tx.project.update({ where: { id: s.projectId }, data: { completes: { increment: 1 } } });

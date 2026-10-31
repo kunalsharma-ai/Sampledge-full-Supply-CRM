@@ -11,6 +11,8 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   let failed = 0;
   const ok = (n, c) => { if (!c) failed++; console.log((c ? 'PASS ' : 'FAIL ') + n); };
   const apiGet = (path) => p.evaluate(async (u) => (await fetch(u)).json(), `/api/v1${path}`);
+  const apiSend = (method, path, body) => p.evaluate(async ([m, u, b]) => { const r = await fetch(u, { method: m, headers: { 'content-type': 'application/json' }, body: JSON.stringify(b ?? {}) }); return { status: r.status, body: await r.json() }; }, [method, `/api/v1${path}`, body]);
+  const until = async (fn, what) => { for (let i = 0; i < 60; i++) { if (await fn()) return true; await p.waitForTimeout(250); } throw new Error(`timed out: ${what}`); };
   // Pages render after the session and records load, so wait for the app frame, not just the network.
   const go = async (path) => {
     await p.goto(B + path, { waitUntil: 'networkidle' });
@@ -95,7 +97,47 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   ok('Respondent link screens out by routing rule', true);
   await r.close();
 
-  // 9 Vendor scope
+  // 9 Phase 4 workflows: feasibility, PO, invoice, client portal, Comms Hub
+  await switchTo('bizdev');
+  await go('/crm?open=op-004');
+  await p.locator('[role=dialog] button', { hasText: 'Request feasibility' }).click();
+  await p.getByText(/Sent to \d+ vendor/).first().waitFor({ timeout: 10000 });
+  ok('Business Development requests supplier feasibility from the CRM', (await apiGet('/opportunities/op-004/feasibility')).length >= 1);
+
+  await switchTo('project_manager');
+  const al = await apiSend('POST', '/projects/pr-012/allocations', { vendorId: 'vd-01', completes: 120, cpi: 3.4 });
+  await apiSend('PATCH', '/projects/pr-012/stage', { stage: 'Invoice' });
+  await switchTo('executive');
+  const dec = await apiSend('POST', `/approvals/${al.body.approval.id}/decision`, { decision: 'approved' });
+  await until(async () => (await apiGet('/purchase-orders')).some((x) => x.allocationId === al.body.allocation.id), 'PO raised by the worker');
+  ok('Approved sample purchase raises a purchase order', dec.status === 200);
+
+  await switchTo('finance');
+  await go('/finance');
+  const invRow = p.locator('tr', { hasText: 'SE-26' }).filter({ has: p.getByRole('button', { name: 'Issue' }) }).first();
+  await invRow.waitFor({ timeout: 15000 });
+  const invNo = (await invRow.locator('td').first().textContent()).trim();
+  await invRow.getByRole('button', { name: 'Issue' }).click();
+  await p.getByText(/issued; the client is notified/).first().waitFor({ timeout: 10000 });
+  ok(`Finance issues the drafted invoice ${invNo}`, true);
+
+  await switchTo('client');
+  await go('/client-portal');
+  await p.getByText(invNo).first().waitFor({ timeout: 10000 });
+  ok('Client portal shows the issued invoice', true);
+
+  await switchTo('panel_manager');
+  await go('/communications');
+  await p.getByRole('radio', { name: 'Panel' }).or(p.getByRole('button', { name: 'Panel', exact: true })).first().click();
+  await p.getByRole('combobox', { name: 'Recipient', exact: true }).selectOption('panel:turn2opinion:all');
+  await p.getByText(/Above \d+ recipients/).waitFor({ timeout: 10000 });
+  await p.locator('#main').getByLabel('Subject').fill('New studies this week');
+  await p.locator('#main textarea').first().fill('Hello from the team.');
+  await p.getByRole('button', { name: 'Request approval to send' }).click();
+  await p.getByText(/sent for approval before anything is queued/).first().waitFor({ timeout: 10000 });
+  ok('High-volume panel send waits for approval', (await apiGet('/comms/messages')).some((m) => m.status === 'pending_approval'));
+
+  // 10 Vendor scope
   await switchTo('vendor');
   await go('/command-center');
   ok('Vendor role blocked from Command Center', await p.getByText(/is not available to Sample Vendor/).isVisible());
@@ -104,7 +146,15 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await go('/marketplace');
   ok('Vendor sees only own workspace', (await p.content()).includes('Vendor workspace') && !(await p.content()).includes('Vendor leaderboard'));
 
-  // 10 Sign out
+  await go('/vendor-portal');
+  await p.getByRole('button', { name: 'Answer', exact: true }).first().click();
+  await p.getByLabel('CPI in US dollars').fill('4.2');
+  await p.getByRole('button', { name: 'Send answer' }).click();
+  await p.getByText(/supplier-confirmed/).first().waitFor({ timeout: 10000 });
+  ok('Vendor answers feasibility in the portal', (await apiGet('/feasibility')).some((f) => f.status === 'responded'));
+  ok('Vendor portal lists the new purchase order', await p.getByText(/PO-26\d+/).first().isVisible());
+
+  // 11 Sign out
   await p.getByRole('button', { name: 'Sign out' }).click();
   await p.waitForURL(/\/login/, { timeout: 10000 });
   const me = await p.evaluate(async () => (await fetch('/api/v1/auth/me')).status);

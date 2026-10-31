@@ -1,7 +1,9 @@
 import { BadRequestException, Body, Controller, Get, Injectable, NotFoundException, Param, Patch, Post } from '@nestjs/common';
 import { crmStages, estimateCpi, type CrmStage, type Vendor as CoreVendor } from '@sampledge/core';
 import { z } from 'zod';
+import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
+import { emit } from '../common/events';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { redactMargins } from '../common/redact';
@@ -78,6 +80,7 @@ export class CommercialService {
           },
         });
         await this.audit.log(ctx, 'project.create_from_won', 'Project', project.id, undefined, { opportunityId: id, code: project.code }, tx);
+        await emit(tx, ctx.tenantId, 'opportunity.won', { opportunityId: id, projectId: project.id });
       }
       const u = await tx.opportunity.update({
         where: { id },
@@ -89,32 +92,39 @@ export class CommercialService {
   }
 
   /**
-   * Draft quote from vendor rate cards (an ESTIMATE, basis rate_card_estimate). The cheapest
-   * eligible vendor per country sets cost; sell applies the target margin.
+   * Draft quote. Per market, cost comes from the lowest vendor feasibility response when one exists
+   * (supplier-confirmed); otherwise from the cheapest eligible rate card (an estimate). The basis
+   * records which: supplier_confirmed, mixed or rate_card_estimate. Sell applies the target margin.
    */
   async draftQuote(ctx: Ctx, id: string, targetMargin: number) {
     const o = await this.db.opportunity.findFirst({ where: { id, tenantId: ctx.tenantId } });
     if (!o) throw new NotFoundException('Opportunity not found');
     const vendors = (await this.db.vendor.findMany({ where: { tenantId: ctx.tenantId } })).map(toCoreVendor);
+    const responses = await this.db.feasibilityRequest.findMany({ where: { opportunityId: id, status: 'responded' } });
     const perCountry = o.countries.map((c) => {
+      const confirmed = responses.filter((r) => r.country === c && r.cpi !== null).map((r) => r.cpi as number);
+      if (confirmed.length) return { country: c, vendors: confirmed.length, cpi: Math.min(...confirmed), source: 'supplier_confirmed' as const };
       const el = vendors.filter((v: CoreVendor) => v.coverage.includes(c) && v.audiences.includes(o.audience));
       const cpis = el.map((v) => estimateCpi(v, { audience: o.audience, country: c, n: o.sampleSize, ir: o.incidence, loi: o.loi }));
-      return { country: c, vendors: el.length, cpi: cpis.length ? Math.min(...cpis) : null };
+      return { country: c, vendors: el.length, cpi: cpis.length ? Math.min(...cpis) : null, source: 'rate_card_estimate' as const };
     });
     const missing = perCountry.filter((x) => x.cpi === null).map((x) => x.country);
     if (missing.length === perCountry.length) throw new BadRequestException(`No vendor covers ${o.audience} in ${missing.join(', ')}`);
-    const priced = perCountry.filter((x) => x.cpi !== null) as { country: string; vendors: number; cpi: number }[];
+    const priced = perCountry.filter((x) => x.cpi !== null) as { country: string; vendors: number; cpi: number; source: string }[];
+    const sources = new Set(priced.map((x) => x.source));
+    const basis = sources.size > 1 ? 'mixed' : [...sources][0];
     const cpiCost = +(priced.reduce((s, x) => s + x.cpi, 0) / priced.length).toFixed(2);
     const cpiSell = +(cpiCost / (1 - targetMargin)).toFixed(2);
     const total = Math.round(cpiSell * o.sampleSize);
     return this.db.$transaction(async (tx) => {
       const last = await tx.quote.findFirst({ where: { opportunityId: id }, orderBy: { version: 'desc' } });
       const q = await tx.quote.create({
-        data: { tenantId: ctx.tenantId, opportunityId: id, version: (last?.version ?? 0) + 1, cpiSell, cpiCost, margin: targetMargin, total, basis: 'rate_card_estimate', status: 'draft', createdBy: ctx.name },
+        data: { tenantId: ctx.tenantId, opportunityId: id, version: (last?.version ?? 0) + 1, cpiSell, cpiCost, margin: targetMargin, total, basis, status: 'draft', createdBy: ctx.name },
       });
       await tx.opportunity.update({ where: { id }, data: { value: total, margin: targetMargin, lastTouch: new Date() } });
       await this.audit.log(ctx, 'quote.draft', 'Quote', q.id, undefined, q, tx);
-      return { quote: redactMargins(ctx, q), perCountry, uncovered: missing, basis: 'Rate-card estimate. Not a supplier confirmation.' };
+      const note = basis === 'supplier_confirmed' ? 'All markets priced from vendor feasibility responses.' : basis === 'mixed' ? 'Some markets use vendor responses; others are rate-card estimates.' : 'Rate-card estimate. Not a supplier confirmation.';
+      return { quote: redactMargins(ctx, q), perCountry, uncovered: missing, basis: note };
     });
   }
 
@@ -125,9 +135,7 @@ export class CommercialService {
     if (q.status !== 'draft') throw new BadRequestException(`Quote is ${q.status}`);
     return this.db.$transaction(async (tx) => {
       const u = await tx.quote.update({ where: { id: q.id }, data: { status: 'pending_approval' } });
-      const ap = await tx.approval.create({
-        data: { tenantId: ctx.tenantId, kind: 'Sending binding quotations', title: `Send quote v${q.version} to ${q.opportunity.client.name}: ${q.opportunity.title}`, amount: q.total, requestedBy: ctx.userId, payload: { quoteId: q.id, opportunityId: q.opportunityId } },
-      });
+      const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'Sending binding quotations', title: `Send quote v${q.version} to ${q.opportunity.client.name}: ${q.opportunity.title}`, amount: q.total, requestedBy: ctx.userId, payload: { quoteId: q.id, opportunityId: q.opportunityId } });
       await this.audit.log(ctx, 'quote.submit', 'Quote', q.id, { status: q.status }, { status: u.status, approvalId: ap.id }, tx);
       return { quote: redactMargins(ctx, u), approval: ap };
     });

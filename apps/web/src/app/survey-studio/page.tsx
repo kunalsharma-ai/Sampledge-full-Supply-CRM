@@ -5,7 +5,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { can, runQA, type SurveyDef } from '@/lib/core';
 import { api, ApiError } from '@/lib/api';
 import { Button, EmptyState } from '@/components/ui/primitives';
-import { ExternalLink, Send } from 'lucide-react';
+import { Download, ExternalLink, Send } from 'lucide-react';
 import { useOS } from '@/lib/store';
 import { palette } from '@/lib/tokens';
 import { avg, cn, fmtNum, fmtPct, sum } from '@/lib/utils';
@@ -61,6 +61,7 @@ function PublishBar({ def }: { def: SurveyDef }) {
       {s.mode === 'live' ? (
         <>
           <a href={`/r/${def.id}?preview=1`} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-cyan hover:underline">Preview as respondent <ExternalLink size={12} /></a>
+          <a href={`/api/v1/surveys/${def.id}/responses.csv`} className="inline-flex items-center gap-1 text-cyan hover:underline" download>Responses CSV <Download size={12} /></a>
           {status === 'Published' && <a href={`/r/${def.id}?src=direct`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-cyan hover:underline">Live link <ExternalLink size={12} /></a>}
           {can(s.role, 'edit:surveys') && status !== 'Published' && <Button size="sm" variant="primary" disabled={busy} onClick={request}><Send size={12} /> Request publish</Button>}
         </>

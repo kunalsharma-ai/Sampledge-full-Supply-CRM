@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { modules } from '@/lib/modules';
+import { isBuilt, modules } from '@/lib/modules';
 import { access, roles } from '@/lib/core';
 import { demoLoginsEnabled } from '@/lib/api';
 import { useOS } from '@/lib/store';
@@ -76,7 +76,7 @@ function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                         {active && <span className="absolute left-0 top-2 h-5 w-[3px] rounded-r bg-cyan shadow-[0_0_12px_rgb(var(--cyan))]" />}
                         <Icon size={17} className={cn('relative shrink-0', active ? 'text-cyan' : 'text-ink-3 group-hover:text-ink-2')} />
                         {!collapsed && <span className="relative flex-1 truncate">{m.label}</span>}
-                        {!collapsed && m.phase > 2 && <span className="relative text-[9px] font-semibold uppercase tracking-wider text-ink-3">P{m.phase}</span>}
+                        {!collapsed && !isBuilt(m) && <span className="relative text-[9px] font-semibold uppercase tracking-wider text-ink-3">P{m.phase}</span>}
                         {!collapsed && access(role, m.id) === 'read' && <Lock size={11} className="relative text-ink-3" aria-label="Read only" />}
                       </Link>
                     </li>
@@ -210,7 +210,7 @@ function Topbar() {
 function MobileNav() {
   const path = usePathname();
   const role = useOS((s) => s.role);
-  const items = modules.filter((m) => m.phase === 2 && m.id !== 'design-system' && access(role, m.id) !== 'none');
+  const items = modules.filter((m) => isBuilt(m) && m.id !== 'design-system' && access(role, m.id) !== 'none');
   return (
     <nav aria-label="Modules" className="sticky top-16 z-10 flex gap-1 overflow-x-auto border-b hairline bg-bg/70 px-3 py-2 backdrop-blur-xl lg:hidden">
       {items.map((m) => {
@@ -247,7 +247,7 @@ function ModuleGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
   const mod = useMemo(() => modules.find((m) => path?.startsWith(m.href)), [path]);
   if (mod && access(role, mod.id) === 'none') {
-    const first = modules.find((m) => access(role, m.id) !== 'none' && m.phase === 2);
+    const first = modules.find((m) => access(role, m.id) !== 'none' && isBuilt(m));
     return (
       <div className="mx-auto mt-24 max-w-md text-center">
         <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-danger/10 text-danger"><Lock size={20} /></div>
@@ -300,8 +300,8 @@ export function Shell({ children }: { children: ReactNode }) {
           </motion.main>
         </AnimatePresence>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t hairline px-6 py-4 text-2xs text-ink-3">
-          <span>Sampledge AI Research OS · Phase 3 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
-          <span className="flex items-center gap-2"><Badge tone="neutral">v0.3.0</Badge> No external integrations connected</span>
+          <span>Sampledge AI Research OS · Phase 4 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
+          <span className="flex items-center gap-2"><Badge tone="neutral">v0.4.0</Badge> No external integrations connected</span>
         </footer>
       </div>
       <CommandPalette />

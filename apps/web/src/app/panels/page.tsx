@@ -10,6 +10,7 @@ import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Button, DemoBadge, Field, inputCls, PageHeader, Panel, PanelHeader, Segmented } from '@/components/ui/primitives';
 import { EChart, axis } from '@/components/charts/echart';
 import { PanelistDirectory } from '@/components/panels/directory';
+import { PanelImport } from '@/components/panels/import';
 
 type Sel = 'all' | PanelBrand['id'];
 type RewardCat = { id: string; name: string; maxLoi: number; points: number; minQuality: number };
@@ -193,11 +194,11 @@ export default function PanelsPage() {
       <PanelistDirectory />
 
       <Panel className="mt-6">
-        <PanelHeader eyebrow="Integration" title="Connect existing panel websites" actions={<Badge tone="orange">Not connected</Badge>} />
+        <PanelHeader eyebrow="Integration" title="Connect existing panel websites" actions={<Badge tone="orange">Adapters not connected</Badge>} />
         <div className="grid gap-4 text-[12.5px] md:grid-cols-3">
-          <div className="panel-solid p-4"><div className="mb-1 font-semibold">1. Secure file import</div><p className="text-2xs text-ink-3">CSV/Excel member export with field mapping, validation and consent check. Planned Phase 4 (the directory below already holds the target schema).</p><Button size="sm" className="mt-3" disabled><Upload size={12} /> Upload export</Button></div>
+          <div className="panel-solid p-4"><div className="mb-1 font-semibold">1. Secure file import</div><PanelImport /></div>
           <div className="panel-solid p-4"><div className="mb-1 font-semibold">2. Configurable adapter</div><p className="text-2xs text-ink-3">If a site exposes an API or database replica, an adapter maps it to the panelist schema. We do not assume one exists.</p></div>
-          <div className="panel-solid p-4"><div className="mb-1 font-semibold">3. Event sync</div><p className="text-2xs text-ink-3">Survey invitations, completes and reward ledger posted back to each panel. Planned Phase 4.</p></div>
+          <div className="panel-solid p-4"><div className="mb-1 font-semibold">3. Event sync</div><p className="text-2xs text-ink-3">Survey invitations, completes and reward ledger posted back to each panel. Planned Phase 6 with the adapters.</p></div>
         </div>
       </Panel>
     </div>

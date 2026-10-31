@@ -3,50 +3,10 @@
  * Covers authentication, tenant isolation, role scoping, field redaction, the approval gate,
  * CRM Won → project, the respondent runtime and atomic quota counting.
  */
-import { execSync } from 'node:child_process';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-
-const base = process.env.DATABASE_URL ?? 'postgresql://sampledge:sampledge@localhost:5432/sampledge?schema=public';
-process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? base.replace(/\/([^/?]+)(\?|$)/, '/sampledge_test$2');
-process.env.NODE_ENV = 'test';
-process.env.JWT_SECRET ??= 'test-secret-not-for-production';
-process.env.RATE_LIMIT = '100000';
-process.env.LOGIN_RATE_LIMIT = '1000';
-
-import { PrismaClient } from '@prisma/client';
 import { authenticator } from 'otplib';
-import type { INestApplication } from '@nestjs/common';
-import { createApp } from '../bootstrap';
-import { DEMO_PASSWORD, demoEmail, runSeed } from '../seed';
-
-let app: INestApplication;
-let url = '';
-const db = new PrismaClient();
-const tokens: Record<string, string> = {};
-
-type Res = { status: number; body: any };
-async function call(method: string, p: string, body?: unknown, token?: string): Promise<Res> {
-  const r = await fetch(`${url}/api/v1${p}`, {
-    method,
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await r.text();
-  return { status: r.status, body: text ? JSON.parse(text) : null };
-}
-const as = (role: string) => ({
-  get: (p: string) => call('GET', p, undefined, tokens[role]),
-  post: (p: string, b?: unknown) => call('POST', p, b ?? {}, tokens[role]),
-  patch: (p: string, b: unknown) => call('PATCH', p, b, tokens[role]),
-  put: (p: string, b: unknown) => call('PUT', p, b, tokens[role]),
-});
-async function login(email: string, password = DEMO_PASSWORD) {
-  const r = await call('POST', '/auth/login', { email, password, returnToken: true });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  return r.body.token as string;
-}
+import { as, call, DEMO_PASSWORD, demoEmail, h, login, setup, teardown, type Res } from './harness';
 
 const COMPLETE: Record<string, unknown> = { S1: 'ft', S2: 'lg', S3: 'final', S4: ['tech'], Q1: ['aws'], Q2: 'aws', Q3: 50, Q4: { posture: '3', identity: '3', workload: '3', data: '3' }, Q5: ['price', 'int', 'sup', 'comp'], Q6: 'flat', Q9: 8, Q10: 'ok', Q11: 4, END: '' };
 /** Answers until `stopBefore` is the current question (or the session ends). */
@@ -61,27 +21,10 @@ async function walk(responseId: string, first: string, stopBefore?: string) {
   return { last, cursor: q };
 }
 
-before(async () => {
-  const admin = new PrismaClient({ datasources: { db: { url: base } } });
-  const exists = await admin.$queryRaw<unknown[]>`SELECT 1 FROM pg_database WHERE datname = 'sampledge_test'`;
-  if (!exists.length) await admin.$executeRawUnsafe('CREATE DATABASE sampledge_test');
-  await admin.$disconnect();
-  execSync('npx prisma migrate deploy', { cwd: path.resolve(__dirname, '../..'), env: process.env, stdio: 'ignore' });
-  await runSeed(db, { panelists: 200 });
-  app = await createApp();
-  await app.listen(0);
-  url = await app.getUrl();
-  url = url.replace('[::1]', 'localhost');
-  for (const r of ['platform_admin', 'executive', 'project_manager', 'survey_programmer', 'bizdev', 'finance', 'panel_manager', 'vendor', 'client', 'data_processing']) {
-    tokens[r] = await login(demoEmail(r));
-  }
-  tokens.pm2 = await login('project.manager2@demo.sampledge.test');
-  tokens.iso = await login('admin@isolation.sampledge.test');
-});
-after(async () => {
-  await app?.close();
-  await db.$disconnect();
-});
+before(setup);
+after(teardown);
+const tokens = new Proxy({} as Record<string, string>, { get: (_, k: string) => h.tokens[k] });
+const db = new Proxy({} as typeof h.db, { get: (_, k) => (h.db as never)[k as never] });
 
 describe('authentication', () => {
   it('serves health without a session', async () => {
@@ -98,7 +41,7 @@ describe('authentication', () => {
     assert.equal(a.body.message, b.body.message);
   });
   it('sets an httpOnly cookie and keeps the token out of the body by default', async () => {
-    const r = await fetch(`${url}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: demoEmail('executive'), password: DEMO_PASSWORD }) });
+    const r = await fetch(`${h.url}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: demoEmail('executive'), password: DEMO_PASSWORD }) });
     const cookie = r.headers.get('set-cookie') ?? '';
     assert.match(cookie, /sampledge_session=/);
     assert.match(cookie, /HttpOnly/i);
@@ -215,7 +158,7 @@ describe('CRM and quotes', () => {
     assert.equal((await as('panel_manager').post(`/approvals/${ap}/decision`, { decision: 'approved' })).status, 403, 'role lacks approve:quotes');
     const ok = await as('executive').post(`/approvals/${ap}/decision`, { decision: 'approved' });
     assert.equal(ok.status, 200);
-    assert.match(ok.body.effect, /No email is sent/);
+    assert.match(ok.body.effect, /development adapter: recorded, not emailed/);
     const o = (await as('bizdev').get('/opportunities/op-003')).body;
     assert.equal(o.quotes[0].status, 'sent');
   });
@@ -242,7 +185,7 @@ describe('sample allocation', () => {
     assert.equal((await as('project_manager').post(`/approvals/${r.body.approval.id}/decision`, { decision: 'approved' })).status, 403);
     const ok = await as('pm2').post(`/approvals/${r.body.approval.id}/decision`, { decision: 'approved' });
     assert.equal(ok.status, 200);
-    assert.match(ok.body.effect, /No PO is transmitted/);
+    assert.match(ok.body.effect, /nothing leaves the system/);
   });
 });
 

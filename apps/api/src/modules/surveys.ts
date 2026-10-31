@@ -1,7 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Injectable, NotFoundException, Param, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Injectable, NotFoundException, Param, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { runQA, type SurveyDef } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
@@ -132,11 +134,30 @@ export class SurveysService {
     if (critical.length) throw new BadRequestException({ message: `QA has ${critical.length} critical issue(s); fix them before publishing`, issues: critical });
     const pending = await this.db.approval.findFirst({ where: { tenantId: ctx.tenantId, kind: 'Publishing surveys', status: 'pending', payload: { path: ['surveyId'], equals: id } } });
     if (pending) return { approval: pending, alreadyPending: true };
-    const ap = await this.db.approval.create({
-      data: { tenantId: ctx.tenantId, kind: 'Publishing surveys', title: `Publish ${s.name} v${s.currentVersion}`, projectId: s.projectId, requestedBy: ctx.userId, payload: { surveyId: id, version: s.currentVersion } },
+    const ap = await this.db.$transaction(async (tx) => {
+      const a = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'Publishing surveys', title: `Publish ${s.name} v${s.currentVersion}`, projectId: s.projectId, requestedBy: ctx.userId, payload: { surveyId: id, version: s.currentVersion } });
+      await this.audit.log(ctx, 'survey.publish_requested', 'Survey', id, undefined, { version: s.currentVersion, approvalId: a.id }, tx);
+      return a;
     });
-    await this.audit.log(ctx, 'survey.publish_requested', 'Survey', id, undefined, { version: s.currentVersion, approvalId: ap.id });
     return { approval: ap, alreadyPending: false };
+  }
+
+  /** CSV of all responses: one row per response, one column per question (arrays joined with |). */
+  async csv(ctx: Ctx, id: string) {
+    const s = await this.get(ctx, id);
+    const def = s.definition;
+    const qids = def ? def.questions.filter((q) => q.type !== 'info').map((q) => q.id) : [];
+    const rows = await this.db.response.findMany({ where: { surveyId: id }, orderBy: { startedAt: 'asc' } });
+    const esc = (v: unknown) => {
+      const t = v === undefined || v === null ? '' : Array.isArray(v) ? v.join('|') : typeof v === 'object' ? Object.entries(v as Record<string, string>).map(([k, x]) => `${k}=${x}`).join(';') : String(v);
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const head = ['response_id', 'version', 'source', 'outcome', 'started_at', 'completed_at', ...qids];
+    const body = rows.map((r) => {
+      const a = r.answers as Record<string, unknown>;
+      return [r.id, r.version, r.source, r.outcome ?? 'in_progress', r.startedAt.toISOString(), r.completedAt?.toISOString() ?? '', ...qids.map((q) => a[q])].map(esc).join(',');
+    });
+    return [head.join(','), ...body].join('\n') + '\n';
   }
 
   async responses(ctx: Ctx, id: string, outcome?: string, take = 50) {
@@ -163,6 +184,12 @@ export class SurveysController {
   async version(@Caller() ctx: Ctx, @Param('id') id: string, @Param('v') v: string) {
     await this.s.get(ctx, id);
     return this.s.definition(id, Number(v));
+  }
+
+  @Get(':id/responses.csv') @Header('content-type', 'text/csv; charset=utf-8')
+  async exportCsv(@Caller() ctx: Ctx, @Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    res.setHeader('content-disposition', `attachment; filename="${id}-responses.csv"`);
+    return this.s.csv(ctx, id);
   }
 
   @Get(':id/responses')

@@ -2,7 +2,9 @@ import { Body, Controller, ForbiddenException, Get, Injectable, NotFoundExceptio
 import { lifecycle, type LifecycleStage } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
+import { emit } from '../common/events';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { redactMargins } from '../common/redact';
@@ -86,6 +88,7 @@ export class ProjectsService {
     return this.db.$transaction(async (tx) => {
       const u = await tx.project.update({ where: { id }, data: { stage } });
       await this.audit.log(ctx, 'project.stage', 'Project', id, { stage: p.stage }, { stage }, tx);
+      await emit(tx, ctx.tenantId, 'project.stage_changed', { projectId: id, from: p.stage, to: stage });
       return redactMargins(ctx, u);
     });
   }
@@ -113,11 +116,9 @@ export class ProjectsService {
     }
     return this.db.$transaction(async (tx) => {
       const amount = Math.round(body.completes * body.cpi);
-      const ap = await tx.approval.create({
-        data: { tenantId: ctx.tenantId, kind: 'Purchasing sample', title: `Issue PO: ${body.completes} completes from ${v.name} (${p.code})`, projectId, amount, requestedBy: ctx.userId, payload: { vendorId: v.id } },
-      });
-      const a = await tx.allocation.create({ data: { tenantId: ctx.tenantId, projectId, vendorId: v.id, completes: body.completes, cpi: body.cpi, status: 'proposed', approvalId: ap.id } });
-      await tx.approval.update({ where: { id: ap.id }, data: { payload: { vendorId: v.id, allocationId: a.id } } });
+      const draft = await tx.allocation.create({ data: { tenantId: ctx.tenantId, projectId, vendorId: v.id, completes: body.completes, cpi: body.cpi, status: 'proposed' } });
+      const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'Purchasing sample', title: `Issue PO: ${body.completes} completes from ${v.name} (${p.code})`, projectId, amount, requestedBy: ctx.userId, payload: { vendorId: v.id, allocationId: draft.id } });
+      const a = await tx.allocation.update({ where: { id: draft.id }, data: { approvalId: ap.id } });
       await this.audit.log(ctx, 'allocation.propose', 'Allocation', a.id, undefined, a, tx);
       return { allocation: a, approval: ap };
     });

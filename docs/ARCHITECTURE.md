@@ -1,6 +1,6 @@
 # Sampledge AI Research OS: architecture
 
-Status: Phases 1–3 implemented (web, API, database, shared domain package). Items marked *planned* are Phase 4+.
+Status: Phases 1–4 implemented (web, API, database, shared domain package, workflow worker). Items marked *planned* are Phase 5+. The diagram shows the target system; Phase 4 runs the event bus as a Postgres outbox rather than Redis/Temporal (see §4).
 
 ## 1. System overview
 
@@ -84,7 +84,22 @@ sequenceDiagram
   PM->>FI: project.signed_off → invoice.drafted
 ```
 
-Events are versioned (`project.created.v1`) and carry ids, not denormalised copies. Every consumer is idempotent; Temporal owns anything long-running or needing retries and human approval.
+Events carry ids, not denormalised copies, and every handler is idempotent (a PO is unique per allocation; an invoice is skipped if the project already has one).
+
+**Implemented in Phase 4** (`apps/api/src/common/events.ts`, `apps/api/src/modules/worker.ts`):
+
+| Event | Emitted by | Worker effect |
+|---|---|---|
+| `opportunity.won` | CRM stage → Won | notify PMs |
+| `feasibility.requested` / `.responded` | CRM request / vendor answer | vendor email / notify Business Development |
+| `quote.sent` | quote approval | client email |
+| `approval.requested` / `.decided` | any approval | notify deciders / requester |
+| `allocation.approved` | purchase approval | PO + payable + vendor pending balance + vendor email + finance notification |
+| `project.stage_changed` | project stage | at *Invoice*: draft invoice + finance notification |
+| `invoice.issued` | finance | client email |
+| `payable.paid` | payment approval | vendor email |
+| `survey.published`, `quota.filled` | publish approval, runtime | notifications |
+| `message.queued` | Comms Hub send or high-volume approval | delivery through the adapter |
 
 ## 3. Frontend architecture (implemented)
 
@@ -104,17 +119,19 @@ GSAP was listed as optional; Motion covers every animation in Phase 2, so GSAP i
 
 ## 4. Backend architecture
 
-### Implemented in Phase 3
+### Implemented in Phases 3–4
 - **Monorepo** (npm workspaces): `packages/core` (survey engine, roles and permissions, pricing, analytics, demo seed) is compiled once and imported by both `apps/api` and `apps/web`, so routing, quota rules, the role matrix and CPI estimates cannot drift between client and server.
 - **NestJS modular monolith** (`apps/api`): projects, commercial (clients, opportunities, quotes), vendors, surveys, respondent runtime, panels, approvals and ops (agents, notifications, audit, dashboard). Compiled with `tsc` (decorator metadata).
-- **PostgreSQL + Prisma** (`apps/api/prisma/schema.prisma`, two migrations). Every business row carries `tenantId`.
+- **PostgreSQL + Prisma** (`apps/api/prisma/schema.prisma`, four migrations). Every business row carries `tenantId`.
 - **Transactions** wherever two records must change together: Won → project; approval decision → its effect; survey version → quota-cell upsert; completion → quota increments + project completes.
 - **Atomic quotas**: `UPDATE "QuotaCell" SET count = count + 1 WHERE id = $1 AND (hard = false OR count < target)` inside the completion transaction; zero rows updated means the cell filled first, so the completion rolls back and the respondent is overquota. Tested with four concurrent respondents racing for one slot.
+- **Transactional outbox** (Phase 4): `emit(tx, …)` writes an `OutboxEvent` in the caller's transaction, so side effects happen only for committed changes. The worker claims a batch with `FOR UPDATE SKIP LOCKED` and a 30 s lease (safe with several workers), handles each event in its own transaction, retries up to 5 times and keeps `lastError`. It runs in the API process by default; set `WORKER_INLINE=false` and run `node dist/worker.js` to separate it. `/health` reports `outboxPending`.
+- **Delivery adapter** (Phase 4): every outbound message is a `Message` row; the only adapter is *development* (status `delivered_dev`, nothing sent). Email/SMS providers implement the same `deliver()` in Phase 6.
 - **Web ↔ API**: Next rewrites `/api/v1/*` to the API, keeping the session cookie first-party. The Zustand store hydrates from the API after sign-in and turns each action into an API call (optimistic update, reload on error). If the API is unreachable the app falls back to the labelled offline demo.
 
 ### Planned
-- **Redis + queue/outbox** (Phase 4) for side effects after commit: notifications, emails, supplier requests, report generation. A Temporal-style workflow engine for long-running, approval-signalled flows once those side effects exist.
-- **WebSocket fan-out** for live counters (Phase 4).
+- **Broker or Temporal** only if volume or long-running timers call for it; the outbox claim query is the swap point.
+- **WebSocket fan-out** for live counters (Phase 5).
 - **Columnar analytics store** for responses at volume (Phase 5).
 - **AI gateway**: provider-independent interface (`complete`, `structured`, `toolCall`), prompt registry, evals, per-tenant and per-agent cost caps, approval checkpoints (Phase 5). The rule-based assistant uses the same record-level tool functions the gateway will call.
 - **Object storage** for uploads and exports with content-type validation and scanning (Phase 4–5).

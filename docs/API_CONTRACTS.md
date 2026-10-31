@@ -1,15 +1,15 @@
-# API reference (Phase 3, implemented)
+# API reference (Phases 3–4, implemented)
 
 REST under `/api/v1`, JSON. The browser calls same-origin `/api/v1/*` (Next proxies to the API) with an httpOnly session cookie; API clients can send `Authorization: Bearer <token>` (ask for it with `returnToken: true` at sign-in). Bodies are validated with zod; failures return `400 { message, issues: [{ path, message }] }`.
 
 Access rules on every route: the session's **tenant** scopes all queries (another tenant's id returns 404); the role's **module access** from `packages/core/src/roles.ts` gates reads (`none` → 403) and writes (`read` → 403); listed **permissions** are required. Fields marked 🔒 are removed from responses for roles without the named permission. Scoped roles: *vendor* sees its own vendor and allocations only; *client* sees its own client's projects and surveys only.
 
-Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test.ts`.
+Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test.ts`, `apps/api/src/test/workflow.test.ts`.
 
 ## Health and auth
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/health` | public; checks the database |
+| GET | `/health` | public; checks the database; `outboxPending` |
 | POST | `/auth/login` | `{ email, password, tenant?, returnToken? }` → sets cookie; `{ mfaRequired: true, challenge }` when MFA is on. Rate-limited per IP |
 | POST | `/auth/mfa/verify` | `{ challenge, code }` → sets cookie |
 | POST | `/auth/logout` | revokes the session |
@@ -53,6 +53,7 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | POST | `/surveys/:id/qa` | `{ simulations }` → issues + simulated journeys; `publishable` false while critical issues exist |
 | POST | `/surveys/:id/publish` | `edit:surveys`; refused with critical QA issues; otherwise approval *Publishing surveys* (idempotent while pending) |
 | GET | `/surveys/:id/responses?outcome&take` | rows + counts by outcome and source + quota cells |
+| GET | `/surveys/:id/responses.csv` | one row per response: response_id, version, source, outcome, started_at, completed_at, then one column per question |
 
 ## Respondent runtime (public)
 | Method | Path | Notes |
@@ -69,6 +70,7 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | GET | `/panels/panelists/:id` | with consent history |
 | POST | `/panels/panelists/:id/consents` | `{ purpose, granted }`; health-data consent only for MyHealthOpinions |
 | POST | `/panels/panelists/:id/deletion-request` | status → `deletion_requested` + approval *Deleting records* |
+| POST | `/panels/import` | `{ brand, csv, dryRun = true }` → `{ accepted, skipped, errors[], errorCount }`. Header: `handle,country,age_band,gender,segment[,status][,consent_research]`. Rows with an email address or phone number are rejected; existing handles skipped; ≤ 5,000 rows |
 
 ## Approvals, automation, notifications, audit
 | Method | Path | Notes |
@@ -80,5 +82,32 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | GET | `/audit?entity&entityId&take` | module `admin` |
 | GET | `/dashboard/summary` | module `command-center`; KPIs computed from the database. 🔒 `grossMargin` |
 
-## Planned (Phase 4+)
-Cursor pagination on all lists, `Idempotency-Key` on money-bearing POSTs, WebSocket `/ws` for live counters, supplier feasibility requests, invoices and payables, Comms Hub sends, panel CSV import, response exports.
+## Supplier feasibility (modules `crm`, `vendor-portal`)
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/opportunities/:id/feasibility` | crm write; `{ vendorIds?, dueInDays = 3 }`. Default: top 3 ranked vendors per market. Idempotent per vendor and market; moves *New RFQ* / *Qualifying* to *Feasibility*; emails each vendor |
+| GET | `/opportunities/:id/feasibility` | answers per vendor and market. 🔒 `cpi` (`view:vendor_bids`) |
+| GET | `/feasibility` | vendor portal inbox. Vendor: own requests only. No client identity; reference `RFQ-xxxxxx` |
+| POST | `/feasibility/:id/respond` | **vendor role only**, own request: `{ cpi, capacity, note? }` or `{ decline: true }`; answered once |
+
+## Finance (module `finance`)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/finance/summary` | receivable, overdue, collected, payable, paid out, PO count (scoped per role) |
+| GET | `/invoices` | client: own client, issued and paid only |
+| POST | `/invoices` | `{ projectId }` → draft from delivered completes × sell CPI; one per project |
+| POST | `/invoices/:id/issue` | `{ termsDays = 30 }` → issued + client email |
+| POST | `/invoices/:id/mark-paid` | issued → paid (recorded) |
+| GET | `/purchase-orders` · `/payables` | `view:vendor_bids` roles; vendor: own only; others get `[]` |
+| POST | `/payables/:id/request-payment` | open → `pending_approval` + approval *Issuing payments*; approval marks it paid and reduces the vendor's pending balance |
+
+## Comms Hub (module `communications`)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/comms/messages?take` | vendor/client: messages to them and their own messages to the team |
+| GET | `/comms/templates` · POST `/comms/render` | `{ key, vars }` → subject and body |
+| GET | `/comms/preview?audience&target` | recipients after consent filtering, `needsApproval`, threshold, adapter |
+| POST | `/comms/messages` | `{ channel: email|sms|in_app, audience, target, subject, body }`. Targets: `client:<id>`, `vendor:<id>`, `panel:<brand>:<all|active|dormant>`, `role:<role>`. Above `COMMS_HIGH_VOLUME` (100) → approval *High-volume communications*; otherwise queued. Vendors and clients may only target `internal` |
+
+## Planned (Phase 5+)
+Cursor pagination on all lists, `Idempotency-Key` on money-bearing POSTs, WebSocket `/ws` for live counters, report exports (PPTX/PDF), AI gateway endpoints.

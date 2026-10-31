@@ -371,3 +371,131 @@ model Approval {
 
   @@index([tenantId, status])
 }
+
+// ───────────────────────── Phase 4: events, supply confirmations, finance, comms
+
+/// Transactional outbox: written in the same transaction as the change, processed after commit
+/// by the worker (FOR UPDATE SKIP LOCKED), so side effects never run for rolled-back changes.
+model OutboxEvent {
+  id          String    @id @default(cuid())
+  tenantId    String
+  type        String
+  payload     Json
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+  attempts    Int       @default(0)
+  lockedUntil DateTime?
+  lastError   String?
+
+  @@index([processedAt, createdAt])
+}
+
+/// A feasibility/bid request to one vendor for one market. Vendors never see the client's identity.
+model FeasibilityRequest {
+  id            String    @id @default(cuid())
+  tenantId      String
+  opportunityId String
+  vendorId      String
+  country       String
+  audience      Audience
+  sampleSize    Int
+  incidence     Float
+  loi           Int
+  status        String    // sent | responded | declined
+  dueAt         DateTime
+  cpi           Float?    // vendor's quoted CPI (a supplier confirmation)
+  capacity      Int?
+  note          String?
+  respondedAt   DateTime?
+  respondedBy   String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([opportunityId, vendorId, country])
+  @@index([tenantId, vendorId, status])
+}
+
+model PurchaseOrder {
+  id           String   @id @default(cuid())
+  tenantId     String
+  number       String
+  vendorId     String
+  projectId    String
+  allocationId String   @unique
+  completes    Int
+  cpi          Float
+  amount       Int
+  status       String   // issued | closed | cancelled
+  issuedAt     DateTime @default(now())
+  payables     Payable[]
+
+  @@unique([tenantId, number])
+}
+
+model Payable {
+  id              String        @id @default(cuid())
+  tenantId        String
+  vendorId        String
+  purchaseOrderId String
+  amount          Int
+  status          String        // open | pending_approval | paid
+  dueAt           DateTime
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([tenantId, status])
+}
+
+model Invoice {
+  id        String    @id @default(cuid())
+  tenantId  String
+  number    String
+  clientId  String
+  projectId String
+  completes Int
+  cpi       Float
+  amount    Int
+  status    String    // draft | issued | paid | void
+  issuedAt  DateTime?
+  dueAt     DateTime?
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+}
+
+model MessageTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  key       String
+  name      String
+  channel   String   // email | sms | in_app
+  subject   String
+  body      String   // supports {{var}} placeholders
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, key])
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  tenantId    String
+  channel     String    // email | sms | in_app
+  audience    String    // client | vendor | panel | internal
+  toRef       String    // client:<id> | vendor:<id> | panel:<brand>:<status> | role:<role>
+  recipients  Int
+  subject     String
+  body        String
+  status      String    // pending_approval | queued | delivered_dev | failed | cancelled
+  adapter     String?
+  approvalId  String?
+  relatedType String?
+  relatedId   String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+  error       String?
+
+  @@index([tenantId, createdAt])
+}

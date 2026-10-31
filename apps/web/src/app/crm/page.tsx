@@ -7,6 +7,8 @@ import { clients, countries, crmStages, months, monthlyRevenue, vendors, type Cr
 import { allocate, rankVendors, type Audience } from '@/lib/core';
 import { access, can } from '@/lib/core';
 import { useOS } from '@/lib/store';
+import { api } from '@/lib/api';
+import { act, fmtCpi, useLive, type Feasibility } from '@/lib/live';
 import { palette } from '@/lib/tokens';
 import { cn, fmtMoney, fmtNum, fmtPct, sum } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
@@ -76,7 +78,7 @@ function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'st
           <Badge tone="orange">Rate-card estimate · not a supplier confirmation</Badge>
           {ranked.length} eligible vendors for {audience} in {countries.find((c) => c.code === country)?.name}
         </div>
-        {!ranked.length ? <EmptyState title="No vendor covers this audience and market" body="Try another country or audience, or send an open feasibility request (Phase 4)." /> : (
+        {!ranked.length ? <EmptyState title="No vendor covers this audience and market" body="Try another country or audience. Feasibility requests go to vendors that cover the market." /> : (
           <>
             <EChart ariaLabel="Estimated CPI by vendor" height={200} deps={[ranked]} option={(t) => ({
               tooltip: { trigger: 'axis', valueFormatter: (v) => `$${Number(v).toFixed(2)}` },
@@ -107,6 +109,39 @@ function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'st
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Supplier feasibility for one opportunity (live API only). Answers come from vendors in their portal. */
+function FeasibilitySection({ oppId, stage, canEdit }: { oppId: string; stage: CrmStage; canEdit: boolean }) {
+  const role = useOS((s) => s.role);
+  const [tick, setTick] = useState(0);
+  const q = useLive<Feasibility[]>(`/opportunities/${oppId}/feasibility`, [tick, oppId]);
+  if (!q.live) return null;
+  const closed = stage === 'Won' || stage === 'Lost';
+  const ask = () => act(() => api<{ created: number; skipped: number }>(`/opportunities/${oppId}/feasibility`, { method: 'POST', body: {} }), (r) => (r.created ? `Sent to ${r.created} vendor(s). Answers arrive in their portal.` : 'Every ranked vendor has already been asked')).then(() => setTick((t) => t + 1));
+  const rows = q.data ?? [];
+  const answered = rows.filter((r) => r.status === 'responded').length;
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="eyebrow">Supplier feasibility {rows.length ? `· ${answered}/${rows.length} answered` : ''}</div>
+        {canEdit && !closed && <Button size="sm" variant={rows.length ? 'outline' : 'primary'} onClick={ask}><Mail size={12} /> {rows.length ? 'Ask more vendors' : 'Request feasibility'}</Button>}
+      </div>
+      {rows.length ? (
+        <div className="space-y-1.5">
+          {rows.map((f) => (
+            <div key={f.id} className="panel-solid flex items-center gap-2 px-3 py-2">
+              <span className="font-medium">{f.vendorName}</span><Badge>{f.country}</Badge>
+              <span className="ml-auto" />
+              {f.status === 'responded' ? <span className="num text-ink-2">{f.cpi != null ? `${fmtCpi(f.cpi)} · ` : can(role, 'view:vendor_bids') ? '' : 'Bid hidden · '}{fmtNum(f.capacity ?? 0)} cap.</span> : null}
+              <Badge tone={f.status === 'responded' ? 'emerald' : f.status === 'declined' ? 'neutral' : 'orange'} dot>{f.status === 'sent' ? 'Waiting' : f.status}</Badge>
+            </div>
+          ))}
+          <p className="text-2xs text-ink-3">Drafted quotes use the lowest answered CPI per market (supplier-confirmed). Markets without answers fall back to the rate-card estimate and are labelled as such.</p>
+        </div>
+      ) : <p className="text-2xs text-ink-3">No vendor has been asked yet. Until they answer, any quote is a rate-card estimate, not a supplier confirmation.</p>}
     </div>
   );
 }
@@ -249,6 +284,7 @@ function CrmInner() {
                 <div className="mt-2 flex flex-wrap gap-1.5">{['Price', 'Timeline', 'Feasibility', 'Other'].map((r) => <Button key={r} size="sm" variant="outline" onClick={() => { s.moveOpportunity(sel.id, 'Lost', r); setLostAsk(null); }}>{r}</Button>)}</div>
               </div>
             )}
+            <FeasibilitySection oppId={sel.id} stage={sel.stage} canEdit={canEdit} />
             <p className="text-2xs text-ink-3">Moving to Won creates a project in Project Management with this sample size, audience, markets and budget. No re-entry.</p>
           </div>
         )}
