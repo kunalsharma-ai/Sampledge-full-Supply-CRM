@@ -84,21 +84,23 @@ export class IntegrationsService {
       lastActivity: null,
     });
 
-    const smtp = deliveryAdapter.mode === 'smtp';
+    const ch = deliveryAdapter.channels;
+    const live = ch.email === 'smtp' || ch.sms === 'api';
     const since = new Date(Date.now() - 30 * 86400_000);
-    const lastMsg = await this.db.message.findFirst({ where: { tenantId: ctx.tenantId, deliveredAt: { not: null } }, orderBy: { deliveredAt: 'desc' }, select: { deliveredAt: true, status: true } });
+    const lastMsg = await this.db.message.findFirst({ where: { tenantId: ctx.tenantId, deliveredAt: { not: null } }, orderBy: { deliveredAt: 'desc' }, select: { deliveredAt: true, status: true, channel: true } });
     const recorded = await this.db.message.count({ where: { tenantId: ctx.tenantId, status: 'delivered_dev', deliveredAt: { gte: since } } });
-    const sent = await this.db.message.count({ where: { tenantId: ctx.tenantId, status: 'sent', deliveredAt: { gte: since } } });
+    const sentBy = async (channel: 'email' | 'sms') => this.db.message.count({ where: { tenantId: ctx.tenantId, channel, status: 'sent', deliveredAt: { gte: since } } });
+    const [sentEmail, sentSms] = [await sentBy('email'), await sentBy('sms')];
     const failed = await this.db.message.count({ where: { tenantId: ctx.tenantId, status: 'failed', createdAt: { gte: since } } });
     out.push({
       id: 'messaging', name: 'Email and SMS delivery', group: 'Messaging',
-      // SMTP is 'configured' until a mail server has accepted a message, then 'connected'.
-      state: smtp ? (sent > 0 ? 'connected' : 'configured') : 'development',
-      detail: smtp
-        ? `E-mail sends via ${deliveryAdapter.name}. Last 30 days: ${sent} sent, ${failed} failed. SMS and panel members are not sent from here. Sends over the high-volume threshold still need an approval.`
-        : `Adapter: ${deliveryAdapter.name}. ${recorded} message(s) recorded in the last 30 days; none left the system. Set SMTP_HOST and SMTP_FROM to send e-mail. Sends over the high-volume threshold still need an approval.`,
-      settings: set('SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM'),
-      lastActivity: lastMsg?.deliveredAt ? { at: lastMsg.deliveredAt.toISOString(), summary: lastMsg.status === 'sent' ? 'e-mail sent' : 'message recorded (not sent)' } : null,
+      // A provider is 'configured' until it has delivered something in the last 30 days, then 'connected'.
+      state: live ? (sentEmail + sentSms > 0 ? 'connected' : 'configured') : 'development',
+      detail: live
+        ? `${ch.email === 'smtp' ? `E-mail on (${sentEmail} sent)` : 'E-mail off (set SMTP_HOST and SMTP_FROM)'}; ${ch.sms === 'api' ? `SMS on (${sentSms} sent)` : 'SMS off (set SMS_ACCOUNT_SID, SMS_AUTH_TOKEN and SMS_FROM)'}; ${failed} failed, last 30 days. Adapter: ${deliveryAdapter.name}. Panel members are not messaged from here. Sends over the high-volume threshold still need an approval.`
+        : `Adapter: ${deliveryAdapter.name}. ${recorded} message(s) recorded in the last 30 days; none left the system. Set SMTP_HOST and SMTP_FROM to send e-mail, or the SMS_ settings to send SMS. Sends over the high-volume threshold still need an approval.`,
+      settings: set('SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM', 'SMS_ACCOUNT_SID', 'SMS_AUTH_TOKEN', 'SMS_FROM', 'SMS_API_URL'),
+      lastActivity: lastMsg?.deliveredAt ? { at: lastMsg.deliveredAt.toISOString(), summary: lastMsg.status === 'sent' ? `${lastMsg.channel === 'sms' ? 'SMS' : 'e-mail'} sent` : 'message recorded (not sent)' } : null,
     });
 
     out.push(

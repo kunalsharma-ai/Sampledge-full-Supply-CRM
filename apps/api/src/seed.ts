@@ -26,10 +26,12 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
   const t = tenant.id;
 
   // Users: one per role. Vendor user belongs to Atlas Sample Co. (vd-01), client user to Northwind Brands (cl-01).
+  // Fictional numbers from the range reserved for drama (+1 202 555 0100-0199), so SMS demos never reach anyone.
+  const demoPhone: Partial<Record<string, string>> = { client: '+12025550101', vendor: '+12025550102', finance: '+12025550103', project_manager: '+12025550104' };
   for (const r of roles) {
     const name = r.persona.replace(/ \(Demo\).*/, '').replace(/ ·.*/, '');
     const u = await db.user.create({ data: { email: demoEmail(r.id), name: `${name} (Demo)`, passwordHash: hash } });
-    await db.membership.create({ data: { tenantId: t, userId: u.id, role: r.id as Role, vendorId: r.id === 'vendor' ? 'vd-01' : null, clientId: r.id === 'client' ? 'cl-01' : null } });
+    await db.membership.create({ data: { tenantId: t, userId: u.id, role: r.id as Role, vendorId: r.id === 'vendor' ? 'vd-01' : null, clientId: r.id === 'client' ? 'cl-01' : null, phone: demoPhone[r.id] ?? null } });
   }
   // A second PM so separation-of-duties flows can be exercised by one person in the demo.
   const pm2 = await db.user.create({ data: { email: 'project.manager2@demo.sampledge.test', name: 'Daniel Moreau (Demo)', passwordHash: hash } });

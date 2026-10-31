@@ -14,6 +14,13 @@ import { parse } from '../common/zod';
 /** Roles an administrator can assign here. Vendor and client members are tied to a vendor or client record, so they are set up with that record, not switched to or from. */
 export const ASSIGNABLE_ROLES = ['platform_admin', 'executive', 'project_manager', 'survey_programmer', 'bizdev', 'data_processing', 'finance', 'panel_manager'] as const satisfies readonly Role[];
 const RoleBody = z.object({ role: z.enum(ASSIGNABLE_ROLES) });
+/** A phone number in international (E.164) form; spaces, dashes, dots and brackets are ignored. Null or empty removes it. */
+const PhoneBody = z.object({
+  phone: z.union([z.string().max(32), z.null()]).transform((v) => (v ? v.replace(/[\s\-().]/g, '') : null))
+    .refine((v) => v === null || /^\+[1-9]\d{6,14}$/.test(v), 'Use the international form, for example +44 20 7946 0000'),
+});
+/** Only the last digits go into the audit trail. */
+const masked = (p: string | null) => (p ? `…${p.slice(-4)}` : null);
 
 @ForModule('admin')
 @Controller('admin')
@@ -40,7 +47,7 @@ export class AdminController {
     }
     return members
       .map((m) => ({
-        id: m.user.id, name: m.user.name, email: m.user.email, role: m.role, vendorId: m.vendorId, clientId: m.clientId,
+        id: m.user.id, name: m.user.name, email: m.user.email, role: m.role, vendorId: m.vendorId, clientId: m.clientId, phone: m.phone,
         mfaEnabled: m.user.mfaEnabled, joinedAt: m.user.createdAt,
         activeSessions: byUser.get(m.userId)?.active ?? 0, lastSignIn: byUser.get(m.userId)?.last ?? null,
         you: m.userId === ctx.userId,
@@ -77,6 +84,21 @@ export class AdminController {
       // A role change takes effect on the next request; existing sessions stay valid but read the new role.
       await this.audit.log(ctx, 'role.changed', 'User', id, { name: m.user.name, role: m.role }, { name: m.user.name, role }, tx);
       return { id, role, changed: true };
+    });
+  }
+
+  /** Records the phone number SMS from the Comms Hub uses for this member, in this workspace only. */
+  @Patch('users/:id/phone')
+  @Write()
+  async setPhone(@Caller() ctx: Ctx, @Param('id') id: string, @Body() body: unknown) {
+    const { phone } = parse(PhoneBody, body);
+    return this.db.$transaction(async (tx) => {
+      const m = await tx.membership.findFirst({ where: { tenantId: ctx.tenantId, userId: id }, include: { user: { select: { name: true } } } });
+      if (!m) throw new NotFoundException('Member not found');
+      if (m.phone === phone) return { id, phone, changed: false };
+      await tx.membership.update({ where: { id: m.id }, data: { phone } });
+      await this.audit.log(ctx, 'phone.changed', 'User', id, { name: m.user.name, phone: masked(m.phone) }, { name: m.user.name, phone: masked(phone) }, tx);
+      return { id, phone, changed: true };
     });
   }
 
