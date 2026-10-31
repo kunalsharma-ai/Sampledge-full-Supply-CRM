@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 export type EventType =
   | 'opportunity.won'
   | 'approval.requested'
+  | 'panel.call.approved'
   | 'approval.decided'
   | 'allocation.approved'
   | 'quote.sent'

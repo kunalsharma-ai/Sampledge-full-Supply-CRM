@@ -11,6 +11,7 @@ import { Badge, Button, DemoBadge, Field, inputCls, PageHeader, Panel, PanelHead
 import { EChart, axis } from '@/components/charts/echart';
 import { PanelistDirectory } from '@/components/panels/directory';
 import { PanelImport } from '@/components/panels/import';
+import { PanelBackendPanel } from '@/components/panels/backend';
 
 type Sel = 'all' | PanelBrand['id'];
 type RewardCat = { id: string; name: string; maxLoi: number; points: number; minQuality: number };
@@ -193,11 +194,13 @@ export default function PanelsPage() {
 
       <PanelistDirectory />
 
+      <PanelBackendPanel />
+
       <Panel className="mt-6">
         <PanelHeader eyebrow="Integration" title="Connect existing panel websites" actions={<Badge tone="orange">Adapters not connected</Badge>} />
         <div className="grid gap-4 text-[12.5px] md:grid-cols-3">
           <div className="panel-solid p-4"><div className="mb-1 font-semibold">1. Secure file import</div><PanelImport /></div>
-          <div className="panel-solid p-4"><div className="mb-1 font-semibold">2. Configurable adapter</div><p className="text-2xs text-ink-3">If a site exposes an API or database replica, an adapter maps it to the panelist schema. We do not assume one exists.</p></div>
+          <div className="panel-solid p-4"><div className="mb-1 font-semibold">2. Panel backend adapter</div><p className="text-2xs text-ink-3">Built for the Turn2Opinion backend API (above). Active per panel once its URL and app token are configured; verified against a local stand-in only so far.</p></div>
           <div className="panel-solid p-4"><div className="mb-1 font-semibold">3. Event sync</div><p className="text-2xs text-ink-3">Survey invitations, completes and reward ledger posted back to each panel. Planned with the panel adapters (not connected).</p></div>
         </div>
       </Panel>

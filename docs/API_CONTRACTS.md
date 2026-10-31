@@ -125,6 +125,14 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 |---|---|---|---|
 | GET | `/ai/status` | any signed-in | provider, model, connected, monthSpendUsd, monthCalls, capUsd, tasks[] |
 | GET | `/ai/usage?take=50` | `admin` | recent `AiCall` rows |
+| GET | `/panel-backend` | `panels` | `{owner, verifiedAgainstBackend, panels[{panel, name, host, connected, note}]}`; no network call |
+| GET | `/panel-backend/calls?take=50` | `panels` | `PanelCall` rows (approved actions and their outcome) |
+| POST | `/panel-backend/:panel/check` | `panels`, owning workspace | reads the app user's profile on the panel to confirm the token |
+| POST | `/panel-backend/:panel/cpi` `{category, subcategory?, ir, loi, country}` | `panels`, owning workspace | the backend's `{status, data, message}`; `data` unchanged |
+| GET | `/panel-backend/:panel/cpi/categories`, `/panel-backend/:panel/options/:country/:field` | `panels`, owning workspace | backend data unchanged |
+| POST | `/panel-backend/:panel/feasibility` `{filter}` | `panels`, owning workspace | filter passed through unchanged |
+| GET | `/panel-backend/:panel/projects/:id`, `.../qualified` | `panels`, owning workspace | backend data unchanged |
+| POST | `/panel-backend/:panel/projects/:id/actions` `{action: invites\|soft-launch\|cancel, body?}` | `panels` (write), owning workspace | 202 with the approval; nothing is sent until someone else approves. Backend errors return 502 (never 401/403); not connected returns 503 |
 | GET | `/ai/evals` | `admin` | evaluation set scored on the rule-based implementations: `{provider, model, at, tasks[{task, version, cases, passed, checks, checksPassed, criticalFailed, costUsd, results[]}], totals}` |
 | POST | `/ai/evals/run` | `admin` (write) | same report from the connected model; 400 without a model or once the monthly cap is spent; the run's cost is logged as one `AiCall` (`task: evals.run`) |
 | POST | `/ai/rfq-extract` `{text}` | `crm` | `{audience, countries[], sampleSize, incidence, loi, title, missing[]}` |

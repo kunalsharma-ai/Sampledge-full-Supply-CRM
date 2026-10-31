@@ -6,6 +6,7 @@ import { approvalKinds, fallbackDeciders, type ApprovalKind } from '../common/ap
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { asTenant } from '../common/tenant-scope';
+import { PanelBackend, PanelBackendError, PANELS, type PanelId } from '../integrations/panel-backend';
 
 type Tx = Prisma.TransactionClient;
 type Ev = { id: string; tenantId: string; type: string; payload: Record<string, string | number>; createdAt: Date };
@@ -47,7 +48,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private log = new Logger('EventsWorker');
-  constructor(private db: PrismaService) {}
+  constructor(private db: PrismaService, private panels: PanelBackend) {}
 
   onApplicationBootstrap() {
     if (process.env.WORKER_INLINE === 'false') return;
@@ -70,6 +71,10 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     if (keys.count) this.log.log(`swept ${keys.count} expired idempotency keys`);
     const buckets = await this.db.rateLimitBucket.deleteMany({ where: { resetAt: { lt: new Date(Date.now() - 3600_000) }, OR: [{ blockedUntil: null }, { blockedUntil: { lt: new Date() } }] } });
     if (buckets.count) this.log.log(`swept ${buckets.count} old rate-limit windows`);
+    // A panel call still "sending" after 10 minutes was interrupted mid-request: a person checks
+    // the panel before anything is sent again.
+    const stuck = await this.db.panelCall.updateMany({ where: { status: 'sending', createdAt: { lt: new Date(Date.now() - 600_000) } }, data: { status: 'needs_review', error: 'Interrupted while sending; check the panel before retrying' } });
+    if (stuck.count) this.log.warn(`${stuck.count} panel call(s) need review`);
   }
 
   async tick(): Promise<number> {
@@ -220,6 +225,26 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
           channel: 'email', audience: 'vendor', toRef: `vendor:${pay.vendorId}`, relatedType: 'Payable', relatedId: pay.id,
           subject: `Payment recorded for ${pay.purchaseOrder.number}`, body: `$${pay.amount.toLocaleString('en-US')} marked paid. Payment rails are not connected; this is a record, not a transfer.`,
         });
+        return;
+      }
+      case 'panel.call.approved': {
+        // At most once: claim the call outside this transaction, so a retry after a crash finds it
+        // already claimed and leaves it for a person (needs_review) instead of sending it again.
+        const claimed = await this.db.panelCall.updateMany({ where: { id: String(p.callId), status: 'queued' }, data: { status: 'sending' } });
+        if (!claimed.count) return;
+        const c = await tx.panelCall.findUniqueOrThrow({ where: { id: String(p.callId) } });
+        const name = PANELS[c.panel as PanelId] ?? c.panel;
+        let result: { status: string; httpStatus?: number; response?: Prisma.InputJsonValue; error?: string };
+        try {
+          const r = await this.panels.call(c.panel as PanelId, c.method, c.path, c.method === 'DELETE' ? undefined : (c.body ?? {}));
+          result = { status: 'sent', httpStatus: r.status, response: { message: r.message, data: r.data } as Prisma.InputJsonValue };
+        } catch (e) {
+          const err = e as PanelBackendError;
+          result = err.status === 503 ? { status: 'not_sent', error: err.message } : { status: 'failed', httpStatus: err.status, error: String(err.message).slice(0, 500) };
+        }
+        await tx.panelCall.update({ where: { id: c.id }, data: { ...result, completedAt: new Date() } });
+        const what = `${c.action} on ${name}`;
+        await this.notify(tx, t, ['panel_manager', 'platform_admin'], result.status === 'sent' ? `Panel ${what}: sent` : `Panel ${what}: ${result.status.replace('_', ' ')}`, result.status === 'sent' ? `${name} accepted the request.` : result.error ?? 'See the panel call log.', 'panels');
         return;
       }
       case 'message.queued': {

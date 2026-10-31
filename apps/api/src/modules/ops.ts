@@ -9,11 +9,29 @@ import { AuditService } from '../common/audit.service';
 import { emit } from '../common/events';
 import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
+import { panelActions, panelConfig, PANELS, type PanelAction, type PanelId } from '../integrations/panel-backend';
 import { parse } from '../common/zod';
 
 @Injectable()
 export class ApprovalsService {
   constructor(private db: PrismaService, private audit: AuditService) {}
+
+  /** An approved panel action becomes one PanelCall, which the worker sends at most once. */
+  private async applyPanelAction(tx: Prisma.TransactionClient, tenantId: string, p: Record<string, string | number>, ok: boolean, meta: { approvalId: string; requestedBy: string }) {
+    const a = panelActions[String(p.panelAction) as PanelAction];
+    const panel = String(p.panel) as PanelId;
+    if (!a || !(panel in PANELS)) return ok ? 'Unknown panel action; nothing sent' : 'Rejected';
+    if (!ok) return `${a.label} on ${PANELS[panel]} rejected; nothing sent`;
+    let body: unknown = undefined;
+    try { body = p.body ? JSON.parse(String(p.body)) : undefined; } catch { /* stored by us; keep undefined */ }
+    const call = await tx.panelCall.create({
+      data: { tenantId, panel, action: String(p.panelAction), method: a.method, path: a.path(String(p.remoteProjectId)), body: a.method === 'DELETE' ? undefined : ((body ?? {}) as Prisma.InputJsonValue), approvalId: meta.approvalId, requestedBy: meta.requestedBy },
+    });
+    await emit(tx, tenantId, 'panel.call.approved', { callId: call.id });
+    return panelConfig(panel).connected
+      ? `${a.label} approved; sending to ${PANELS[panel]} once (see the panel call log)`
+      : `${a.label} approved, but ${PANELS[panel]} is not connected: recorded, nothing sent`;
+  }
 
   canDecide(ctx: Ctx, kind: string) {
     const perm = approvalKinds[kind as ApprovalKind];
@@ -50,7 +68,7 @@ export class ApprovalsService {
     const payload = (a.payload ?? {}) as Record<string, string | number>;
     const ok = decision === 'approved';
     return this.db.$transaction(async (tx) => {
-      const effect = await this.apply(tx, ctx.tenantId, a.kind, payload, ok);
+      const effect = await this.apply(tx, ctx.tenantId, a.kind, payload, ok, { approvalId: a.id, requestedBy: a.requestedBy });
       const u = await tx.approval.update({ where: { id }, data: { status: decision, decidedBy: ctx.name, decidedAt: new Date(), payload: { ...payload, note: note ?? null, effect } as Prisma.InputJsonValue } });
       await this.audit.log(ctx, `approval.${decision}`, 'Approval', id, { status: 'pending' }, { status: decision, kind: a.kind, effect, note }, tx);
       await emit(tx, ctx.tenantId, 'approval.decided', { approvalId: id, kind: a.kind, decision, requestedBy: a.requestedBy });
@@ -58,7 +76,8 @@ export class ApprovalsService {
     });
   }
 
-  private async apply(tx: Prisma.TransactionClient, tenantId: string, kind: string, p: Record<string, string | number>, ok: boolean): Promise<string> {
+  private async apply(tx: Prisma.TransactionClient, tenantId: string, kind: string, p: Record<string, string | number>, ok: boolean, meta: { approvalId: string; requestedBy: string }): Promise<string> {
+    if (p.panelAction) return this.applyPanelAction(tx, tenantId, p, ok, meta);
     switch (kind) {
       case 'Publishing surveys': {
         if (!ok || !p.surveyId) return ok ? 'No survey linked' : 'Survey stays unpublished';

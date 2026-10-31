@@ -1,4 +1,4 @@
-# Implementation status: v0.9.0 (Phases 1–6, known-limitation fixes, reports and exports, scale-out and AI evaluation)
+# Implementation status: v0.10.0 (Phases 1–6, known-limitation fixes, reports and exports, scale-out and AI evaluation, panel backend adapter)
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
@@ -31,6 +31,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Backup and restore | Scripts written and a round trip verified in the build container |
 | Load test | Script and measured runs on one and two instances (see DEPLOYMENT.md); not a sizing guarantee | |
 | Several API instances + separate worker | Functional, verified: `scripts/multi-instance-check.mjs` (15 checks: sessions, sign-out, idempotency replay, outbox processed by the separate worker, live updates across instances, shared sign-in limit) passes locally and runs in CI on every pull request against two API processes and a separate worker | no sticky sessions needed |
+| Turn2Opinion panel backend adapter | Built; tested against a local stand-in only; **not connected** until each panel's URL and app token are set | per-panel tokens, connection check, CPI quote, filter options, feasibility count, project status; invites, soft launch and cancel behind approvals and sent at most once by the worker. Request and response formats not in the backend's description are passed through unchanged, not guessed. See docs/integrations/TURN2OPINION.md |
 | AI evaluation set | Functional for the rule-based implementations; ready for Claude | 17 synthetic cases across the 4 AI tasks with 109 field-level checks, critical checks for guessed numbers, invented facts and followed injections. Rules: 16/17 cases, 0 critical failures (the miss: an unsupported market is dropped without being reported). Model scores not yet measured: needs `ANTHROPIC_API_KEY`. Admin view on the Automation page; CLI `node dist/ai/evals/run.js --provider anthropic` |
 
 ## Command Center
