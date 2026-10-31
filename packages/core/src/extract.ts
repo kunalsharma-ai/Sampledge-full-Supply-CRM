@@ -8,13 +8,18 @@ export type RfqFields = { n?: number; ir?: number; loi?: number; countries: stri
 /** RFQ e-mail text → structured requirements. `countryList` is code + name pairs. */
 export function extractRfq(text: string, countryList: { code: string; name: string }[]): RfqFields {
   const t = text.toLowerCase();
-  const n = Number((t.match(/(\d[\d,]*)\s*(?:completes|respondents|interviews|n\b)/) ?? [])[1]?.replace(/,/g, '')) || undefined;
+  // "1,000 completes", "n=400", or a count followed by who they are ("200 IT decision makers").
+  const who = 'people|adults|consumers|shoppers|users|customers|parents|nurses|physicians|doctors|oncologists|hcps|patients|caregivers|decision makers|itdms|managers|owners|executives|professionals';
+  const nm = t.match(/(\d[\d,]*)\s*(?:completes|respondents|interviews|n\b)/) ?? t.match(/\bn\s*=\s*(\d[\d,]*)/) ?? t.match(new RegExp(`(\\d[\\d,]*)\\s+(?:[a-z-]+\\s+){0,3}?(?:${who})\\b`));
+  const n = Number(nm?.[1]?.replace(/,/g, '')) || undefined;
   const ir = Number((t.match(/(\d{1,2})\s*%\s*(?:ir|incidence)/) ?? t.match(/(?:ir|incidence)[^\d]{0,12}(\d{1,2})\s*%/) ?? [])[1]) / 100 || undefined;
   const loi = Number((t.match(/(\d{1,2})\s*(?:-| )?(?:min|minute)/) ?? [])[1]) || undefined;
   // Codes match only in capitals, and never codes that double as words ("IT decision makers", "in Germany").
   const wordLike = new Set(['IT', 'IN', 'ID', 'NO', 'ME', 'AT', 'BE', 'IS', 'OR', 'TO', 'AM', 'AS', 'SO', 'GO', 'HE', 'MY', 'PA']);
-  const countries = countryList.filter((c) => t.includes(c.name.toLowerCase()) || (!wordLike.has(c.code) && new RegExp(`\\b${c.code}\\b`).test(text))).map((c) => c.code);
-  const audience: RfqFields['audience'] = /hcp|physician|doctor|patient|oncolog|nurse|health/.test(t) ? 'Healthcare' : /b2b|decision.?maker|itdm|cio|it |manager|executive|smb|sme/.test(t) ? 'B2B' : /consumer|gen pop|shopper|b2c|adults/.test(t) ? 'B2C' : undefined;
+  // Common short names: "the UK", "USA", "UAE", "Korea".
+  const aliases: Record<string, RegExp> = { GB: /\b(?:UK|U\.K\.|Great Britain|Britain|England)\b/, US: /\b(?:USA|U\.S\.A?\.?)(?=\W|$)/, AE: /\bUAE\b/, KR: /(?<!North )\bKorea\b/ };
+  const countries = countryList.filter((c) => t.includes(c.name.toLowerCase()) || (!wordLike.has(c.code) && new RegExp(`\\b${c.code}\\b`).test(text)) || !!aliases[c.code]?.test(text)).map((c) => c.code);
+  const audience: RfqFields['audience'] = /hcp|physician|doctor|patient|oncolog|nurse|health/.test(t) ? 'Healthcare' : /b2b|decision.?maker|itdm|cio|it |manager|executive|smb|sme|business owner|small business/.test(t) ? 'B2B' : /consumer|gen pop|shopper|b2c|adults/.test(t) ? 'B2C' : undefined;
   return { n, ir, loi, countries, audience };
 }
 

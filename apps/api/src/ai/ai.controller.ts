@@ -1,14 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { paged, pageArgs } from '../common/paging';
 import { can } from '@sampledge/core';
 import { z } from 'zod';
-import { Caller, ForModule, type Ctx } from '../common/context';
+import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 import { ProjectsService } from '../modules/projects';
 import { extractText } from './documents';
 import { AI_MODEL, aiConfig, AiGateway } from './gateway';
+import { runEvals } from './evals/run';
 import { projectSummary, questionnaireStructure, rfqExtract, tasks, type ProjectFacts } from './tasks';
 
 const day = 86400_000;
@@ -33,6 +34,28 @@ export class AiController {
   async usage(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
     const { want, ...page } = pageArgs(q, 200, 50);
     return paged(await this.db.aiCall.findMany({ where: { tenantId: ctx.tenantId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page }), want, res);
+  }
+
+  /** The evaluation set scored on the rule-based implementations (free and instant). */
+  @ForModule('admin') @Get('evals')
+  evals() {
+    return runEvals('rules');
+  }
+
+  /**
+   * The evaluation set scored on the connected model. Admin only, refused without a model or once
+   * the monthly cap is spent; the run's cost is logged against the cap as one AiCall.
+   */
+  @ForModule('admin') @Write() @Post('evals/run') @HttpCode(200)
+  async runModelEvals(@Caller() ctx: Ctx) {
+    const cfg = aiConfig();
+    if (cfg.provider !== 'anthropic') throw new BadRequestException('No model is connected (set AI_PROVIDER=anthropic and ANTHROPIC_API_KEY on the server); the rule-based scores are at GET /ai/evals');
+    const spent = await this.ai.monthSpend(ctx.tenantId);
+    if (spent.usd >= cfg.capUsd) throw new BadRequestException(`Monthly AI budget of $${cfg.capUsd} reached`);
+    const started = Date.now();
+    const report = await runEvals('anthropic');
+    await this.db.aiCall.create({ data: { tenantId: ctx.tenantId, userId: ctx.userId, task: 'evals.run', provider: 'anthropic', model: report.model, status: report.totals.criticalFailed ? 'fallback' : 'ok', costUsd: report.totals.costUsd, ms: Date.now() - started, inputTokens: 0, outputTokens: 0, error: report.totals.criticalFailed ? `${report.totals.criticalFailed} critical check(s) failed` : null } });
+    return report;
   }
 
   @ForModule('crm') @Post('rfq-extract') @HttpCode(200)

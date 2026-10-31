@@ -2,6 +2,16 @@
 
 Sampledge runs as three processes: **Postgres 16**, the **API** (`apps/api`, NestJS, port 4000) and the **web app** (`apps/web`, Next.js, port 3000). The browser talks only to the web origin; Next forwards `/api/v1/*` to the API, so the session cookie stays first-party. The workflow worker runs inside the API unless `WORKER_INLINE=false`, in which case run `node dist/worker.js` as a fourth process.
 
+## Several API instances
+The API keeps no state in process memory that matters across requests, so any number of instances can run behind a load balancer without sticky sessions:
+- sessions, idempotency keys and rate-limit counters are rows in Postgres;
+- live updates travel by Postgres `NOTIFY`, so a browser connected to one instance hears about writes made on another;
+- run the outbox worker as its own process (`WORKER_INLINE=false` on every API instance, then one or more `node dist/worker.js`); several workers are safe (`SKIP LOCKED`).
+
+Set `TRUST_PROXY` to the number of proxy hops (usually `1`) so rate limits and audit entries use the client's address from `X-Forwarded-For`; without it every request appears to come from the load balancer and the sign-in limit applies to everyone at once. `RATE_LIMIT_STORE=memory` switches back to per-process counters (single instance only). Each instance holds one Prisma pool plus one listening connection, so size Postgres `max_connections` for instances × (pool + 1) + workers.
+
+To verify a deployment: `node scripts/multi-instance-check.mjs --urls https://api-a…,https://api-b… --login-limit <LOGIN_RATE_LIMIT>` against staging (it creates one test opportunity and blocks sign-in from your address for a minute at the end). CI runs it on every pull request against two API processes and a separate worker.
+
 ## Database roles (row-level security)
 Every tenant table has `FORCE ROW LEVEL SECURITY`. Postgres skips policies for superusers and `BYPASSRLS` roles, so:
 
@@ -30,3 +40,5 @@ Register the app with your OpenID Connect provider as a confidential web client 
 
 ## Capacity (measured, not a guarantee)
 `node scripts/load-test.mjs --concurrency 20 --seconds 20` against one API process and a local Postgres in the build container: **307 requests/s, p50 58 ms, p95 137 ms, p99 179 ms, 0 errors** over a mix of signed-in reads (projects, dashboard, CRM, a 600-interview results computation) and public respondent starts. Results computation is the slowest call (p95 190 ms). Each tenant-scoped query runs in a short transaction to set the RLS tenant, which costs roughly one extra round trip. Re-measure on your hardware before sizing.
+
+Two instances (v0.9.0, shared Postgres rate-limit store, separate worker, 40 clients for 20 s, same 4-core container also running Postgres and the load generator): **341 requests/s, p50 108 ms, p95 222 ms, p99 320 ms, 0 errors**, against 310 requests/s and p95 248 ms for one instance at the same load. The gain is small because every process shares the same four cores; on separate machines the API tier scales out until Postgres is the limit. The shared rate-limit store costs no measurable throughput here (one instance with the in-memory store: 296 requests/s).

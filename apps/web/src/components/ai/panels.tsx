@@ -96,3 +96,60 @@ export function AiGatewayPanel() {
     </Panel>
   );
 }
+
+type EvalCheck = { name: string; pass: boolean; critical?: boolean; detail?: string };
+type EvalReport = {
+  provider: 'rules' | 'anthropic'; model: string | null; at: string;
+  tasks: { task: string; version: number; cases: number; passed: number; checks: number; checksPassed: number; criticalFailed: number; costUsd: number; results: { id: string; title: string; pass: boolean; checks: EvalCheck[] }[] }[];
+  totals: { cases: number; passed: number; checks: number; checksPassed: number; criticalFailed: number; costUsd: number };
+};
+
+/** Scorecard for the AI evaluation set: rules always; the connected model on demand (admins). */
+export function AiEvalPanel() {
+  const role = useOS((s) => s.role);
+  const admin = access(role, 'admin') !== 'none';
+  const st = useLive<AiStatus>(admin ? '/ai/status' : null);
+  const rules = useLive<EvalReport>(admin ? '/ai/evals' : null);
+  const [model, setModel] = useState<EvalReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!admin || !rules.live) return null;
+  const runModel = async () => {
+    setBusy(true); setErr(null);
+    try { setModel(await api<EvalReport>('/ai/evals/run', { method: 'POST', body: {} })); } catch (e) { setErr(e instanceof Error ? e.message : 'Evaluation failed'); } finally { setBusy(false); }
+  };
+  const reports = [rules.data, model].filter((r): r is EvalReport => !!r);
+  const failed = (r: EvalReport) => r.tasks.flatMap((t) => t.results.flatMap((c) => c.checks.filter((x) => !x.pass).map((x) => ({ c, x }))));
+  return (
+    <Panel>
+      <PanelHeader eyebrow="AI evaluation set" title="How well each AI task does on fixed test cases"
+        info="Synthetic test inputs with checks on the output (fields, not wording). Critical checks are safety properties: no guessed numbers, no invented facts, instructions inside the input ignored. The same cases score the rule-based implementations and, on request, the connected model."
+        actions={st.data?.connected ? <Button size="sm" variant="subtle" onClick={runModel} disabled={busy}>{busy ? 'Running on the model…' : `Run on ${st.data.model}`}</Button> : <Badge tone="orange">Connect a model to score it</Badge>} />
+      {err && <p className="mb-2 text-2xs text-danger">{err}</p>}
+      {reports.length ? (
+        <div className="space-y-4">
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead><tr className="text-left text-2xs text-ink-3"><th className="py-1 font-medium">Task</th>{reports.map((r) => <th key={r.provider} className="py-1 text-right font-medium">{r.provider === 'rules' ? 'Rules' : r.model}</th>)}</tr></thead>
+              <tbody>
+                {reports[0].tasks.map((t) => (
+                  <tr key={t.task} className="border-t hairline">
+                    <td className="py-1.5">{t.task} <span className="text-ink-3">v{t.version}</span></td>
+                    {reports.map((r) => { const x = r.tasks.find((y) => y.task === t.task)!; return <td key={r.provider} className="num py-1.5 text-right">{x.passed}/{x.cases} cases · {Math.round((x.checksPassed / x.checks) * 100)}% checks{x.criticalFailed ? <span className="text-danger"> · {x.criticalFailed} critical</span> : ''}</td>; })}
+                  </tr>
+                ))}
+                <tr className="border-t hairline font-medium"><td className="py-1.5">Total</td>{reports.map((r) => <td key={r.provider} className="num py-1.5 text-right">{r.totals.passed}/{r.totals.cases} · {Math.round((r.totals.checksPassed / r.totals.checks) * 100)}%{r.provider === 'anthropic' ? ` · $${r.totals.costUsd.toFixed(2)}` : ''}</td>)}</tr>
+              </tbody>
+            </table>
+          </div>
+          {reports.map((r) => { const f = failed(r); return (
+            <div key={r.provider}>
+              <div className="eyebrow mb-1">Failed checks · {r.provider === 'rules' ? 'rules' : r.model}</div>
+              {f.length ? <ul className="space-y-0.5 text-2xs text-ink-2">{f.map(({ c, x }) => <li key={c.id + x.name}><span className="font-medium">{c.id}</span> {c.title}: {x.critical && <Badge tone="danger">critical</Badge>} {x.name}{x.detail ? ` (${x.detail})` : ''}</li>)}</ul> : <p className="text-2xs text-emerald">None</p>}
+            </div>
+          ); })}
+        </div>
+      ) : <p className="text-2xs text-ink-3">Loading…</p>}
+    </Panel>
+  );
+}

@@ -19,7 +19,13 @@ stage() { # name command...
   cat "/tmp/ci-$name.log"
 }
 stage playwright-install bash -c 'npm i --no-save --no-audit --no-fund --loglevel=error playwright@1.55.0 && npx playwright install --with-deps chromium'
-(cd apps/api && node dist/main.js > /tmp/api.log 2>&1 &)
+# Production-like topology: two API instances (the web app talks to the first) and the outbox
+# worker as its own process, all on one database.
+(cd apps/api && PORT=4000 WORKER_INLINE=false node dist/main.js > /tmp/api.log 2>&1 &)
+(cd apps/api && PORT=4001 WORKER_INLINE=false node dist/main.js > /tmp/api-b.log 2>&1 &)
+(cd apps/api && node dist/worker.js > /tmp/worker.log 2>&1 &)
 (cd apps/web && npx next start -p 3000 > /tmp/web.log 2>&1 &)
-stage wait-for-servers npx --yes wait-on@8.0.3 -t 60000 http://localhost:4000/api/v1/health http://localhost:3000/login
+stage wait-for-servers npx --yes wait-on@8.0.3 -t 60000 http://localhost:4000/api/v1/health http://localhost:4001/api/v1/health http://localhost:3000/login
 stage e2e node apps/web/e2e-smoke.cjs
+# Last: its sign-in limit check blocks sign-in from this address for a minute.
+stage multi-instance node scripts/multi-instance-check.mjs --urls http://localhost:4000,http://localhost:4001 --login-limit "${LOGIN_RATE_LIMIT:-10}"

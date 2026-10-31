@@ -30,5 +30,10 @@ Data loads before the policies are re-created, so the application role can resto
 ## AI provider
 `GET /api/v1/ai/status` shows the provider and month spend. At the cap (`AI_MONTHLY_CAP_USD`) tasks fall back to rules automatically. To switch the model off immediately, set `AI_PROVIDER=rules` and restart; nothing else changes.
 
+Before changing a prompt, a task version or the model, run the evaluation set and compare: `node dist/ai/evals/run.js` (rules, free), `node dist/ai/evals/run.js --provider anthropic --md evals.md` (the model; about 17 calls). It exits non-zero on any critical failure. Admins also see the scorecard on the Automation page and can run it on the connected model there.
+
 ## Load test
-`node scripts/load-test.mjs --url http://staging:4000 --concurrency 20 --seconds 60` against a seeded staging stack, never production. Raise `RATE_LIMIT` for the test or it measures the rate limiter.
+`node scripts/load-test.mjs --url http://staging:4000 --concurrency 20 --seconds 60` against a seeded staging stack, never production. Give several instances comma-separated (`--url http://a:4000,http://b:4000`) to spread requests round-robin. Rate limits are shared by all instances, so raise `RATE_LIMIT` for the test or it measures the rate limiter.
+
+## Several instances
+`node scripts/multi-instance-check.mjs --urls http://a:4000,http://b:4000 --login-limit $LOGIN_RATE_LIMIT` checks sessions, idempotency, the outbox worker, live updates and the shared sign-in limit across instances. A user locked out by the sign-in limit can be released early with `DELETE FROM "RateLimitBucket" WHERE "blockedUntil" > now();` (all addresses).

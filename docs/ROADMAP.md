@@ -10,7 +10,8 @@
 | **6 · Enterprise readiness** ✅ | Postgres row-level security, OpenID Connect SSO, Data Processing (weighting, coding, tables), live updates (NOTIFY → SSE), idempotency keys, cursor paging, security headers, request ids, JSON logs, Prometheus metrics, backup/restore scripts, load test, deployment guide and runbook | 92 API tests + 24 engine tests; 33-step browser e2e; restore round trip; measured load test |
 | **Known-limitation fixes (v0.7.0)** ✅ | Respondent flow (Sankey), fieldwork trend and segmentation on recorded responses; per-person notification read state; cursor paging on every growing list; tenant scope entered on public routes and per worker event | 114 API tests + 35 engine tests; 34-step browser e2e |
 | **Reports and exports (v0.8.0)** ✅ | PDF survey report, recodes (grouping and bands) usable everywhere a question is, SPSS .sav export with labels and weights | 120 API tests + 37 engine tests; 36-step browser e2e; .sav verified with pyreadstat |
-| Next | SAML, Integrations (panel and e-mail/SMS adapters), live AI evaluation set, external pen test, multi-instance load test | |
+| **Scale-out and AI evaluation (v0.9.0)** ✅ | Rate limits shared across API instances (Postgres store), `TRUST_PROXY`, multi-instance check in CI (two API processes + separate worker), load test across instances, AI evaluation set with an admin scorecard | 127 API tests + 37 engine tests; 15 cross-instance checks; rules score 16/17 cases, 0 critical |
+| Next | SAML, Integrations (panel and e-mail/SMS adapters), AI evaluation scores on Claude (needs an API key), external pen test | |
 
 ## Decisions in Phase 4
 - **Postgres outbox instead of Redis.** Events commit with the change that caused them, and the worker claims them with `FOR UPDATE SKIP LOCKED`. This removes a service and a failure mode; the claim function is the single place to swap in a broker if volume calls for it.

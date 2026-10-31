@@ -561,3 +561,14 @@ model IdempotencyKey {
   @@unique([tenantId, userId, key])
   @@index([createdAt])
 }
+
+/// Shared rate-limit counters, so limits hold across several API instances. Keys are hashes of
+/// route and caller IP; no tenant data.
+model RateLimitBucket {
+  key          String    @id
+  hits         Int
+  resetAt      DateTime
+  blockedUntil DateTime?
+
+  @@index([resetAt])
+}

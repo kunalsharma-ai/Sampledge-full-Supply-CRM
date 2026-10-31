@@ -16,6 +16,10 @@ export async function createApp() {
   app.useGlobalFilters(new RequestIdFilter());
   app.use(cookieParser());
   app.disable('x-powered-by');
+  // Behind a load balancer, rate limits and audit IPs must use the client address from
+  // X-Forwarded-For: set TRUST_PROXY to the number of proxy hops (e.g. 1) or a subnet list.
+  const tp = process.env.TRUST_PROXY;
+  if (tp) app.set('trust proxy', /^\d+$/.test(tp) ? Number(tp) : tp === 'true' ? true : tp);
   app.use((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
