@@ -11,9 +11,12 @@ stage() { # name command...
   echo "── $name"
   if ! "$@" > "/tmp/ci-$name.log" 2>&1; then
     cat "/tmp/ci-$name.log"
-    annotate error "$name" "/tmp/ci-$name.log" 9
-    annotate warning "api log" /tmp/api.log 6
-    annotate warning "web log" /tmp/web.log 4
+    # GitHub shows 10 annotations per step: failed checks first, then the tails of the logs.
+    grep -E '^(FAIL|Error|TypeError)|timed out|Timeout' "/tmp/ci-$name.log" | head -n 4 > /tmp/ci-failed.log
+    annotate error "$name failed" /tmp/ci-failed.log 4
+    annotate error "$name" "/tmp/ci-$name.log" 3
+    annotate warning "api log" /tmp/api.log 2
+    annotate warning "worker log" /tmp/worker.log 1
     exit 1
   fi
   cat "/tmp/ci-$name.log"
