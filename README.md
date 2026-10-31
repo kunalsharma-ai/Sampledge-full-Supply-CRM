@@ -1,45 +1,58 @@
 # Sampledge AI Research OS
 
-**Phase 1 (architecture + design system) and Phase 2 (interactive dashboard prototype).** All data is fictional demo data and is labelled as such in the UI. No live integrations, no backend yet.
+**Phase 3: functional core.** A Next.js web app on a NestJS + Postgres API, sharing one TypeScript domain package. Sign-in, roles, tenant isolation, projects, CRM and quotes, vendors and allocations, survey versions, a public respondent runtime with atomic quotas, panelists and consent, and human approvals all run on the database.
+
+Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected (no email, no supplier APIs, no panel-site APIs, no AI model).
 
 ## Run it
+
+Requires Node 22+ and PostgreSQL 16 (or Docker).
+
 ```bash
 npm install
-npm run dev          # http://localhost:3000
-npm test             # survey engine unit tests (node --test)
-npm run typecheck
-npm run build && npm start
+cp apps/api/.env.example apps/api/.env      # set JWT_SECRET; DATABASE_URL points at your Postgres
+npm run db:setup                            # migrate + build + seed demo data
+npm run dev                                 # web http://localhost:3000 · API http://localhost:4000/api/v1
 ```
-Requires Node 22+. Or with Docker: `docker build -t sampledge-os . && docker run -p 3000:3000 sampledge-os`.
+
+Sign in with a demo account on `/login` (one per role, password `demo1234`), for example `executive@demo.sampledge.test`.
+
+**Docker:** `docker compose up --build`, then load demo data once with
+`docker compose run --rm -e NODE_ENV=development api node dist/seed.js`.
+
+**Without the API** the web app falls back to the Phase 2 offline demo (records in browser storage, labelled "Offline demo").
+
+## Tests
+
+```bash
+npm test                         # survey-engine unit tests + API integration tests (creates sampledge_test)
+npm run typecheck
+node apps/web/e2e-smoke.cjs      # browser end-to-end on a running, freshly seeded stack
+```
 
 ## What to try
-- **Switch role** (top-right) to see navigation, read-only states and redaction change. Try *Sample Vendor* and *Client*.
-- **Theme** (moon/sun/monitor) and **reduced motion** (⚡) in the top bar. **⌘K** opens search.
-- **Command Center**: click a globe pillar, drag the time scrubber, pick an ops-flow stage, ask the assistant a suggested question.
-- **Bidding CRM**: drag a deal to *Won* and watch it appear in Projects. Use the AI bid assistant to extract an RFQ email and model margins.
-- **Survey Studio** (role: Survey Programmer): connect nodes in the logic builder, run QA and approve fixes, take the survey in Preview and watch quotas move, ask the assistant to randomise or add quotas, then Undo.
-- **Insight Studio**: change crosstab rows/columns, toggle weighting, export CSV, spin the 3D segmentation.
-- **AI Automation**: add a node, Test run the workflow, approve items in the queue (permissions apply).
-- **Reset demo data** with the ↺ button.
-
-## Docs
-- [Architecture & module communication](docs/ARCHITECTURE.md)
-- [Data model](prisma/schema.prisma)
-- [API contracts](docs/API_CONTRACTS.md)
-- [Role matrix](docs/ROLE_MATRIX.md) (generated from code: `npm run docs:roles`)
-- [Design system](docs/DESIGN_SYSTEM.md) · live at `/design-system`
-- [Dashboard wireframes](docs/WIREFRAMES.md) · [screenshots](docs/screenshots)
-- [Implementation status: functional vs simulated vs planned](docs/IMPLEMENTATION_STATUS.md)
-- [Roadmap](docs/ROADMAP.md)
+- **Sign in as different roles** from `/login` or the account switcher (top right). The server decides what each role sees: a Sample Vendor gets only its own vendor record; a Client only its own projects, without costs; roles without `view:margins` never receive cost fields.
+- **Bidding CRM:** drag a deal to *Won*; the project is created in the same database transaction. *Lost* asks for a reason.
+- **Survey Studio** (Survey Programmer): approve a QA fix (each edit is a new immutable version), then *Request publish*. Publishing is blocked while QA finds critical issues, and waits in **AI Automation → Approvals** for someone other than the requester.
+- **Respondent link:** once published, open `/r/sv-cloud`. Routing, validation and quota counting run on the server; `?preview=1` (signed in) never counts.
+- **Sample Exchange** (Project Manager): *Request PO approval* creates real allocation proposals on a project, each pending a purchase approval.
+- **Panels:** the panelist directory reads pseudonymous records, shows consent history, records withdrawals, and routes deletion through an approval.
 
 ## Layout
 ```
-src/app/            routes: command-center, projects, crm, marketplace, panels, survey-studio, analytics, automation, design-system, modules/[slug]
-src/components/     ui (primitives, KPI), shell, charts (ECharts), three (globe, scatter, particles), flow (ops flow, workflow editor), survey (logic builder, preview, QA, assistant, import)
-src/lib/            tokens, roles, modules, store, demo data, survey engine, pricing, analytics, assistant
-prisma/             Phase 3 schema
-tests/              engine tests
-scripts/            land-dot generator (Natural Earth 110m), role-matrix doc generator
+packages/core/   shared domain: survey engine, roles and permissions, pricing, analytics, demo seed records
+apps/api/        NestJS API: Prisma schema + migrations, auth, guards, modules, seed, integration tests
+apps/web/        Next.js app: routes, components, API client and store, e2e smoke test
+docs/            architecture, API reference, role matrix, design system, status ledger, roadmap
 ```
 
-Globe land outlines: Natural Earth 110m via `world-atlas` (public domain). The logo is a placeholder wordmark; drop the official SVG in `src/components/shell/logo.tsx`.
+## Docs
+- [Implementation status: functional vs simulated vs planned](docs/IMPLEMENTATION_STATUS.md)
+- [Architecture & security model](docs/ARCHITECTURE.md)
+- [API reference](docs/API_CONTRACTS.md) · [Data model](apps/api/prisma/schema.prisma)
+- [Role matrix](docs/ROLE_MATRIX.md) (generated: `npm run docs:roles -w @sampledge/web`)
+- [Design system](docs/DESIGN_SYSTEM.md) · live at `/design-system`
+- [Wireframes](docs/WIREFRAMES.md) · [screenshots](docs/screenshots)
+- [Roadmap](docs/ROADMAP.md)
+
+Globe land outlines: Natural Earth 110m via `world-atlas` (public domain). The logo is a placeholder wordmark; drop the official SVG in `apps/web/src/components/shell/logo.tsx`.

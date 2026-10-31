@@ -10,7 +10,7 @@ Live reference: `/design-system` in the running app.
 5. **Honesty is a visual element.** Simulated surfaces carry the dashed orange `DemoBadge`. Estimates are badged as estimates.
 
 ## Tokens
-Defined as RGB channels in `src/app/globals.css` (`--bg`, `--surface`, `--ink`, `--blue` …) so Tailwind alpha works (`bg-blue/15`). JS mirror in `src/lib/tokens.ts` for ECharts and three.js.
+Defined as RGB channels in `apps/web/src/app/globals.css` (`--bg`, `--surface`, `--ink`, `--blue` …) so Tailwind alpha works (`bg-blue/15`). JS mirror in `apps/web/src/lib/tokens.ts` for ECharts and three.js.
 
 | Token | Dark | Light |
 |---|---|---|

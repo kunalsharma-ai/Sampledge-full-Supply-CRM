@@ -1,0 +1,38 @@
+# Local stack: Postgres + API + web.
+#   docker compose up --build
+#   docker compose run --rm -e NODE_ENV=development api node dist/seed.js   # load the demo data
+# Then open http://localhost:3000 and use a demo account (password demo1234).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sampledge
+      POSTGRES_PASSWORD: sampledge
+      POSTGRES_DB: sampledge
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sampledge"]
+      interval: 5s
+      retries: 10
+
+  api:
+    image: sampledge-api
+    build: { context: ., target: api }
+    environment:
+      DATABASE_URL: postgresql://sampledge:sampledge@db:5432/sampledge?schema=public
+      # Change before exposing this stack to anyone. Production refuses secrets starting with "dev-".
+      JWT_SECRET: ${JWT_SECRET:-dev-compose-secret-change-me}
+      WEB_ORIGIN: http://localhost:3000
+      NODE_ENV: ${API_NODE_ENV:-development}
+      LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-60}
+    depends_on: { db: { condition: service_healthy } }
+    ports: ["4000:4000"]
+
+  web:
+    image: sampledge-web
+    build: { context: ., target: web, args: { API_ORIGIN: "http://api:4000" } }
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:

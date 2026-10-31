@@ -1,0 +1,42 @@
+{
+  "name": "@sampledge/web",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit",
+    "gen:geo": "node scripts/gen-land-dots.mjs",
+    "docs:roles": "node --experimental-strip-types scripts/gen-role-matrix.ts"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.3.0",
+    "@xyflow/react": "^12.8.4",
+    "clsx": "^2.1.1",
+    "echarts": "^5.6.0",
+    "lucide-react": "^0.544.0",
+    "motion": "^12.23.12",
+    "next": "^15.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwind-merge": "^3.3.1",
+    "three": "^0.170.0",
+    "zustand": "^5.0.8",
+    "@sampledge/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@types/three": "^0.170.0",
+    "autoprefixer": "^10.4.21",
+    "d3-geo": "^3.1.1",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2",
+    "typescript": "5.9.2"
+  }
+}

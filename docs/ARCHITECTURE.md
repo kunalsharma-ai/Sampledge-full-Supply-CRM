@@ -1,6 +1,6 @@
 # Sampledge AI Research OS: architecture
 
-Status: Phase 1 design, Phase 2 prototype implemented. Backend described here is the target for Phase 3+.
+Status: Phases 1–3 implemented (web, API, database, shared domain package). Items marked *planned* are Phase 4+.
 
 ## 1. System overview
 
@@ -32,7 +32,7 @@ flowchart LR
     AI[AI gateway<br/>provider-independent]
   end
   subgraph Data
-    PG[(PostgreSQL + RLS)]
+    PG[(PostgreSQL)]
     RD[(Redis)]
     OS[(Object storage)]
     SR[(Search index)]
@@ -90,35 +90,49 @@ Events are versioned (`project.created.v1`) and carry ids, not denormalised copi
 
 | Concern | Choice | Where |
 |---|---|---|
-| App framework | Next.js 15 App Router, React 19, TypeScript strict | `src/app` |
+| App framework | Next.js 15 App Router, React 19, TypeScript strict | `apps/web/src/app` |
 | Styling | Tailwind 3 mapped to CSS-variable tokens; dark/light/system | `src/app/globals.css`, `tailwind.config.ts` |
 | Motion | Motion for React (layout, page transitions, counters); CSS for loops | `components/ui`, `components/shell` |
 | 3D | React Three Fiber + Drei, lazy-loaded, paused offscreen, 2D fallbacks | `components/three` |
 | Charts | Apache ECharts, lazy-loaded, theme-aware wrapper | `components/charts/echart.tsx` |
 | Node editors | React Flow (`@xyflow/react`) | `components/survey/logic-builder.tsx`, `components/flow/workflow-editor.tsx` |
-| State | Zustand store persisted to localStorage (stands in for the API) | `src/lib/store.ts` |
-| Survey runtime | Pure TS engine, deterministic, unit-tested | `src/lib/survey/engine.ts` |
-| Access | Role matrix drives nav, guards, redaction | `src/lib/roles.ts` |
+| State | Zustand store hydrated from the API; offline fallback persists to localStorage | `apps/web/src/lib/store.ts`, `apps/web/src/lib/api.ts` |
+| Survey runtime | Pure TS engine, deterministic, unit-tested; same code runs in the API | `packages/core/src/survey/engine.ts` |
+| Access | Role matrix drives nav and UI redaction; the API enforces the same matrix | `packages/core/src/roles.ts` |
 
 GSAP was listed as optional; Motion covers every animation in Phase 2, so GSAP is not installed. shadcn/ui is not used as a dependency; the component library follows the same headless + Tailwind pattern with Sampledge tokens.
 
-## 4. Backend architecture (Phase 3 target)
+## 4. Backend architecture
 
-- **NestJS modular monolith first**, one Nest module per domain, split into services only where load demands it (survey runtime and response ingestion first).
-- **PostgreSQL + Prisma** (`prisma/schema.prisma`). Tenant isolation by `tenantId` + row-level security policies; isolation tests in CI.
-- **Responses** land in Postgres for transactional quota counting (row lock or Redis atomic counters with periodic reconciliation), then stream to a columnar store for analytics.
-- **Redis**: sessions, rate limiting, quota counters, WebSocket fan-out.
-- **Temporal**: RFQ → feasibility → quote approval, PO approval, invitation scheduling, report generation, agent runs with retries and human-approval signals.
-- **AI gateway**: provider-independent interface (`complete`, `structured`, `toolCall`), prompt registry with versions, eval suite, per-tenant and per-agent cost caps, usage metering, approval checkpoints. Phase 2's rule-based assistant uses the same "tool" functions the gateway will call.
-- **Object storage**: questionnaire uploads, datasets, exports; virus scan + content-type validation on upload.
-- **Observability**: OpenTelemetry traces, structured logs, Prometheus metrics, health checks per service.
+### Implemented in Phase 3
+- **Monorepo** (npm workspaces): `packages/core` (survey engine, roles and permissions, pricing, analytics, demo seed) is compiled once and imported by both `apps/api` and `apps/web`, so routing, quota rules, the role matrix and CPI estimates cannot drift between client and server.
+- **NestJS modular monolith** (`apps/api`): projects, commercial (clients, opportunities, quotes), vendors, surveys, respondent runtime, panels, approvals and ops (agents, notifications, audit, dashboard). Compiled with `tsc` (decorator metadata).
+- **PostgreSQL + Prisma** (`apps/api/prisma/schema.prisma`, two migrations). Every business row carries `tenantId`.
+- **Transactions** wherever two records must change together: Won → project; approval decision → its effect; survey version → quota-cell upsert; completion → quota increments + project completes.
+- **Atomic quotas**: `UPDATE "QuotaCell" SET count = count + 1 WHERE id = $1 AND (hard = false OR count < target)` inside the completion transaction; zero rows updated means the cell filled first, so the completion rolls back and the respondent is overquota. Tested with four concurrent respondents racing for one slot.
+- **Web ↔ API**: Next rewrites `/api/v1/*` to the API, keeping the session cookie first-party. The Zustand store hydrates from the API after sign-in and turns each action into an API call (optimistic update, reload on error). If the API is unreachable the app falls back to the labelled offline demo.
+
+### Planned
+- **Redis + queue/outbox** (Phase 4) for side effects after commit: notifications, emails, supplier requests, report generation. A Temporal-style workflow engine for long-running, approval-signalled flows once those side effects exist.
+- **WebSocket fan-out** for live counters (Phase 4).
+- **Columnar analytics store** for responses at volume (Phase 5).
+- **AI gateway**: provider-independent interface (`complete`, `structured`, `toolCall`), prompt registry, evals, per-tenant and per-agent cost caps, approval checkpoints (Phase 5). The rule-based assistant uses the same record-level tool functions the gateway will call.
+- **Object storage** for uploads and exports with content-type validation and scanning (Phase 4–5).
+- **Observability**: OpenTelemetry traces, structured logs, metrics (Phase 6).
 
 ## 5. Security model
 
-- Role matrix (`docs/ROLE_MATRIX.md`) + permission keys enforced by Nest guards and RLS.
-- External roles are scoped: vendor users see only their own bids/allocations; client users never see `cpiCostCents`, margins or supplier agreements; panelists see nothing internal.
-- Healthcare data in a separate encrypted schema; matching uses eligibility flags.
-- Audit log on every mutation (Phase 2 already records an in-session audit trail).
+**Enforced today (application layer):**
+- Sessions: bcrypt password hashes; the JWT holds only a session id, checked against the `Session` table on every request, so logout and revocation take effect immediately. httpOnly, SameSite=Lax cookie (`COOKIE_SECURE=true` behind HTTPS). Optional TOTP MFA. Sign-in rate limit per IP. Unknown emails and wrong passwords return the same error after a constant-cost hash compare.
+- A global guard resolves the session, then checks the role's module access from `packages/core/src/roles.ts` (writes need `full`) and the route's permission keys. Services add tenant scoping and ownership for scoped roles (vendor → own vendor; client → own client).
+- Redaction happens in the API: roles without `view:margins` never receive cost or margin fields; roles without `view:vendor_bids` never receive other vendors' rate cards, payables or allocation CPIs.
+- The human-approval gate is server-side: consequential actions create an `Approval`; only a role with that kind's permission, other than the requester, can decide; the effect runs in the same transaction as the decision.
+- Every mutation writes an `AuditLog` row with actor, before and after.
+- Integration tests prove cross-tenant reads return 404 and scoped roles cannot widen their view.
+
+**Planned:** Postgres row-level security as a second isolation layer (Phase 6), SSO, per-user notification state, secrets management, security headers review and a penetration test.
+
+- Healthcare data in a separate encrypted schema; matching uses eligibility flags. Today the panelist table holds only pseudonymous handles and banded demographics.
 - No compliance certification is claimed. GDPR and health-privacy obligations are design inputs, to be verified.
 
 ## 6. Performance budget

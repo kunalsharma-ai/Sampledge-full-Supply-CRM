@@ -1,6 +1,6 @@
 # User role matrix
 
-Generated from `src/lib/roles.ts` (`npm run docs:roles`). **Scoped** = only records the user is party to (a vendor sees its own bids/allocations; a client sees its own projects).
+Generated from `packages/core/src/roles.ts` (`npm run docs:roles -w @sampledge/web`). The same matrix drives the web navigation and the API guards: `none` returns 403, `read` refuses writes. **Scoped** = only records the user is party to (a vendor sees its own bids/allocations; a client sees its own projects).
 
 | Module | Executive | Platform Admin | Project Manager | Survey Programmer | Business Development | Data Processing | Finance & Ops | Panel Manager | Sample Vendor | Client |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -43,4 +43,4 @@ Generated from `src/lib/roles.ts` (`npm run docs:roles`). **Scoped** = only reco
 - Clients never see internal margins, cost CPIs or supplier agreements (`view:margins`).
 - Panelists never see internal project information.
 - Healthcare panel data requires separate consent and is never exposed in aggregate below a minimum cell size.
-- Consequential actions (quotes, purchases, payments, publishing, dataset release, deletes, bulk comms, respondent rejection) always require a human with the matching `approve:*` permission.
+- Consequential actions (quotes, purchases, payments, publishing, dataset release, deletes, bulk comms, respondent rejection) always require a human decision. Deciders by kind: quotes `approve:quotes`, purchases `approve:purchase`, payments `approve:payments`, publishing `approve:publish`, respondent rejection `edit:projects`, bulk comms `edit:automations`, dataset release and record deletion Platform Admin or Executive. The requester can never decide their own request (`apps/api/src/common/approvals.ts`).

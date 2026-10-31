@@ -1,0 +1,373 @@
+// Sampledge AI Research OS: Phase 3 schema (live).
+// Every business table carries tenantId; the API's TenantScope enforces it on every query
+// and the isolation tests in src/test prove one tenant cannot read another's records.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Tenancy, identity, access
+model Tenant {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  mfaSecret    String?
+  mfaEnabled   Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+  sessions     Session[]
+}
+
+enum Role {
+  platform_admin
+  executive
+  project_manager
+  survey_programmer
+  bizdev
+  data_processing
+  finance
+  panel_manager
+  vendor
+  client
+}
+
+model Membership {
+  id       String  @id @default(cuid())
+  tenantId String
+  userId   String
+  role     Role
+  vendorId String? // vendor users are scoped to one vendor
+  clientId String? // client users are scoped to one client
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  user     User    @relation(fields: [userId], references: [id])
+
+  @@unique([tenantId, userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  tenantId String
+  actorId  String?
+  actor    String
+  action   String
+  entity   String
+  entityId String
+  before   Json?
+  after    Json?
+  at       DateTime @default(now())
+
+  @@index([tenantId, entity, entityId])
+  @@index([tenantId, at])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  tenantId  String
+  roles     Role[]   // visible to these roles; empty = everyone in tenant
+  title     String
+  body      String
+  module    String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+// ───────────────────────── Commercial
+model Client {
+  id            String        @id @default(cuid())
+  tenantId      String
+  name          String
+  sector        String?
+  projects      Project[]
+  opportunities Opportunity[]
+
+  @@index([tenantId])
+}
+
+enum Audience {
+  B2B
+  B2C
+  Healthcare
+}
+
+model Opportunity {
+  id          String    @id @default(cuid())
+  tenantId    String
+  clientId    String
+  title       String
+  stage       String    // New RFQ | Qualifying | Feasibility | Quote Sent | Negotiation | Won | Lost
+  owner       String
+  audience    Audience
+  countries   String[]
+  sampleSize  Int
+  incidence   Float
+  loi         Int
+  value       Int       // USD
+  margin      Float     // internal; redacted without view:margins
+  probability Float
+  lossReason  String?
+  sourceText  String?   // Email-to-RFQ origin
+  projectId   String?   @unique
+  createdAt   DateTime  @default(now())
+  lastTouch   DateTime  @default(now())
+  client      Client    @relation(fields: [clientId], references: [id])
+  project     Project?  @relation(fields: [projectId], references: [id])
+  quotes      Quote[]
+
+  @@index([tenantId, stage])
+}
+
+model Quote {
+  id            String      @id @default(cuid())
+  tenantId      String
+  opportunityId String
+  version       Int
+  cpiSell       Float
+  cpiCost       Float       // internal; redacted without view:margins
+  margin        Float
+  total         Int
+  basis         String      // rate_card_estimate | supplier_confirmed
+  status        String      // draft | pending_approval | approved | sent | rejected
+  createdBy     String
+  createdAt     DateTime    @default(now())
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+
+  @@unique([opportunityId, version])
+}
+
+// ───────────────────────── Projects: the shared record
+model Project {
+  id           String       @id @default(cuid())
+  tenantId     String
+  code         String
+  name         String
+  clientId     String
+  audience     Audience
+  countries    String[]
+  stage        String       // lifecycle stage
+  owner        String
+  start        DateTime
+  deadline     DateTime
+  target       Int
+  completes    Int          @default(0)
+  ir           Float
+  loi          Int
+  dropout      Float        @default(0)
+  quality      Float        @default(0)
+  cpiSell      Float
+  cpiCost      Float        // internal
+  budget       Int
+  costIncurred Int          @default(0)
+  blockers     String[]
+  createdAt    DateTime     @default(now())
+  client       Client       @relation(fields: [clientId], references: [id])
+  opportunity  Opportunity?
+  quotas       QuotaCell[]
+  allocations  Allocation[]
+  surveys      Survey[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, stage])
+}
+
+model QuotaCell {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String
+  surveyId  String?
+  key       String   // stable key within the survey definition
+  label     String
+  condition Json?    // Condition AST; null for project-level cells counted elsewhere
+  target    Int
+  count     Int      @default(0)
+  hard      Boolean  @default(true)
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([surveyId, key])
+}
+
+// ───────────────────────── Supply
+model Vendor {
+  id                String       @id @default(cuid())
+  tenantId          String
+  name              String
+  hq                String
+  coverage          String[]
+  audiences         Audience[]
+  cpiB2C            Float
+  cpiB2B            Float
+  cpiHC             Float
+  quality           Float
+  reliability       Float
+  responseRate      Float
+  speed             Float
+  delivered         Int          @default(0)
+  pendingPayment    Int          @default(0)
+  bidWinRate        Float        @default(0)
+  verified          Boolean      @default(false)
+  allocations       Allocation[]
+
+  @@index([tenantId])
+}
+
+model Allocation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String
+  vendorId  String
+  completes Int
+  cpi       Float
+  status    String   // proposed | approved | live | closed
+  approvalId String?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+}
+
+// ───────────────────────── Surveys
+model Survey {
+  id             String          @id @default(cuid())
+  tenantId       String
+  projectId      String?
+  name           String
+  status         String          // Draft | In QA | Published | Closed
+  programmer     String
+  currentVersion Int             @default(1)
+  hoursSpent     Float           @default(0)
+  complexity     Float           @default(0.3)
+  completionRate Float           @default(0)
+  loi            Int             @default(10)
+  languages      String[]
+  alerts         Int             @default(0)
+  hasDefinition  Boolean         @default(false)
+  questionCount  Int             @default(0)
+  createdAt      DateTime        @default(now())
+  project        Project?        @relation(fields: [projectId], references: [id])
+  versions       SurveyVersion[]
+  responses      Response[]
+
+  @@index([tenantId])
+}
+
+model SurveyVersion {
+  id          String    @id @default(cuid())
+  surveyId    String
+  version     Int
+  definition  Json
+  label       String
+  createdBy   String
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  survey      Survey    @relation(fields: [surveyId], references: [id])
+
+  @@unique([surveyId, version])
+}
+
+model Response {
+  id          String    @id @default(cuid())
+  tenantId    String
+  surveyId    String
+  version     Int
+  source      String    // preview | panel:<brand> | vendor:<id>
+  respondent  String    // pseudonymous ref / seed
+  answers     Json
+  path        String[]
+  cursor      String?
+  outcome     String?   // complete | screenout | overquota | null while in progress
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  survey      Survey    @relation(fields: [surveyId], references: [id])
+
+  @@index([surveyId, outcome])
+}
+
+// ───────────────────────── Panels
+model Panelist {
+  id                String    @id @default(cuid())
+  tenantId          String
+  brand             String    // turn2opinion | myfrequentrewards | myhealthopinions
+  handle            String    // pseudonymous; no real PII in this system
+  country           String
+  ageBand           String
+  gender            String
+  segment           String    // consumer | professional | hcp | patient | caregiver
+  status            String    // active | dormant | suspended | deletion_requested
+  qualityScore      Float
+  points            Int       @default(0)
+  profileCompletion Float
+  surveysCompleted  Int       @default(0)
+  joinedAt          DateTime  @default(now())
+  lastActiveAt      DateTime?
+  consents          Consent[]
+
+  @@index([tenantId, brand, status])
+}
+
+model Consent {
+  id         String   @id @default(cuid())
+  panelistId String
+  purpose    String   // research_participation | health_data | marketing_email
+  granted    Boolean
+  at         DateTime @default(now())
+  panelist   Panelist @relation(fields: [panelistId], references: [id])
+}
+
+// ───────────────────────── Automation & approvals
+model Agent {
+  id               String   @id
+  tenantId         String
+  name             String
+  enabled          Boolean  @default(true)
+  runs30d          Int
+  successRate      Float
+  avgSeconds       Int
+  minutesSaved     Int
+  costUsd30d       Float
+  costCapUsd       Float
+  requiresApproval String[]
+
+  @@index([tenantId])
+}
+
+model Approval {
+  id         String    @id @default(cuid())
+  tenantId   String
+  agentId    String?
+  kind       String    // Purchasing sample | Sending binding quotations | Publishing surveys | ...
+  title      String
+  projectId  String?
+  amount     Int?
+  payload    Json?
+  status     String    @default("pending")
+  requestedBy String
+  decidedBy  String?
+  decidedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([tenantId, status])
+}

@@ -1,13 +1,34 @@
 name: CI
 on: [push, pull_request]
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: sampledge, POSTGRES_PASSWORD: sampledge, POSTGRES_DB: sampledge }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sampledge" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://sampledge:sampledge@localhost:5432/sampledge?schema=public
+      JWT_SECRET: ci-only-secret-not-for-production
+      LOGIN_RATE_LIMIT: "200"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npm test
       - run: npm run typecheck
+      # Engine unit tests + API integration tests (the API suite creates and migrates sampledge_test).
+      - run: npm test
       - run: npm run build
+      - name: Migrate and seed the dev database
+        run: npx prisma migrate deploy && node dist/seed.js
+        working-directory: apps/api
+      - name: End-to-end smoke test (production build)
+        run: |
+          npm i --no-save playwright@1.55.0 && npx playwright install --with-deps chromium
+          (cd apps/api && node dist/main.js &) ; (cd apps/web && npx next start -p 3000 &)
+          npx wait-on -t 60000 http://localhost:4000/api/v1/health http://localhost:3000/login
+          node apps/web/e2e-smoke.cjs

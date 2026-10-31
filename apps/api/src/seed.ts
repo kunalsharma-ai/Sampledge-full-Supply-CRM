@@ -1,0 +1,167 @@
+/**
+ * Development seed. Loads the labelled demo records from @sampledge/core into Postgres.
+ * Every record is fictional. Wipes all tables first, so it refuses to run in production.
+ *
+ *   npm run db:seed -w @sampledge/api
+ */
+import 'dotenv/config';
+import { Prisma, PrismaClient, type Role } from '@prisma/client';
+import { access, cloudSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
+import bcrypt from 'bcryptjs';
+
+export const DEMO_PASSWORD = 'demo1234';
+export const MAIN_TENANT = 'sampledge-demo';
+export const ISOLATION_TENANT = 'isolation-test';
+export const demoEmail = (role: string) => `${role.replace(/_/g, '.')}@demo.sampledge.test`;
+
+const day = 86400_000;
+
+export async function runSeed(db: PrismaClient, opts: { panelists?: number } = {}) {
+  if (process.env.NODE_ENV === 'production') throw new Error('Refusing to seed a production database');
+  const tables = await db.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
+  await db.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} CASCADE`);
+
+  const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const tenant = await db.tenant.create({ data: { name: 'Sampledge (Demo workspace)', slug: MAIN_TENANT } });
+  const t = tenant.id;
+
+  // Users: one per role. Vendor user belongs to Atlas Sample Co. (vd-01), client user to Northwind Brands (cl-01).
+  for (const r of roles) {
+    const name = r.persona.replace(/ \(Demo\).*/, '').replace(/ ·.*/, '');
+    const u = await db.user.create({ data: { email: demoEmail(r.id), name: `${name} (Demo)`, passwordHash: hash } });
+    await db.membership.create({ data: { tenantId: t, userId: u.id, role: r.id as Role, vendorId: r.id === 'vendor' ? 'vd-01' : null, clientId: r.id === 'client' ? 'cl-01' : null } });
+  }
+  // A second PM so separation-of-duties flows can be exercised by one person in the demo.
+  const pm2 = await db.user.create({ data: { email: 'project.manager2@demo.sampledge.test', name: 'Daniel Moreau (Demo)', passwordHash: hash } });
+  await db.membership.create({ data: { tenantId: t, userId: pm2.id, role: 'project_manager' } });
+
+  await db.client.createMany({ data: seed.clients.map((c) => ({ id: c.id, tenantId: t, name: c.name, sector: c.sector })) });
+  await db.vendor.createMany({
+    data: seed.vendors.map((v) => ({
+      id: v.id, tenantId: t, name: v.name, hq: v.hq, coverage: v.coverage, audiences: v.audiences, cpiB2C: v.cpiB2C, cpiB2B: v.cpiB2B, cpiHC: v.cpiHC,
+      quality: v.quality, reliability: v.reliability, responseRate: v.responseRate, speed: v.speed, delivered: v.delivered, pendingPayment: v.pendingPayment,
+      bidWinRate: v.bidWinRate, verified: v.verified,
+    })),
+  });
+
+  for (const p of seed.projects) {
+    await db.project.create({
+      data: {
+        id: p.id, tenantId: t, code: p.code, name: p.name, clientId: p.clientId, audience: p.type, countries: p.countries, stage: p.stage, owner: p.owner,
+        start: new Date(p.start), deadline: new Date(p.deadline), target: p.target, completes: p.completes, ir: p.ir, loi: p.loi, dropout: p.dropout,
+        quality: p.quality, cpiSell: p.cpiSell, cpiCost: p.cpiCost, budget: p.budget, costIncurred: p.costIncurred, blockers: p.blockers,
+      },
+    });
+    // Project-level quota cells (no survey definition): counts are the seeded demo values.
+    if (p.id !== 'pr-002') {
+      await db.quotaCell.createMany({ data: p.quotas.map((q) => ({ tenantId: t, projectId: p.id, key: `${p.id}-${q.id}`, label: q.label, target: q.target, count: q.achieved })) });
+    }
+    const share = Math.max(1, p.vendors.length);
+    await db.allocation.createMany({
+      data: p.vendors.map((vid) => ({
+        tenantId: t, projectId: p.id, vendorId: vid, completes: Math.round(p.target / share), cpi: +(p.cpiCost * 0.98).toFixed(2),
+        status: p.completes >= p.target ? 'closed' : p.completes > 0 ? 'live' : 'approved',
+      })),
+    });
+  }
+
+  for (const o of seed.opportunities) {
+    await db.opportunity.create({
+      data: {
+        id: o.id, tenantId: t, clientId: o.clientId, title: o.title, stage: o.stage, owner: o.owner, audience: o.type, countries: o.countries,
+        sampleSize: o.sampleSize, incidence: o.ir, loi: o.loi, value: o.value, margin: o.margin, probability: o.probability, lossReason: o.lossReason ?? null,
+        createdAt: new Date(o.created), lastTouch: new Date(o.lastTouch),
+      },
+    });
+  }
+
+  for (const s of seed.surveys) {
+    const isCloud = s.id === cloudSurvey.id;
+    await db.survey.create({
+      data: {
+        id: s.id, tenantId: t, projectId: s.projectId, name: s.name, status: s.status, programmer: s.programmer, currentVersion: isCloud ? cloudSurvey.version : 1,
+        hoursSpent: s.hoursSpent, complexity: s.complexity, completionRate: s.completionRate, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud, questionCount: isCloud ? cloudSurvey.questions.length : s.questions,
+      },
+    });
+  }
+  // The programmed survey: earlier versions are recorded as history, the current one holds the definition.
+  const cloudDef = { ...cloudSurvey, quotas: cloudSurvey.quotas.map((q) => ({ ...q, count: 0 })) };
+  for (let v = 1; v <= cloudSurvey.version; v++) {
+    await db.surveyVersion.create({
+      data: { surveyId: cloudSurvey.id, version: v, label: v === cloudSurvey.version ? 'Imported screener + core (demo)' : `Draft ${v} (demo history)`, createdBy: 'Jonas Weber (Demo)', definition: cloudDef as unknown as Prisma.InputJsonValue, createdAt: new Date(seed.DEMO_NOW.getTime() - (cloudSurvey.version - v) * 2 * day) },
+    });
+  }
+  await db.quotaCell.createMany({
+    data: cloudSurvey.quotas.map((q) => ({ tenantId: t, projectId: 'pr-002', surveyId: cloudSurvey.id, key: q.id, label: q.label, condition: q.when as Prisma.InputJsonValue, target: q.target, count: q.count })),
+  });
+
+  await db.agent.createMany({
+    data: seed.agents.map((a) => ({ id: a.id, tenantId: t, name: a.name, enabled: a.enabled, runs30d: a.runs30d, successRate: a.successRate, avgSeconds: a.avgSeconds, minutesSaved: a.minutesSaved, costUsd30d: a.costUsd30d, costCapUsd: a.costCapUsd, requiresApproval: a.requiresApprovalFor })),
+  });
+  await db.approval.createMany({
+    data: seed.approvals.map((a) => ({ id: a.id, tenantId: t, agentId: a.agentId, kind: a.kind, title: `${a.title} (demo)`, projectId: a.projectId ?? null, amount: a.amount ?? null, requestedBy: `agent:${a.agentId}`, createdAt: new Date(a.requested), payload: { demo: true } })),
+  });
+  const minutes: Record<string, number> = { '8m': 8, '21m': 21, '46m': 46, '1h': 60, '3h': 180 };
+  await db.notification.createMany({
+    data: seed.notificationsSeed.map((n) => ({
+      tenantId: t, title: n.title, body: n.body, module: n.module, read: n.read, createdAt: new Date(seed.DEMO_NOW.getTime() - (minutes[n.time] ?? 0) * 60_000),
+      roles: roles.filter((r) => access(r.id, n.module as ModuleId) !== 'none').map((r) => r.id as Role),
+    })),
+  });
+
+  // Synthetic, pseudonymous panelists. No names, contact details or health records.
+  const r = rng(77);
+  const pick = <T,>(a: readonly T[]) => a[Math.floor(r() * a.length)];
+  const brands = [
+    { id: 'turn2opinion', w: 0.55, segs: ['consumer'] },
+    { id: 'myfrequentrewards', w: 0.33, segs: ['consumer', 'professional'] },
+    { id: 'myhealthopinions', w: 0.12, segs: ['hcp', 'patient', 'caregiver'] },
+  ];
+  const n = opts.panelists ?? 3000;
+  const rows: Prisma.PanelistCreateManyInput[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = r();
+    const b = x < brands[0].w ? brands[0] : x < brands[0].w + brands[1].w ? brands[1] : brands[2];
+    const st = r();
+    rows.push({
+      id: `pn-${String(i + 1).padStart(5, '0')}`, tenantId: t, brand: b.id, handle: `${b.id.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(r() * 899999)).toString(36).toUpperCase()}`,
+      country: pick(seed.countries).code, ageBand: pick(['18-24', '25-34', '35-44', '45-54', '55-64', '65+']), gender: pick(['female', 'male', 'nonbinary', 'undisclosed']),
+      segment: pick(b.segs), status: st < 0.62 ? 'active' : st < 0.95 ? 'dormant' : 'suspended', qualityScore: +(0.6 + r() * 0.39).toFixed(3),
+      points: Math.floor(r() * 9000), profileCompletion: +(0.3 + r() * 0.7).toFixed(2), surveysCompleted: Math.floor(r() * 80),
+      joinedAt: new Date(seed.DEMO_NOW.getTime() - Math.floor(r() * 900) * day), lastActiveAt: new Date(seed.DEMO_NOW.getTime() - Math.floor(r() * 120) * day),
+    });
+  }
+  await db.panelist.createMany({ data: rows });
+  await db.consent.createMany({
+    data: rows.flatMap((p) => [
+      { panelistId: p.id!, purpose: 'research_participation', granted: true, at: p.joinedAt as Date },
+      ...(p.brand === 'myhealthopinions' ? [{ panelistId: p.id!, purpose: 'health_data', granted: true, at: p.joinedAt as Date }] : []),
+    ]),
+  });
+
+  // Isolation tenant: a second workspace whose records must never appear in the first.
+  const other = await db.tenant.create({ data: { name: 'Isolation Test Co (Demo)', slug: ISOLATION_TENANT } });
+  const oa = await db.user.create({ data: { email: 'admin@isolation.sampledge.test', name: 'Isolation Admin (Demo)', passwordHash: hash } });
+  await db.membership.create({ data: { tenantId: other.id, userId: oa.id, role: 'platform_admin' } });
+  const oc = await db.client.create({ data: { tenantId: other.id, name: 'Other Tenant Client' } });
+  await db.project.create({
+    data: { tenantId: other.id, code: 'SE-26100', name: 'Other tenant private project', clientId: oc.id, audience: 'B2C', countries: ['US'], stage: 'Fieldwork Monitoring', owner: 'Isolation Admin', start: seed.DEMO_NOW, deadline: new Date(seed.DEMO_NOW.getTime() + 10 * day), target: 100, ir: 0.5, loi: 10, cpiSell: 5, cpiCost: 3, budget: 330, blockers: [] },
+  });
+  await db.vendor.create({ data: { tenantId: other.id, name: 'Other Tenant Vendor', hq: 'US', coverage: ['US'], audiences: ['B2C'], cpiB2C: 2, cpiB2B: 10, cpiHC: 40, quality: 0.9, reliability: 0.9, responseRate: 0.1, speed: 0.8 } });
+
+  return { tenant: tenant.slug, users: roles.length + 2, projects: seed.projects.length, panelists: n };
+}
+
+if (require.main === module) {
+  const db = new PrismaClient();
+  runSeed(db)
+    .then((r) => {
+      console.log('Seeded (demo data):', r);
+      console.log(`Demo sign-in: <role>@demo.sampledge.test / ${DEMO_PASSWORD}  e.g. ${demoEmail('executive')}`);
+    })
+    .catch((e) => {
+      console.error(e);
+      process.exitCode = 1;
+    })
+    .finally(() => db.$disconnect());
+}
