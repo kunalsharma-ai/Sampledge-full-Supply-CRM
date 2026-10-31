@@ -1,6 +1,7 @@
 'use client';
 /**
- * Data Processing: weighting, open-end coding and tables on recorded responses (live API only).
+ * Data Processing: weighting, open-end coding, recodes, tables and exports on recorded responses
+ * (live API only).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Plus, Scale, Sparkles, Tags, Trash2 } from 'lucide-react';
@@ -20,7 +21,11 @@ type Overview = {
   weighting: { targets: Record<string, Record<string, number>>; stats: Stats; appliedAt: string; by: string } | null;
   weightingVariables: { id: string; text: string; options: { code: string; label: string; share: number }[] }[];
   openEnds: { id: string; text: string; answered: number; coded: number; manual: number; codeframe: Code[] | null }[];
+  recodes: (RecodeDef & { counts: Record<string, number>; unassigned: number })[];
+  recodeSources: { id: string; text: string; type: string; options: { code: string; label: string }[]; min: number | null; max: number | null }[];
 };
+type RecodeGroup = { code: string; label: string; from?: string[]; min?: number; max?: number };
+type RecodeDef = { id: string; label: string; source: string; kind: 'group' | 'bands'; groups: RecodeGroup[] };
 type Verbatim = { id: string; text: string; codes: string[]; manual: boolean };
 
 function Weighting({ o, write, onDone }: { o: Overview; write: boolean; onDone: () => void }) {
@@ -142,6 +147,86 @@ function Coding({ o, write, onDone }: { o: Overview; write: boolean; onDone: () 
   );
 }
 
+/** Starting groups for a new recode: top-2 box for rating scales and NPS bands, quartile-ish bands for numbers. */
+function starter(src: Overview['recodeSources'][number]): Pick<RecodeDef, 'kind' | 'groups'> {
+  if (src.type === 'nps') return { kind: 'group', groups: [{ code: 'pro', label: 'Promoter (9-10)', from: ['9', '10'] }, { code: 'pas', label: 'Passive (7-8)', from: ['7', '8'] }, { code: 'det', label: 'Detractor (0-6)', from: ['0', '1', '2', '3', '4', '5', '6'] }] };
+  if (src.type === 'numeric') {
+    // Three whole-number bands across the question's range; edit them to suit.
+    const lo = src.min ?? 0, hi = src.max ?? 100, cut = (i: number) => Math.round(lo + ((hi - lo) * i) / 3);
+    return { kind: 'bands', groups: [0, 1, 2].map((i) => { const min = i ? cut(i) : lo, max = i < 2 ? cut(i + 1) - 1 : hi; return { code: `b${i + 1}`, label: `${min}-${max}`, min, max }; }) };
+  }
+  const opts = src.options;
+  return { kind: 'group', groups: [{ code: 't2b', label: `Top 2 (${opts.slice(0, 2).map((x) => x.label).join(', ')})`, from: opts.slice(0, 2).map((x) => x.code) }, { code: 'rest', label: 'All others', from: opts.slice(2).map((x) => x.code) }] };
+}
+
+function Recodes({ o, write, onDone }: { o: Overview; write: boolean; onDone: () => void }) {
+  const [draft, setDraft] = useState<RecodeDef | null>(null);
+  const src = draft ? o.recodeSources.find((q) => q.id === draft.source) : undefined;
+  const start = (sourceId: string) => { const q = o.recodeSources.find((x) => x.id === sourceId)!; setDraft({ id: `R_${q.id}`, label: `${q.id} grouped`, source: q.id, ...starter(q) }); };
+  const setGroup = (i: number, g: Partial<RecodeGroup>) => setDraft((d) => d && { ...d, groups: d.groups.map((x, j) => (j === i ? { ...x, ...g } : x)) });
+  const answerCodes = src ? (src.type === 'nps' ? Array.from({ length: 11 }, (_, i) => ({ code: String(i), label: String(i) })) : src.options) : [];
+  const save = async () => {
+    if (!draft) return;
+    const { id, ...body } = draft;
+    if (await act(() => api(`/dp/surveys/${o.survey.id}/recodes/${encodeURIComponent(id)}`, { method: 'PUT', body }), `Recode ${id} saved. It appears in results, banners, tables and exports.`)) { setDraft(null); onDone(); }
+  };
+  const remove = async (id: string) => { if (await act(() => api(`/dp/surveys/${o.survey.id}/recodes/${encodeURIComponent(id)}`, { method: 'DELETE' }), `Recode ${id} removed`)) onDone(); };
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <Panel>
+        <PanelHeader eyebrow="Recodes" title="Derived variables" info="A recode groups the answers of one question into new categories, such as top-2 box or spend bands. Answers are never changed; recodes are computed when results, tables and exports are read, and they can be used as banners." />
+        {o.recodes.length ? <div className="space-y-2">{o.recodes.map((r) => {
+          const total = Object.values(r.counts).reduce((a, b) => a + b, 0) + r.unassigned;
+          return (
+            <div key={r.id} className="panel-solid p-3 text-[12.5px]">
+              <div className="flex items-center gap-2"><span className="font-mono text-2xs">{r.id}</span><span className="font-medium">{r.label}</span><Badge tone="cyan">from {r.source}</Badge><span className="flex-1" />
+                {write && <><Button size="sm" variant="ghost" onClick={() => setDraft({ id: r.id, label: r.label, source: r.source, kind: r.kind, groups: r.groups })}>Edit</Button><Button size="sm" variant="ghost" aria-label={`Delete ${r.id}`} onClick={() => remove(r.id)}><Trash2 size={13} /></Button></>}</div>
+              <div className="mt-2 space-y-1">{r.groups.map((g) => <div key={g.code} className="grid grid-cols-[minmax(0,1fr)_120px_48px] items-center gap-3"><span className="truncate">{g.label}</span><Bar value={total ? (r.counts[g.code] ?? 0) / total : 0} tone="purple" /><span className="num text-right">{fmtNum(r.counts[g.code] ?? 0)}</span></div>)}</div>
+              {r.unassigned > 0 && <p className="mt-1 text-2xs text-ink-3">{fmtNum(r.unassigned)} completes not in any group (unanswered or outside the bands)</p>}
+            </div>
+          );
+        })}</div> : <EmptyState title="No recodes yet" body="Group a rating into top-2 box, NPS into promoter bands, or a number into ranges." />}
+        {write && !draft && (
+          <div className="mt-3 w-72"><Field label="New recode from"><select className={inputCls} aria-label="New recode from" value="" onChange={(e) => e.target.value && start(e.target.value)}><option value="">Choose a question</option>{o.recodeSources.map((q) => <option key={q.id} value={q.id}>{q.id} ({q.type}): {q.text.slice(0, 32)}</option>)}</select></Field></div>
+        )}
+      </Panel>
+      {draft && src && (
+        <Panel>
+          <PanelHeader eyebrow={`Recode of ${src.id} · ${draft.kind === 'bands' ? 'numeric bands' : 'grouped answers'}`} title={src.text} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Variable id"><input className={inputCls} aria-label="Recode id" value={draft.id} disabled={o.recodes.some((r) => r.id === draft.id)} onChange={(e) => setDraft({ ...draft, id: e.target.value })} /></Field>
+            <Field label="Label"><input className={inputCls} aria-label="Recode label" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} /></Field>
+          </div>
+          <div className="mt-3 space-y-2">{draft.groups.map((g, i) => (
+            <div key={i} className="panel-solid space-y-2 p-2.5">
+              <div className="flex items-center gap-2">
+                <input className={cn(inputCls, 'w-20 font-mono')} aria-label={`Group ${i + 1} code`} value={g.code} onChange={(e) => setGroup(i, { code: e.target.value })} />
+                <input className={inputCls} aria-label={`Group ${i + 1} label`} value={g.label} onChange={(e) => setGroup(i, { label: e.target.value })} />
+                <Button size="sm" variant="ghost" aria-label={`Remove group ${i + 1}`} onClick={() => setDraft({ ...draft, groups: draft.groups.filter((_, j) => j !== i) })}><Trash2 size={13} /></Button>
+              </div>
+              {draft.kind === 'group' ? (
+                <div className="flex flex-wrap gap-1">{answerCodes.map((a) => { const on = g.from?.includes(a.code); return (
+                  <button key={a.code} type="button" aria-pressed={on} onClick={() => setDraft({ ...draft, groups: draft.groups.map((x, j) => ({ ...x, from: j === i ? (on ? (x.from ?? []).filter((c) => c !== a.code) : [...(x.from ?? []), a.code]) : (x.from ?? []).filter((c) => c !== a.code) })) })}
+                    className={cn('rounded-lg border hairline px-2 py-0.5 text-2xs', on ? 'bg-purple/20 text-ink' : 'text-ink-3')}>{a.label}</button>
+                ); })}</div>
+              ) : (
+                <div className="flex items-center gap-2 text-2xs"><span>From</span><input type="number" className={cn(inputCls, 'w-24')} aria-label={`Group ${i + 1} min`} value={g.min ?? ''} onChange={(e) => setGroup(i, { min: Number(e.target.value) })} /><span>to</span><input type="number" className={cn(inputCls, 'w-24')} aria-label={`Group ${i + 1} max`} value={g.max ?? ''} onChange={(e) => setGroup(i, { max: Number(e.target.value) })} /><span className="text-ink-3">(inclusive)</span></div>
+              )}
+            </div>
+          ))}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setDraft({ ...draft, groups: [...draft.groups, { code: `g${draft.groups.length + 1}`, label: 'New group', ...(draft.kind === 'group' ? { from: [] } : { min: 0, max: 0 }) }] })}><Plus size={13} /> Group</Button>
+            {src.type === 'nps' && <Segmented size="sm" label="Recode kind" value={draft.kind} onChange={(k) => setDraft({ ...draft, kind: k as RecodeDef['kind'], groups: k === 'bands' ? [{ code: 'b1', label: '0-6', min: 0, max: 6 }, { code: 'b2', label: '7-10', min: 7, max: 10 }] : starter(src).groups })} options={[{ value: 'group', label: 'Group scores' }, { value: 'bands', label: 'Bands' }]} />}
+            <span className="flex-1" />
+            <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
+            <Button size="sm" onClick={save}>Save recode</Button>
+          </div>
+        </Panel>
+      )}
+    </div>
+  );
+}
+
 function Tables({ o }: { o: Overview }) {
   const [banner, setBanner] = useState('');
   const [weighted, setWeighted] = useState(!!o.weighting);
@@ -150,12 +235,14 @@ function Tables({ o }: { o: Overview }) {
     <Panel>
       <PanelHeader eyebrow="Tabulation" title="Tables and reports" />
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-72"><Field label="Banner (columns)"><select className={inputCls} value={banner} onChange={(e) => setBanner(e.target.value)} aria-label="Banner question"><option value="">Total only</option>{o.weightingVariables.map((v) => <option key={v.id} value={v.id}>{v.id}: {v.text.slice(0, 40)}</option>)}</select></Field></div>
+        <div className="w-72"><Field label="Banner (columns)"><select className={inputCls} value={banner} onChange={(e) => setBanner(e.target.value)} aria-label="Banner question"><option value="">Total only</option>{o.weightingVariables.map((v) => <option key={v.id} value={v.id}>{v.id}: {v.text.slice(0, 40)}</option>)}{o.recodes.map((r) => <option key={r.id} value={r.id}>{r.id}: {r.label.slice(0, 40)} (recode)</option>)}</select></Field></div>
         <Segmented label="Weighting" value={weighted ? 'w' : 'u'} onChange={(v) => setWeighted(v === 'w')} options={[{ value: 'u', label: 'Unweighted' }, { value: 'w', label: o.weighting ? 'Weighted' : 'Weighted (not set)' }]} />
         <a className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue px-3 text-[13px] font-medium text-white hover:opacity-90" href={`/api/v1/dp/surveys/${o.survey.id}/tables.xlsx?${qs}`} download><Download size={14} /> Excel tables</a>
         <a className="inline-flex h-9 items-center gap-1.5 rounded-xl border hairline px-3 text-[13px] hover:bg-surface-2/60" href={`/api/v1/surveys/${o.survey.id}/report.pptx?${qs}`} download><Download size={14} /> PowerPoint report</a>
+        <a className="inline-flex h-9 items-center gap-1.5 rounded-xl border hairline px-3 text-[13px] hover:bg-surface-2/60" href={`/api/v1/surveys/${o.survey.id}/report.pdf?${qs}`} download><Download size={14} /> PDF report</a>
+        <a className="inline-flex h-9 items-center gap-1.5 rounded-xl border hairline px-3 text-[13px] hover:bg-surface-2/60" href={`/api/v1/dp/surveys/${o.survey.id}/data.sav`} download><Download size={14} /> SPSS data (.sav)</a>
       </div>
-      <p className="mt-3 text-2xs text-ink-3">Every question against the banner. Percentages are weighted when chosen; significance letters use the effective base. Coded open ends appear as code frequencies. Exports are recorded in the audit log.</p>
+      <p className="mt-3 text-2xs text-ink-3">Every question against the banner. Percentages are weighted when chosen; significance letters use the effective base. Coded open ends appear as code frequencies; recodes appear after their source question. The SPSS file has one row per usable complete with variable and value labels, recodes, coded open ends as 0/1 variables and the weight variable (set as the file weight) when weighting is applied. Exports are recorded in the audit log.</p>
     </Panel>
   );
 }
@@ -165,7 +252,7 @@ function Inner() {
   const write = access(role, 'data-processing') === 'full';
   const list = useLive<{ id: string; name: string; status: string; completes: number; weighted: boolean; codeframes: number }[]>('/dp/surveys');
   const [sid, setSid] = useState('');
-  const [tab, setTab] = useState<'weighting' | 'coding' | 'tables'>('weighting');
+  const [tab, setTab] = useState<'weighting' | 'coding' | 'recodes' | 'tables'>('weighting');
   const [tick, setTick] = useState(0);
   useEffect(() => { if (!sid && list.data?.length) setSid([...list.data].sort((a, b) => b.completes - a.completes)[0].id); }, [list.data, sid]);
   const ov = useLive<Overview>(sid ? `/dp/surveys/${sid}` : null, [sid, tick]);
@@ -174,7 +261,7 @@ function Inner() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-80"><Field label="Survey"><select className={inputCls} value={sid} onChange={(e) => setSid(e.target.value)} aria-label="Survey">{(list.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.completes} completes)</option>)}</select></Field></div>
-        <Segmented label="Data processing step" value={tab} onChange={setTab} options={[{ value: 'weighting', label: 'Weighting' }, { value: 'coding', label: 'Open-end coding' }, { value: 'tables', label: 'Tables' }]} />
+        <Segmented label="Data processing step" value={tab} onChange={setTab} options={[{ value: 'weighting', label: 'Weighting' }, { value: 'coding', label: 'Open-end coding' }, { value: 'recodes', label: 'Recodes' }, { value: 'tables', label: 'Tables & exports' }]} />
         {!write && <Badge>Read only for your role</Badge>}
       </div>
       <Loadable q={ov}>{(o) => (
@@ -189,6 +276,7 @@ function Inner() {
           {o.synthetic > 0 && <div className="flex items-center gap-2 text-[12px] text-orange"><DemoBadge label="Synthetic interviews" /> {fmtNum(o.synthetic)} of these interviews were generated for the demo. They are not real respondents.</div>}
           {tab === 'weighting' && <Weighting o={o} write={write} onDone={() => setTick((t) => t + 1)} />}
           {tab === 'coding' && <Coding o={o} write={write} onDone={() => setTick((t) => t + 1)} />}
+          {tab === 'recodes' && <Recodes o={o} write={write} onDone={() => setTick((t) => t + 1)} />}
           {tab === 'tables' && <Tables o={o} />}
           {tab === 'coding' && o.openEnds.some((q) => q.codeframe) && (
             <Panel><PanelHeader eyebrow="Coded" title="Share of answers per code" />
@@ -210,7 +298,7 @@ function CodeTally({ sid, qid, tick }: { sid: string; qid: string; tick: number 
 export default function DataProcessingPage() {
   return (
     <div>
-      <PageHeader eyebrow="Data Processing" title="Weighting, coding and tables" subtitle="Work on recorded interviews: rim weighting to population targets, open-end codeframes with keyword coding and manual review, and Excel tables against any banner." />
+      <PageHeader eyebrow="Data Processing" title="Weighting, coding, recodes and exports" subtitle="Work on recorded interviews: rim weighting to population targets, open-end codeframes with keyword coding and manual review, derived variables, Excel tables against any banner, and PDF, PowerPoint and SPSS exports." />
       <LiveOnly what="Data processing"><Inner /></LiveOnly>
     </div>
   );

@@ -94,6 +94,7 @@ function Inner() {
           {res.data?.weightingAvailable && <Segmented label="Weighting" value={weighted ? 'w' : 'u'} onChange={(v) => setWeighted(v === 'w')} options={[{ value: 'u', label: 'Unweighted' }, { value: 'w', label: 'Weighted' }]} />}
           <span className="flex-1" />
           {sid && res.data && res.data.base > 0 && <a className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue px-3 text-[13px] font-medium text-white hover:opacity-90" href={`/api/v1/surveys/${sid}/report.pptx?${qs}`} download><Download size={14} /> PowerPoint report</a>}
+          {sid && res.data && res.data.base > 0 && <a className="inline-flex h-9 items-center gap-1.5 rounded-xl border hairline px-3 text-[13px] hover:bg-surface-2/60" href={`/api/v1/surveys/${sid}/report.pdf?${qs}`} download><Download size={14} /> PDF</a>}
         </div>
         {res.data && (
           <div className="mt-3 flex flex-wrap gap-1.5 text-2xs">

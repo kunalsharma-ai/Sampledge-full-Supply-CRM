@@ -77,7 +77,7 @@ function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                         {active && <span className="absolute left-0 top-2 h-5 w-[3px] rounded-r bg-cyan shadow-[0_0_12px_rgb(var(--cyan))]" />}
                         <Icon size={17} className={cn('relative shrink-0', active ? 'text-cyan' : 'text-ink-3 group-hover:text-ink-2')} />
                         {!collapsed && <span className="relative flex-1 truncate">{m.label}</span>}
-                        {!collapsed && !isBuilt(m) && <span className="relative text-[9px] font-semibold uppercase tracking-wider text-ink-3">P{m.phase}</span>}
+                        {!collapsed && !isBuilt(m) && <span className="relative text-[9px] font-semibold uppercase tracking-wider text-ink-3">Planned</span>}
                         {!collapsed && access(role, m.id) === 'read' && <Lock size={11} className="relative text-ink-3" aria-label="Read only" />}
                       </Link>
                     </li>
@@ -302,8 +302,8 @@ export function Shell({ children }: { children: ReactNode }) {
           </motion.main>
         </AnimatePresence>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t hairline px-6 py-4 text-2xs text-ink-3">
-          <span>Sampledge AI Research OS · Phase 6 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
-          <span className="flex items-center gap-2"><Badge tone="neutral">v0.7.0</Badge> No external integrations connected</span>
+          <span>Sampledge AI Research OS · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
+          <span className="flex items-center gap-2"><Badge tone="neutral">v0.8.0</Badge> No external integrations connected</span>
         </footer>
       </div>
       <CommandPalette />

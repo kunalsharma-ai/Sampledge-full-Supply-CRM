@@ -47,6 +47,7 @@ export const as = (who: string) => ({
   post: (p: string, b?: unknown) => call('POST', p, b ?? {}, h.tokens[who]),
   patch: (p: string, b: unknown) => call('PATCH', p, b, h.tokens[who]),
   put: (p: string, b: unknown) => call('PUT', p, b, h.tokens[who]),
+  delete: (p: string) => call('DELETE', p, undefined, h.tokens[who]),
 });
 
 export async function login(email: string, password = DEMO_PASSWORD) {

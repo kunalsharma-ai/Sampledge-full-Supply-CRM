@@ -198,7 +198,7 @@ export default function PanelsPage() {
         <div className="grid gap-4 text-[12.5px] md:grid-cols-3">
           <div className="panel-solid p-4"><div className="mb-1 font-semibold">1. Secure file import</div><PanelImport /></div>
           <div className="panel-solid p-4"><div className="mb-1 font-semibold">2. Configurable adapter</div><p className="text-2xs text-ink-3">If a site exposes an API or database replica, an adapter maps it to the panelist schema. We do not assume one exists.</p></div>
-          <div className="panel-solid p-4"><div className="mb-1 font-semibold">3. Event sync</div><p className="text-2xs text-ink-3">Survey invitations, completes and reward ledger posted back to each panel. Planned Phase 6 with the adapters.</p></div>
+          <div className="panel-solid p-4"><div className="mb-1 font-semibold">3. Event sync</div><p className="text-2xs text-ink-3">Survey invitations, completes and reward ledger posted back to each panel. Planned with the panel adapters (not connected).</p></div>
         </div>
       </Panel>
     </div>

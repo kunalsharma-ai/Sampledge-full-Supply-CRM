@@ -148,6 +148,10 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET | `/dp/surveys/:id/codeframes/:qid/verbatims?code=&take=` | `[{id,text,codes,manual}]`; `code=other` or `uncoded` filters |
 | PATCH | `/dp/responses/:rid/codes` `{questionId, codes[]}` | manual coding |
 | GET | `/dp/surveys/:id/tables.xlsx?banner&weighted` | Excel workbook (Notes, Tables) |
+| PUT | `/dp/surveys/:id/recodes/:rid` | `{label, source, kind: group\|bands, groups[{code,label,from?[],min?,max?}]}`; ids start with `R`; 400 with a readable reason when invalid |
+| DELETE | `/dp/surveys/:id/recodes/:rid` | refused while the weighting uses it |
+| GET | `/dp/surveys/:id/data.sav` | SPSS system file (see Data Processing in IMPLEMENTATION_STATUS) |
+| GET | `/surveys/:id/report.pdf?banner&excludeFlagged&weighted` | PDF report (same content as `report.pptx`) |
 
 `GET /surveys/:id/explore?from&to&trendQ&trendCode&interval=day|week&k=2..6&excludeFlagged&weighted` returns `{ base, weighted, synthetic, options{flow,segmentation,trend}, flow, trend, segments }`; each of `flow`, `trend`, `segments` is `{ ok: true, data }` or `{ ok: false, error }` so one view that cannot be built does not fail the others.
 

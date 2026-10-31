@@ -126,3 +126,78 @@ export function codeText(text: string, frame: Code[]): string[] {
   const hit = frame.filter((c) => c.keywords.some((k) => words.has(stem(k.toLowerCase()))) ).map((c) => c.code);
   return hit.length ? hit : ['other'];
 }
+
+// ───────────────────────── Recodes (derived variables)
+
+type QDef = { id: string; type: string; text: string; options?: { code: string; label: string }[]; min?: number; max?: number };
+
+/**
+ * A derived single-choice variable. `group` maps answer codes of a single-choice or NPS question
+ * (NPS scores as "0".."10") into new codes, e.g. top-2 box. `bands` cuts a numeric or NPS answer
+ * into ranges [min, max], inclusive. Answers that fall in no group stay unanswered.
+ */
+export type Recode = {
+  id: string; label: string; source: string; kind: 'group' | 'bands';
+  groups: { code: string; label: string; from?: string[]; min?: number; max?: number }[];
+};
+
+/** Checks a recode against the questionnaire and the recodes already defined; throws a readable error. */
+export function validateRecode(questions: QDef[], recode: Recode, existing: Recode[] = []) {
+  if (!/^R[A-Za-z0-9_]{0,19}$/.test(recode.id)) throw new Error('Recode ids start with R (letters, digits, underscore)');
+  if (questions.some((q) => q.id === recode.id)) throw new Error(`${recode.id} is already a question id`);
+  if (existing.some((r) => r.id === recode.id)) throw new Error(`${recode.id} already exists`);
+  const q = questions.find((x) => x.id === recode.source);
+  if (!q) throw new Error(`Question ${recode.source} is not in this survey`);
+  if (!recode.groups.length) throw new Error('Add at least one group');
+  const codes = new Set<string>();
+  for (const g of recode.groups) { if (codes.has(g.code)) throw new Error(`Duplicate code ${g.code}`); codes.add(g.code); }
+  if (recode.kind === 'group') {
+    if (q.type !== 'single' && q.type !== 'nps') throw new Error(`${q.id} is ${q.type}; grouping needs a single-choice or NPS question`);
+    const valid = q.type === 'nps' ? new Set(Array.from({ length: 11 }, (_, i) => String(i))) : new Set((q.options ?? []).map((o) => o.code));
+    const used = new Set<string>();
+    for (const g of recode.groups) {
+      if (!g.from?.length) throw new Error(`Group ${g.code} has no answers in it`);
+      for (const c of g.from) {
+        if (!valid.has(c)) throw new Error(`${c} is not an answer code of ${q.id}`);
+        if (used.has(c)) throw new Error(`${c} is in more than one group`);
+        used.add(c);
+      }
+    }
+  } else {
+    if (q.type !== 'numeric' && q.type !== 'nps') throw new Error(`${q.id} is ${q.type}; bands need a numeric or NPS question`);
+    const sorted = [...recode.groups].sort((a, b) => (a.min ?? 0) - (b.min ?? 0));
+    sorted.forEach((g, i) => {
+      if (typeof g.min !== 'number' || typeof g.max !== 'number' || g.min > g.max) throw new Error(`Band ${g.code} needs min <= max`);
+      if (i && g.min <= sorted[i - 1].max!) throw new Error(`Bands ${sorted[i - 1].code} and ${g.code} overlap`);
+    });
+  }
+}
+
+/** Value of one recode for one set of answers, or undefined when the answer falls in no group. */
+export function recodeValue(recode: Recode, answers: Record<string, unknown>): string | undefined {
+  const a = answers[recode.source];
+  if (a === undefined || a === null || a === '') return undefined;
+  if (recode.kind === 'group') { const c = String(a); return recode.groups.find((g) => g.from?.includes(c))?.code; }
+  const n = typeof a === 'number' ? a : Number(a);
+  if (!Number.isFinite(n)) return undefined;
+  return recode.groups.find((g) => n >= g.min! && n <= g.max!)?.code;
+}
+
+/**
+ * Adds each recode as a single-choice question after its source, and its value to every row's
+ * answers, so results, banners, tables and exports treat it like any other question.
+ */
+export function applyRecodes<Q extends QDef, R extends { answers: Record<string, any> }>(questions: Q[], rows: R[], recodes: Recode[] = []) { // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!recodes.length) return { questions, rows };
+  const qs: Q[] = [];
+  for (const q of questions) {
+    qs.push(q);
+    for (const rc of recodes.filter((r) => r.source === q.id)) qs.push({ id: rc.id, type: 'single', text: `${rc.label} (recode of ${q.id})`, options: rc.groups.map((g) => ({ code: g.code, label: g.label })), recodeOf: q.id } as unknown as Q);
+  }
+  const out = rows.map((r) => {
+    const extra: Record<string, string> = {};
+    for (const rc of recodes) { const v = recodeValue(rc, r.answers); if (v !== undefined) extra[rc.id] = v; }
+    return { ...r, answers: { ...r.answers, ...extra } };
+  });
+  return { questions: qs, rows: out };
+}
