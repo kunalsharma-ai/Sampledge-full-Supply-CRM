@@ -65,8 +65,9 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   // 5 Assistant answers from records
   await go('/command-center');
   await p.getByRole('button', { name: 'Show projects likely to miss their deadlines.' }).first().click();
-  await p.waitForTimeout(800);
-  ok('Assistant answers with sources', await p.getByText(/Traced to \d+ record/).first().isVisible());
+  // The answer arrives after a network round trip; wait for it rather than a fixed delay.
+  const traced = await p.getByText(/Traced to \d+ record/).first().waitFor({ timeout: 15000 }).then(() => true, () => false);
+  ok('Assistant answers with sources', traced);
 
   // 6 Survey programmer: QA fix saves a new server version, then publish goes to approval
   await switchTo('survey_programmer');

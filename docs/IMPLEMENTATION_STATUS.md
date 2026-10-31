@@ -2,7 +2,7 @@
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
-Seeded records are fictional. No real clients, suppliers, panelists or health data are used. No external system is connected: no email or SMS provider (messages are recorded by a development adapter and never leave the system), no accounting system or payment rail (paid means recorded), no supplier or panel-site APIs. AI runs in rule-based mode unless an operator sets `AI_PROVIDER=anthropic` and an API key; the Claude path is tested against a local stub server, not against the live API. Panel brand names are Sampledge's; their headline metrics are simulated.
+Seeded records are fictional. No real clients, suppliers, panelists or health data are used. No external system is connected: no SMS provider, and e-mail only when an operator configures SMTP (otherwise messages are recorded by a development adapter and never leave the system), no accounting system or payment rail (paid means recorded), no supplier or panel-site APIs. AI runs in rule-based mode unless an operator sets `AI_PROVIDER=anthropic` and an API key; the Claude path is tested against a local stub server, not against the live API. Panel brand names are Sampledge's; their headline metrics are simulated.
 
 ## Platform
 
@@ -161,7 +161,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Consent filtering: panel sends exclude members who withdrew marketing consent, suspended or pending deletion | Functional, tested |
 | High-volume gate: more than `COMMS_HIGH_VOLUME` (default 100) recipients needs a *High-volume communications* approval | Functional, tested |
 | Delivery log with status for every message, including workflow messages | Functional |
-| Delivery | **Development adapter only**: messages are recorded as `delivered_dev`, nothing is sent. Email/SMS providers plug in behind the same adapter interface (Phase 6). Per-member placeholder merge arrives with a real adapter |
+| Delivery | **Development adapter by default**: messages are recorded as `delivered_dev`, nothing is sent. **SMTP e-mail** when `SMTP_HOST` and `SMTP_FROM` are set: e-mail to client and vendor accounts and internal roles is sent once, each address as a blind copy (`sent`); a refused send is `failed` with the server's reason and is not retried. Panel e-mail and SMS stay `not_sent` with the reason: panelists are pseudonymous here and no SMS provider is connected. Tested against a local SMTP server, not a hosted provider |
 | Vendors and clients can message the internal team only | Functional, tested |
 
 ## Vendor Portal (new)

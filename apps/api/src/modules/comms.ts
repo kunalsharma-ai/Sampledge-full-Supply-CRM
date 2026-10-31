@@ -27,7 +27,7 @@ const fill = (text: string, vars: Record<string, string>) => text.replace(/\{\{\
 
 /**
  * Comms Hub. Every outbound message is a row with a status; delivery goes through the adapter in
- * worker.ts (development adapter today: recorded, nothing leaves the system). Panel sends count
+ * delivery.ts (development adapter unless SMTP_* is set; see there). Panel sends count
  * only members who have not withdrawn marketing consent and are not suspended or pending deletion.
  */
 @Injectable()
@@ -96,7 +96,7 @@ export class CommsService {
         await emit(tx, ctx.tenantId, 'message.queued', { messageId: m.id });
       }
       await this.audit.log(ctx, 'message.create', 'Message', m.id, undefined, { to: b.target, recipients: r.recipients, status: m.status }, tx);
-      return { message: m, recipients: r.recipients, needsApproval: big };
+      return { message: m, recipients: r.recipients, needsApproval: big, adapter: deliveryAdapter.name };
     });
   }
 
@@ -113,6 +113,8 @@ export class CommsController {
   constructor(private s: CommsService) {}
   @Get('messages') messages(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { return this.s.messages(ctx, q, res); }
   @Get('templates') templates(@Caller() ctx: Ctx) { return this.s.templates(ctx); }
+  /** Which delivery adapter is active. Never returns credentials. */
+  @Get('adapter') adapter() { return { mode: deliveryAdapter.mode, name: deliveryAdapter.name }; }
   @Get('preview') preview(@Caller() ctx: Ctx, @Query() q: unknown) {
     const x = parse(z.object({ audience: z.string(), target: z.string() }), q);
     return this.s.preview(ctx, x.audience, x.target);

@@ -26,17 +26,9 @@ async function nextNumber(tx: Tx, tenantId: string, kind: 'PO' | 'INV') {
   return `${kind}-26${String(n + 1).padStart(4, '0')}`;
 }
 
-/**
- * Delivery adapter. The only adapter today is the development adapter: it records the message as
- * delivered inside the system and sends nothing externally. An SMTP/SMS provider adapter plugs in
- * here behind the same interface (COMMS_ADAPTER), without changing callers.
- */
-export const deliveryAdapter = {
-  name: 'development (recorded, not sent)',
-  async deliver(tx: Tx, messageId: string) {
-    await tx.message.update({ where: { id: messageId }, data: { status: 'delivered_dev', adapter: this.name, deliveredAt: new Date() } });
-  },
-};
+// Delivery lives in ./delivery; re-exported here because callers import it from the worker.
+import { deliveryAdapter } from './delivery';
+export { deliveryAdapter };
 
 /**
  * Outbox worker. Claims a batch with a 30 s lease (FOR UPDATE SKIP LOCKED, so several workers can
