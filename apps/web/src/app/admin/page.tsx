@@ -11,7 +11,7 @@ import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Button, EmptyState, PageHeader, Panel, PanelHeader, SearchInput, Segmented, inputCls } from '@/components/ui/primitives';
 import { DataTable, LiveOnly, Loadable, LoadMore } from '@/components/ui/data';
 
-type Member = { id: string; name: string; email: string; role: Role; vendorId: string | null; clientId: string | null; mfaEnabled: boolean; joinedAt: string; activeSessions: number; lastSignIn: string | null; you: boolean };
+type Member = { id: string; name: string; email: string; role: Role; vendorId: string | null; clientId: string | null; phone: string | null; mfaEnabled: boolean; joinedAt: string; activeSessions: number; lastSignIn: string | null; you: boolean };
 type Security = { rowLevelSecurity: { enforced: boolean; databaseRole: string; roleBypassesRls: boolean; tenantSeenByDatabase: string; tablesWithTenantColumn: number; tablesWithForcedPolicies: number; note: string | null }; activeSessions: number };
 type AuditRow = { id: string; actor: string; action: string; entity: string; entityId: string; before: unknown; after: unknown; at: string };
 type Facets = { entities: { value: string; count: number }[]; actions: { value: string; count: number }[] };
@@ -73,6 +73,13 @@ function People({ q, write }: { q: ReturnType<typeof useLive<Member[]>>; write: 
     await act(() => api<{ approvalId?: string }>(`/admin/users/${u.id}/role`, { method: 'PATCH', body: { role } }), (r) => r.approvalId ? `Request sent: someone else approves ${u.name} as Platform Admin in AI Automation → Approvals` : `${u.name} is now ${roleLabel(role)}`);
     setBusy(null); q.reload();
   };
+  const setPhone = async (u: Member, raw: string) => {
+    const phone = raw.trim() || null;
+    if (phone === u.phone) return;
+    setBusy(u.id);
+    await act(() => api<{ phone: string | null }>(`/admin/users/${u.id}/phone`, { method: 'PATCH', body: { phone } }), (r) => r.phone ? `${u.name}'s phone is now ${r.phone}` : `${u.name}'s phone number was removed`);
+    setBusy(null); q.reload();
+  };
   const signOut = async (u: Member) => {
     setBusy(u.id);
     await act(() => api<{ revoked: number }>(`/admin/users/${u.id}/sessions/revoke`, { method: 'POST' }), (r) => `${u.name} signed out of ${r.revoked} session${r.revoked === 1 ? '' : 's'}`);
@@ -81,7 +88,7 @@ function People({ q, write }: { q: ReturnType<typeof useLive<Member[]>>; write: 
   return (
     <Panel>
       <PanelHeader eyebrow="People and roles" title="Who can sign in to this workspace"
-        info="Role changes apply on the person's next request. Making someone a Platform Admin needs an approval from another admin or an executive. Vendor and client accounts are tied to their vendor or client record, so their role is fixed here."
+        info="Role changes apply on the person's next request. Making someone a Platform Admin needs an approval from another admin or an executive. Vendor and client accounts are tied to their vendor or client record, so their role is fixed here. Phone numbers are used only for SMS from the Comms Hub, in this workspace."
         actions={<SearchInput value={search} onChange={setSearch} placeholder="Search people…" className="w-56" />} />
       <Loadable q={q}>{(rows) => {
         const list = rows.filter((u) => `${u.name} ${u.email} ${roleLabel(u.role)}`.toLowerCase().includes(search.toLowerCase()));
@@ -91,6 +98,10 @@ function People({ q, write }: { q: ReturnType<typeof useLive<Member[]>>; write: 
             { key: 'r', label: 'Role', render: (u) => write && !u.you && u.role !== 'vendor' && u.role !== 'client'
               ? <select aria-label={`Role for ${u.name}`} className={`${selectCls} h-8 w-44`} value={u.role} disabled={busy === u.id} onChange={(e) => setRole(u, e.target.value as Role)}>{ASSIGNABLE.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select>
               : <span>{roleLabel(u.role)}{(u.vendorId || u.clientId) && <span className="text-2xs text-ink-3"> · {u.vendorId ?? u.clientId}</span>}</span> },
+            { key: 'p', label: 'Phone (for SMS)', render: (u) => write
+              ? <input key={`${u.id}:${u.phone ?? ''}`} aria-label={`Phone for ${u.name}`} className={`${selectCls} h-8 w-40`} defaultValue={u.phone ?? ''} placeholder="+44 20 7946 0000" disabled={busy === u.id}
+                  onBlur={(e) => setPhone(u, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+              : <span className="num text-ink-2">{u.phone ?? '—'}</span> },
             { key: 'm', label: 'Two-step', render: (u) => u.mfaEnabled ? <Badge tone="emerald" dot>On</Badge> : <Badge tone="neutral">Off</Badge> },
             { key: 's', label: 'Active sessions', align: 'right', render: (u) => fmtNum(u.activeSessions) },
             { key: 'l', label: 'Last sign-in', render: (u) => (u.lastSignIn ? when(u.lastSignIn) : 'Never') },
