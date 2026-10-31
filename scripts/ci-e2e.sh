@@ -11,14 +11,14 @@ stage() { # name command...
   echo "── $name"
   if ! "$@" > "/tmp/ci-$name.log" 2>&1; then
     cat "/tmp/ci-$name.log"
-    annotate error "$name" "/tmp/ci-$name.log" 25
-    annotate warning "api log" /tmp/api.log 15
-    annotate warning "web log" /tmp/web.log 10
+    annotate error "$name" "/tmp/ci-$name.log" 9
+    annotate warning "api log" /tmp/api.log 6
+    annotate warning "web log" /tmp/web.log 4
     exit 1
   fi
   cat "/tmp/ci-$name.log"
 }
-stage playwright-install bash -c 'npm i --no-save playwright@1.55.0 && npx playwright install --with-deps chromium'
+stage playwright-install bash -c 'npm i --no-save --no-audit --no-fund --loglevel=error playwright@1.55.0 && npx playwright install --with-deps chromium'
 (cd apps/api && node dist/main.js > /tmp/api.log 2>&1 &)
 (cd apps/web && npx next start -p 3000 > /tmp/web.log 2>&1 &)
 stage wait-for-servers npx --yes wait-on@8.0.3 -t 60000 http://localhost:4000/api/v1/health http://localhost:3000/login
