@@ -31,16 +31,4 @@ jobs:
         run: npx prisma migrate deploy && node dist/seed.js
         working-directory: apps/api
       - name: End-to-end smoke test (production build)
-        run: |
-          npm i --no-save playwright@1.55.0 && npx playwright install --with-deps chromium
-          (cd apps/api && node dist/main.js > /tmp/api.log 2>&1 &) ; (cd apps/web && npx next start -p 3000 > /tmp/web.log 2>&1 &)
-          npx --yes wait-on@8.0.3 -t 60000 http://localhost:4000/api/v1/health http://localhost:3000/login
-          # On failure, surface the failing steps and server log tails as annotations, so they can be
-          # read from the check run without downloading the job log.
-          node apps/web/e2e-smoke.cjs 2>&1 | tee /tmp/e2e.log; code=${PIPESTATUS[0]}
-          if [ "$code" != 0 ]; then
-            grep -vE '^PASS' /tmp/e2e.log | tail -20 | while IFS= read -r l; do echo "::error title=e2e::$l"; done
-            tail -15 /tmp/api.log | while IFS= read -r l; do echo "::warning title=api log::$l"; done
-            tail -10 /tmp/web.log | while IFS= read -r l; do echo "::warning title=web log::$l"; done
-          fi
-          exit $code
+        run: scripts/ci-e2e.sh
