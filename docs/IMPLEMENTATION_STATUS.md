@@ -153,7 +153,10 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Purchase orders and payables raised on approved sample purchases | Functional. Vendors see their own; roles without `view:vendor_bids` see none |
 | Vendor payment: request → *Issuing payments* approval (not the requester) → paid | Functional as a record. No payment rail or accounting system is connected |
 | Receivable, overdue, collected, payable and paid-out KPIs | Functional, computed from records |
-| Multi-currency, incentives ledger, reconciliation, forecast vs actuals | Planned (Phase 6) |
+| Multi-currency | Functional, tested. Base currency per workspace (fixed once invoices or POs exist); rates entered by finance (no market feed); clients invoiced and vendors ordered in their own currency at the rate fixed on each document; a currency without a rate falls back to the base. Totals convert at each document's rate |
+| PO reconciliation | Functional, tested. Ordered completes against completes Sampledge recorded from the vendor (usable, vendor-sourced responses) and the count finance accepts; a shortfall needs a reason and lowers the open payable before payment, then closes the PO. Paid or approval-pending payables cannot be reconciled down |
+| Incentives ledger | Functional, tested. Points earned, expired, adjusted (signed, with a reason) and redeemed per panel member, valued at the workspace's point value; liability = outstanding points × value. A redemption is an *Issuing payments* approval (not the requester) and its points are reserved meanwhile. No reward provider is connected: posted means recorded |
+| Forecast vs actuals | Functional, tested. By month (six back, three ahead) and by project: planned revenue and cost (target × sell and cost CPI, in the deadline month) against invoiced revenue and ordered cost after reconciliation, in the base currency |
 
 ## Comms Hub (new)
 | Feature | Status |
@@ -207,7 +210,9 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Sign out everywhere | Functional, tested | Revokes a member's live sessions in this workspace; audited |
 | Audit trail viewer with record type, action and actor filters | Functional, tested | Append-only; written in the same transaction as each change |
 | Role matrix | Functional | The same matrix the API guards use |
-| Retention policies, tenant management | Planned | |
+| Workspace settings: name, identifier, what the workspace holds | Functional, tested | Renaming is audited. Counts come from this workspace only |
+| Data retention policies | Functional, tested | Per workspace, per category (message content, notifications, ended sessions, AI usage log, panel request log), default keep, with a minimum period each. Turning one on or shortening it is a *Deleting records* approval decided by someone else; lengthening or turning off applies at once. The worker applies them daily; admins can run them now. Message content is redacted and the log row kept; the others are deleted. Every run is audited with counts. Research data, finance records and the audit trail are not covered |
+| Workspace (tenant) creation | Functional, tested | Operator command on the server (`node dist/tenant.js create|list`): creates the workspace and its first platform admin with a one-time password. Not available from inside a workspace |
 
 Integrations is a navigable placeholder that states its scope.
 

@@ -88,6 +88,8 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
     await db.payable.create({ data: { tenantId: t, vendorId: a.vendorId, purchaseOrderId: po.id, amount, status: closed ? 'paid' : 'open', dueAt: new Date(issuedAt.getTime() + 30 * day), paidAt: closed ? new Date(issuedAt.getTime() + 28 * day) : null } });
     await db.message.create({ data: { tenantId: t, channel: 'email', audience: 'vendor', toRef: `vendor:${a.vendorId}`, recipients: 1, subject: `Purchase order ${po.number}`, body: `${a.completes} completes at $${a.cpi.toFixed(2)} CPI for project ${a.project.code}. Total $${amount.toLocaleString('en-US')}.`, status: 'delivered_dev', adapter: 'development (recorded, not sent)', relatedType: 'PurchaseOrder', relatedId: po.id, createdBy: 'system', createdAt: issuedAt, deliveredAt: issuedAt } });
   }
+  // Demo exchange rates (fictional, entered as finance would; no market feed is connected).
+  await db.exchangeRate.createMany({ data: [{ tenantId: t, currency: 'EUR', rate: 1.08, setBy: 'Grace Okafor (Demo)' }, { tenantId: t, currency: 'GBP', rate: 1.27, setBy: 'Grace Okafor (Demo)' }] });
   let invN = 0;
   for (const [pid, status] of [['pr-020', 'draft'], ['pr-024', 'paid']] as const) {
     const p = seed.projects.find((x) => x.id === pid)!;

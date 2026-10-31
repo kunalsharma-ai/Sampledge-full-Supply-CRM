@@ -21,6 +21,11 @@ Fix the cause, then requeue: `UPDATE "OutboxEvent" SET attempts = 0, "lockedUnti
 3. Compare counts with the source, then point `DATABASE_URL` at the restored database and restart the API.
 Data loads before the policies are re-created, so the application role can restore; it cannot *dump* (use `sampledge_ops`).
 
+## Workspaces (tenants)
+Create a workspace and its first platform admin on the server, as the operations role:
+`cd apps/api && node dist/tenant.js create --name "Acme Research" --slug acme --admin-email ops@acme.example --admin-name "Ana Ops"`.
+A new person gets a temporary password printed once; an existing account is added with its password unchanged. `node dist/tenant.js list` shows every workspace with its member count. Retention policies are set per workspace in Admin & Security → Data retention and run daily from the worker; each run is in that workspace's audit trail.
+
 ## Security events
 - Revoke a person's access: remove their membership; their sessions stop at the next request. To end sessions immediately: `UPDATE "Session" SET "revokedAt" = now() WHERE "userId" = '…';`
 - Rotate `JWT_SECRET`: every session ends; people sign in again.
