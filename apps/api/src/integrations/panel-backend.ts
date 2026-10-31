@@ -98,7 +98,28 @@ export class PanelBackend {
   feasibility(panel: PanelId, filter: Record<string, unknown>) { return this.call(panel, 'POST', '/api/v1/feasibility/', filter); }
   project(panel: PanelId, id: string) { return this.call(panel, 'GET', `/api/v1/project/${encodeURIComponent(id)}`); }
   qualified(panel: PanelId, id: string) { return this.call(panel, 'GET', `/api/v1/project/${encodeURIComponent(id)}/qualified`); }
+
+  // ───── The Sampledge routes on the panel (routes/sampledge.js in the model patch shared with the
+  // panel team). Field names follow the agreed requirements doc; mounted at PANEL_SAMPLEDGE_PATH.
+  private sd(path: string) { return `${(process.env.PANEL_SAMPLEDGE_PATH ?? '/api/v1/sampledge').replace(/\/+$/, '')}${path}`; }
+  reach(panel: PanelId, q: { country: string; filters?: PanelFilter[]; activeWithinDays?: number }) { return this.call(panel, 'POST', this.sd('/feasibility'), q); }
+  /** Creates or updates the project on the panel. Sends no invitations. */
+  syncProject(panel: PanelId, body: PanelProjectBody) { return this.call(panel, 'PUT', this.sd('/project'), body); }
+  projectStatus(panel: PanelId, pid: string) { return this.call(panel, 'GET', this.sd(`/project/${encodeURIComponent(pid)}`)); }
+  responses(panel: PanelId, pid: string, page: { cursor?: string | null; since?: string | null; limit?: number }) {
+    const q = new URLSearchParams();
+    if (page.cursor) q.set('cursor', page.cursor); else if (page.since) q.set('since', page.since);
+    q.set('limit', String(page.limit ?? 200));
+    return this.call(panel, 'GET', this.sd(`/project/${encodeURIComponent(pid)}/responses?${q}`));
+  }
+  respondentProfile(panel: PanelId, respondentID: string) { return this.call(panel, 'GET', this.sd(`/respondent-profile/${encodeURIComponent(respondentID)}`)); }
+  questions(panel: PanelId, category?: string) { return this.call(panel, 'GET', this.sd(`/questions${category ? `?category=${encodeURIComponent(category)}` : ''}`)); }
 }
+
+export type PanelFilter = { type: string; value?: unknown };
+export type PanelQuota = { quotaID: string; label?: string; filters: PanelFilter[]; target: number };
+export type PanelMarket = { marketID: string; country: string[]; targetGroup: string; filters: PanelFilter[]; quotas: PanelQuota[]; completes: number; loi: number; ir: number; cpi?: number; softLaunch?: { enabled: boolean; completes?: number }; links?: { test?: string; live?: string } };
+export type PanelProjectBody = { pid: string; name: string; note?: string; markets: PanelMarket[] };
 
 /** Calls that change the panel, each behind an approval kind. Paths and methods from the description. */
 export const panelActions = {

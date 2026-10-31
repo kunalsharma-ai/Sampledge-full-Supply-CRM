@@ -63,7 +63,7 @@ function LoginForm() {
       </div>
 
       <div className="panel p-6 md:p-8">
-        <div className="flex items-center justify-between"><h2 className="font-display text-lg font-semibold">{challenge ? 'Two-factor code' : 'Sign in'}</h2><Badge tone="neutral">v0.10.0</Badge></div>
+        <div className="flex items-center justify-between"><h2 className="font-display text-lg font-semibold">{challenge ? 'Two-factor code' : 'Sign in'}</h2><Badge tone="neutral">v0.11.0</Badge></div>
         <form onSubmit={submit} className="mt-5 space-y-3">
           {!challenge ? (
             <>

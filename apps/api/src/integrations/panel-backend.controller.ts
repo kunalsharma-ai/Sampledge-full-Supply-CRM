@@ -13,10 +13,20 @@ import { paged, pageArgs } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 import { PanelBackend, PanelBackendError, panelActions, panelConfig, panelIds, panelTenant, type PanelAction, type PanelId } from './panel-backend';
+import { PanelSyncService } from './panel-sync.service';
 
 const Panel = z.enum(panelIds as [PanelId, ...PanelId[]]);
 const Cpi = z.object({ category: z.string().min(1).max(100), subcategory: z.string().max(100).optional(), ir: z.number().gt(0).max(100), loi: z.number().int().min(1).max(120), country: z.string().min(2).max(60) });
 const Action = z.object({ action: z.enum(Object.keys(panelActions) as [PanelAction, ...PanelAction[]]), body: z.record(z.string(), z.unknown()).optional(), note: z.string().max(500).optional() });
+const Filter = z.object({ type: z.string().min(1).max(60), value: z.unknown() });
+const Reach = z.object({ country: z.string().regex(/^[A-Za-z]{2}$/, 'Use a 2-letter country code'), filters: z.array(Filter).max(30).optional(), activeWithinDays: z.number().int().min(1).max(3650).optional() });
+const SyncOpts = z.object({
+  quotaFilters: z.record(z.string(), z.array(Filter).max(10)).optional(),
+  marketFilters: z.record(z.string(), z.array(Filter).max(20)).optional(),
+  completes: z.record(z.string(), z.number().int().min(0).max(1_000_000)).optional(),
+  links: z.object({ test: z.string().url().optional(), live: z.string().url().optional() }).optional(),
+  softLaunch: z.number().int().min(1).max(10_000).optional(),
+});
 const remoteId = (id: string) => { if (!/^[\w.-]{1,100}$/.test(id)) throw new NotFoundException('Unknown project id'); return id; };
 
 /** Upstream failures never surface as 401/403: those would read as this user's own session failing. */
@@ -68,7 +78,7 @@ export class PanelBackendService {
 @ForModule('panels')
 @Controller('panel-backend')
 export class PanelBackendController {
-  constructor(private s: PanelBackendService, private backend: PanelBackend, private db: PrismaService) {}
+  constructor(private s: PanelBackendService, private backend: PanelBackend, private db: PrismaService, private sync: PanelSyncService) {}
 
   /** Which panels are configured. Makes no network call. */
   @Get()
@@ -128,6 +138,61 @@ export class PanelBackendController {
   qualified(@Caller() ctx: Ctx, @Param('panel') p: string, @Param('id') id: string) {
     const panel = parse(Panel, p);
     return this.s.read(ctx, () => this.backend.qualified(panel, remoteId(id)));
+  }
+
+  // ───── The panel's Sampledge routes (agreed with the panel team; see docs/integrations/TURN2OPINION.md)
+  /** Reachable panelists for a country and filters, with breakdowns. */
+  @Post(':panel/reach') @HttpCode(200)
+  reach(@Caller() ctx: Ctx, @Param('panel') p: string, @Body() b: unknown) {
+    const panel = parse(Panel, p);
+    const q = parse(Reach, b);
+    return this.s.read(ctx, () => this.backend.reach(panel, { ...q, country: q.country.toUpperCase() }));
+  }
+
+  @Get(':panel/questions')
+  questions(@Caller() ctx: Ctx, @Param('panel') p: string, @Query('category') category?: string) {
+    const panel = parse(Panel, p);
+    return this.s.read(ctx, () => this.backend.questions(panel, category?.slice(0, 60)));
+  }
+
+  @Get(':panel/respondents/:rid')
+  respondent(@Caller() ctx: Ctx, @Param('panel') p: string, @Param('rid') rid: string) {
+    const panel = parse(Panel, p);
+    return this.s.read(ctx, () => this.backend.respondentProfile(panel, remoteId(rid)));
+  }
+
+  /** Projects that can be synced (enough to pick one; full details stay in Projects). */
+  @Get('projects')
+  async projects(@Caller() ctx: Ctx) {
+    await this.s.owner(ctx);
+    const rows = await this.db.project.findMany({ where: { tenantId: ctx.tenantId }, select: { id: true, code: true, name: true, countries: true, audience: true, target: true }, orderBy: { createdAt: 'desc' }, take: 200 });
+    return rows;
+  }
+
+  @Get('syncs')
+  syncs(@Caller() ctx: Ctx) { return this.sync.list(ctx); }
+
+  /** What would be sent for a project, and which quotas still need panel filters. No network call. */
+  @Post(':panel/sync/:projectId/preview') @HttpCode(200)
+  preview(@Caller() ctx: Ctx, @Param('panel') p: string, @Param('projectId') id: string, @Body() b: unknown) {
+    return this.sync.preview(ctx, parse(Panel, p), id, parse(SyncOpts, b ?? {}));
+  }
+
+  /** Creates or updates the project on the panel. Sends no invitations: those still need an approval. */
+  @Post(':panel/sync/:projectId') @Write() @HttpCode(200)
+  push(@Caller() ctx: Ctx, @Param('panel') p: string, @Param('projectId') id: string, @Body() b: unknown) {
+    return this.sync.push(ctx, parse(Panel, p), id, parse(SyncOpts, b ?? {}));
+  }
+
+  /** Counts imported so far, plus the panel's own live status when it can be reached. */
+  @Get(':panel/sync/:projectId')
+  syncStatus(@Caller() ctx: Ctx, @Param('panel') p: string, @Param('projectId') id: string) {
+    return this.sync.status(ctx, parse(Panel, p), id);
+  }
+
+  @Post(':panel/sync/:projectId/import') @Write() @HttpCode(200)
+  import(@Caller() ctx: Ctx, @Param('panel') p: string, @Param('projectId') id: string) {
+    return this.sync.importFor(ctx, parse(Panel, p), id);
   }
 
   /** Asks for approval to invite, soft-launch or cancel on the panel. Sends nothing by itself. */
