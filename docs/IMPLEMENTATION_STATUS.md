@@ -123,7 +123,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | **Segmentation**: weighted k-means (k = 2–5) on standardised rating, NPS and numeric answers, segment profiles (largest differences from the total), 2D map on the first two principal components, share of variance explained | Functional, tested. A starting point for analysis, not a validated typology |
 | Demo dataset view (n=1,200): weighting, k-means segmentation, 3D/2D views, Sankey, trends, narrative, presentation | Simulated data, functional statistics (unchanged from Phase 2) |
 | **PDF report**: the PowerPoint report's content (title page with base, weighting and exclusions; every question with bars or banner tables; coded open ends and verbatims) as an A4 PDF with page footers | Functional, tested. Standard PDF fonts (Latin-1); other characters are replaced |
-| Scheduled report delivery | Planned: needs an e-mail provider |
+| Scheduled report delivery | Functional: daily or weekly (UTC) release of a survey's PDF/PowerPoint report or Excel tables to the client, run by the worker on the owner's current access; the client gets a Comms Hub e-mail (SMTP when configured, otherwise the development adapter). Respondent-level data cannot be scheduled |
 
 ## AI gateway (new)
 | Feature | Status |

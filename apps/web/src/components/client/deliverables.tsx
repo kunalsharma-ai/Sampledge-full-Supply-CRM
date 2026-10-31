@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { Download, FileCheck2, Undo2 } from 'lucide-react';
+import { CalendarClock, Download, FileCheck2, Pause, Play, Undo2 } from 'lucide-react';
 import { access } from '@/lib/core';
 import { api } from '@/lib/api';
 import { act, shortDate, useLive } from '@/lib/live';
@@ -25,6 +25,47 @@ const statusTone = { released: 'emerald', pending_approval: 'orange', rejected: 
 const statusLabel = { released: 'Released', pending_approval: 'Awaiting approval', rejected: 'Not approved', withdrawn: 'Withdrawn' } as const;
 const size = (n: number) => (n > 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`);
 const selectCls = `${inputCls} pr-8`;
+const compactSel = `${inputCls.replace('w-full', '')} pr-8`;
+
+type Schedule = { id: string; projectId: string; surveyId: string; kind: Kind; frequency: 'daily' | 'weekly'; weekday: number | null; hourUtc: number; active: boolean; createdBy: string; nextRunAt: string; lastRunAt: string | null; lastResult: string | null; project: { code: string } };
+const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const when = (x: Schedule) => `${x.frequency === 'daily' ? 'Every day' : `Every ${days[x.weekday ?? 1]}`} at ${String(x.hourUtc).padStart(2, '0')}:00 UTC`;
+
+/** Recurring releases of a report or tables; the client is e-mailed that a file is ready. */
+function Schedules({ projectId, surveyId, kind }: { projectId: string; surveyId: string; kind: Kind }) {
+  const [tick, setTick] = useState(0);
+  const list = useLive<Schedule[]>('/report-schedules', [tick]);
+  const [frequency, setFrequency] = useState<'daily' | 'weekly'>('weekly');
+  const [weekday, setWeekday] = useState(1);
+  const [hour, setHour] = useState(8);
+  const schedulable = !kinds.find((k) => k.value === kind)!.sensitive;
+  const add = async () => {
+    const r = await act(() => api('/report-schedules', { method: 'POST', body: { projectId, surveyId, kind, frequency, ...(frequency === 'weekly' ? { weekday } : {}), hourUtc: hour } }), 'Scheduled. Each run releases the file and e-mails the client that it is ready.');
+    if (r) setTick((t) => t + 1);
+  };
+  const toggle = async (x: Schedule) => { if (await act(() => api(`/report-schedules/${x.id}/${x.active ? 'pause' : 'resume'}`, { method: 'POST' }), x.active ? 'Paused' : 'Resumed')) setTick((t) => t + 1); };
+  return (
+    <div className="mb-4 rounded-xl border hairline p-3">
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-[12.5px]">
+        <CalendarClock size={14} className="mb-2.5 text-ink-3" />
+        <span className="mb-2 font-medium">Schedule this file</span>
+        <select className={`${compactSel} w-28`} value={frequency} onChange={(e) => setFrequency(e.target.value as 'daily' | 'weekly')} aria-label="Frequency"><option value="weekly">Weekly</option><option value="daily">Daily</option></select>
+        {frequency === 'weekly' && <select className={`${compactSel} w-36`} value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} aria-label="Weekday">{days.map((d, i) => <option key={d} value={i}>{d}</option>)}</select>}
+        <select className={`${compactSel} w-28`} value={hour} onChange={(e) => setHour(Number(e.target.value))} aria-label="Hour (UTC)">{Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, '0')}:00 UTC</option>)}</select>
+        <Button size="sm" disabled={!projectId || !surveyId || !schedulable} onClick={add} title={schedulable ? undefined : 'Respondent-level data needs an approval each time'}>Add schedule</Button>
+        {!schedulable && <span className="mb-2 text-2xs text-ink-3">Respondent-level data can't be scheduled: each release needs an approval.</span>}
+      </div>
+      <Loadable q={list}>{(rows) => rows.length ? (
+        <DataTable dense rows={rows} cols={[
+          { key: 'f', label: 'Schedule', render: (x) => <span>{x.project.code} · {kinds.find((k) => k.value === x.kind)?.label} · {when(x)}</span> },
+          { key: 'n', label: 'Next', render: (x) => (x.active ? shortDate(x.nextRunAt) : 'Paused') },
+          { key: 'l', label: 'Last run', render: (x) => <span className="block max-w-[260px] truncate text-ink-3" title={x.lastResult ?? undefined}>{x.lastResult ?? '—'}</span> },
+          { key: 'a', label: '', render: (x) => <Button size="sm" variant="ghost" onClick={() => toggle(x)} aria-label={`${x.active ? 'Pause' : 'Resume'} schedule`}>{x.active ? <Pause size={12} /> : <Play size={12} />}{x.active ? 'Pause' : 'Resume'}</Button> },
+        ]} />
+      ) : <p className="text-2xs text-ink-3">No scheduled deliveries.</p>}</Loadable>
+    </div>
+  );
+}
 
 /** Files released to the client. The team releases from a survey; respondent-level data needs an approval. */
 export function DeliverablesPanel() {
@@ -75,6 +116,7 @@ export function DeliverablesPanel() {
           <div className="md:col-span-4"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="Note for the client (optional)" aria-label="Note for the client" /></div>
         </div>
       )}
+      {canRelease && <Schedules projectId={projectId} surveyId={surveyId} kind={kind} />}
       <Loadable q={list}>{(rows) => (
         <DataTable rows={rows} empty={<EmptyState title="No deliverables yet" body={isClient ? 'Reports and data files appear here when your team releases them.' : 'Release a report or dataset from a survey above.'} />} cols={[
           { key: 't', label: 'File', render: (d) => <div className="max-w-[340px]"><div className="truncate font-medium" title={d.title}>{d.title}</div><div className="truncate text-2xs text-ink-3" title={d.note ?? d.fileName}>{d.project.code} · {d.note ?? d.fileName}</div></div> },

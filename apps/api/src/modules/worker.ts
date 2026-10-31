@@ -9,6 +9,7 @@ import { PrismaService } from '../common/prisma.service';
 import { asTenant } from '../common/tenant-scope';
 import { PanelBackend, PanelBackendError, PANELS, type PanelId } from '../integrations/panel-backend';
 import { PanelSyncService } from '../integrations/panel-sync.service';
+import { ReportSchedulesService } from './report-schedules';
 
 type Tx = Prisma.TransactionClient;
 type Ev = { id: string; tenantId: string; type: string; payload: Record<string, string | number>; createdAt: Date };
@@ -43,7 +44,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private log = new Logger('EventsWorker');
-  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService) {}
+  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService, private schedules: ReportSchedulesService) {}
 
   onApplicationBootstrap() {
     if (process.env.WORKER_INLINE === 'false') return;
@@ -60,6 +61,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
   private lastSweep = 0;
   private lastImport = 0;
+  private lastSchedules = 0;
   /** Housekeeping once an hour: expired idempotency keys, finished rate-limit windows, expired SAML keys. */
   async sweep() {
     this.lastSweep = Date.now();
@@ -96,6 +98,11 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     if (every > 0 && Date.now() - this.lastImport > every) {
       this.lastImport = Date.now();
       void this.panelSync.importAll().then((r) => r.received && this.log.log(`imported ${r.received} panel response(s)`)).catch((e) => this.log.error(e));
+    }
+    // Scheduled report deliveries, checked once a minute.
+    if (Date.now() - this.lastSchedules > 60_000) {
+      this.lastSchedules = Date.now();
+      void this.schedules.runDue().then((n) => n && this.log.log(`ran ${n} scheduled report deliver${n === 1 ? 'y' : 'ies'}`)).catch((e) => this.log.error(e));
     }
     this.running = true;
     try {
