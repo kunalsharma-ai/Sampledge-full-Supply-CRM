@@ -113,12 +113,23 @@ ok(out.status < 300 && meA.status === 401, 'sign-out on instance B ends the sess
 
 // 4. Shared sign-in limit
 if (LOGIN_LIMIT > 0) {
+  // Windows are fixed (60 s from their first hit), and earlier sign-ins from this address may have
+  // opened one. Start from a window with time to spare, then count what the instances report.
+  const bad = (u) => json(u, 'POST', '/auth/login', { body: { email: 'nobody@multi-instance.check', password: 'wrong-password' } });
+  const hdr = (r, k) => Number(r.headers.get(`x-ratelimit-${k}`));
+  let probe = await bad(A);
+  if (probe.status !== 429 && hdr(probe, 'reset') < 20) { await sleep((hdr(probe, 'reset') + 1) * 1000); probe = await bad(A); }
+  if (probe.status === 429) { await sleep((Number(probe.headers.get('retry-after')) + 1) * 1000); probe = await bad(A); }
+  const left = hdr(probe, 'remaining');
+  const onB = await bad(B);
+  ok(hdr(onB, 'remaining') === left - 1, 'an attempt on instance A counts on instance B', `A left ${left}, then B left ${hdr(onB, 'remaining')}`);
   let first429 = 0;
   for (let i = 1; i <= LOGIN_LIMIT * URLS.length + 2; i++) {
-    const r = await json(URLS[i % URLS.length], 'POST', '/auth/login', { body: { email: 'nobody@multi-instance.check', password: 'wrong-password' } });
+    const r = await bad(URLS[i % URLS.length]);
     if (r.status === 429) { first429 = i; break; }
   }
-  ok(first429 > 0 && first429 <= LOGIN_LIMIT + 1, `sign-in limit of ${LOGIN_LIMIT}/min is shared by all instances`, first429 ? `first refusal at attempt ${first429} of a per-instance ${LOGIN_LIMIT * URLS.length}` : 'never refused');
+  // After the probe and the attempt on B, left - 1 attempts remain; the next one is refused.
+  ok(first429 === left, `sign-in limit of ${LOGIN_LIMIT}/min is shared by all instances`, first429 ? `refused at attempt ${first429}, right after the ${left - 1} left in the window; a per-instance limit would allow about ${LOGIN_LIMIT * URLS.length}` : 'never refused');
   const after = await Promise.all(URLS.map((u) => json(u, 'POST', '/auth/login', { body: { email: 'nobody@multi-instance.check', password: 'x' } })));
   ok(after.every((r) => r.status === 429), 'every instance refuses further attempts from this address');
 } else console.log('SKIP  shared sign-in limit (pass --login-limit with the instances\' LOGIN_RATE_LIMIT)');
