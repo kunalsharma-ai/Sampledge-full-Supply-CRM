@@ -74,6 +74,9 @@ export class RuntimeService {
     const supplierRid = allocationId ? body.respondent ?? null : null;
     const r = await this.db.response.create({
       data: {
+        // The id is the respondent's only credential for reading and answering this session, so it is
+        // 144 random bits rather than a cuid (which is mostly timestamp and counter, and guessable).
+        id: `rs_${randomBytes(18).toString('base64url')}`,
         tenantId: s.tenantId, surveyId: s.id, version: s.currentVersion, source, respondent: body.respondent ?? 'anon', answers: {}, path: [], cursor: st.cursor,
         allocationId, supplierRid, deviceHash: device && source !== 'preview' ? deviceHash(s.id, device) : null,
       },

@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Controller, Get, Header, Headers, Module, NotFoundException } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -40,6 +41,12 @@ import { DeliverablesController, DeliverablesService } from './modules/deliverab
 import { ReportSchedulesController, ReportSchedulesService } from './modules/report-schedules';
 import { AiGateway } from './ai/gateway';
 
+/** Constant-time comparison, so response timing does not reveal how much of the token matched. */
+function sameSecret(a: string, b: string) {
+  const x = createHash('sha256').update(a).digest(), y = createHash('sha256').update(b).digest();
+  return timingSafeEqual(x, y);
+}
+
 @Controller('metrics')
 class MetricsController {
   constructor(private db: PrismaService) {}
@@ -47,7 +54,7 @@ class MetricsController {
   @Public() @Get() @Header('content-type', 'text/plain; version=0.0.4')
   async metrics(@Headers('authorization') auth?: string) {
     const token = process.env.METRICS_TOKEN;
-    if (!token || auth !== `Bearer ${token}`) throw new NotFoundException();
+    if (!token || !sameSecret(auth ?? '', `Bearer ${token}`)) throw new NotFoundException();
     const [pending, failed, sessions] = await Promise.all([
       this.db.outboxEvent.count({ where: { processedAt: null } }),
       this.db.outboxEvent.count({ where: { processedAt: null, attempts: { gte: 5 } } }),
