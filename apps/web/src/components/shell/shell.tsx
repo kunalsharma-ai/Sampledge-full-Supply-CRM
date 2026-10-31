@@ -300,8 +300,8 @@ export function Shell({ children }: { children: ReactNode }) {
           </motion.main>
         </AnimatePresence>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t hairline px-6 py-4 text-2xs text-ink-3">
-          <span>Sampledge AI Research OS · Phase 4 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
-          <span className="flex items-center gap-2"><Badge tone="neutral">v0.4.0</Badge> No external integrations connected</span>
+          <span>Sampledge AI Research OS · Phase 5 · {mode === 'live' ? 'records served by the API; seeded records are fictional demo data' : 'offline demo, all records are fictional'}</span>
+          <span className="flex items-center gap-2"><Badge tone="neutral">v0.5.0</Badge> No external integrations connected</span>
         </footer>
       </div>
       <CommandPalette />

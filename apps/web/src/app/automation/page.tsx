@@ -11,6 +11,7 @@ import { KpiCard } from '@/components/ui/kpi';
 import { Badge, Bar, Button, DemoBadge, EmptyState, PageHeader, Panel, PanelHeader } from '@/components/ui/primitives';
 import { EChart, axis } from '@/components/charts/echart';
 import { WorkflowEditor } from '@/components/flow/workflow-editor';
+import { AiGatewayPanel, AiProviderBadge } from '@/components/ai/panels';
 
 const policies = ['Sending binding quotations', 'Purchasing sample', 'Issuing payments', 'Rejecting respondents in consequential cases', 'Publishing surveys', 'Releasing sensitive datasets', 'Deleting records', 'Sending high-volume communications'];
 const approverFor: Record<string, Parameters<typeof can>[1]> = { 'Purchasing sample': 'approve:purchase', 'Sending binding quotations': 'approve:quotes', 'Issuing payments': 'approve:payments', 'Publishing surveys': 'approve:publish' };
@@ -32,7 +33,7 @@ export default function AutomationPage() {
   return (
     <div>
       <PageHeader eyebrow="AI Automation Command Center" title="Agents, workflows & approvals" subtitle="Twelve specialised agents with cost caps, permission scopes and mandatory human approval for consequential actions."
-        actions={<><DemoBadge label="Simulated executions" /><Badge tone="orange">No model provider connected</Badge></>} />
+        actions={<><DemoBadge label="Simulated executions" /><AiProviderBadge /></>} />
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <KpiCard label="Active automations" value={s.agents.filter((a) => a.enabled).length} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
@@ -76,6 +77,8 @@ export default function AutomationPage() {
           </div>
         </Panel>
       </div>
+
+      <div className="mt-6"><AiGatewayPanel /></div>
 
       <Panel className="mt-6">
         <PanelHeader eyebrow="Agents" title="Specialised agents" actions={<span className="text-2xs text-ink-3">{canEdit ? 'Toggle to pause an agent' : 'Read only for your role'}</span>} />

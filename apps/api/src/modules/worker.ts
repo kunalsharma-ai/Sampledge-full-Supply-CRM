@@ -176,6 +176,11 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
         });
         return;
       }
+      case 'diy.requested': {
+        const o = await tx.opportunity.findUnique({ where: { id: String(p.opportunityId) }, include: { client: true } });
+        if (o) await this.notify(tx, t, ['bizdev', 'executive'], `DIY request from ${o.client.name}`, `${o.title}: ${o.audience} · ${o.countries.join(', ')} · n=${o.sampleSize}`, 'crm');
+        return;
+      }
       case 'feasibility.responded': {
         const f = await tx.feasibilityRequest.findUnique({ where: { id: String(p.requestId) } });
         const v = f ? await tx.vendor.findUnique({ where: { id: f.vendorId } }) : null;

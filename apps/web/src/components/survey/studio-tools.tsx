@@ -2,8 +2,9 @@
 import { motion } from 'motion/react';
 import { Check, FileUp, Play, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { runQA, type Condition, type QaIssue, type Question, type QType, type Rule, type SurveyDef } from '@/lib/core';
+import { parseQuestionnaire, runQA, type ParsedQuestion, type Condition, type QaIssue, type Question, type QType, type Rule, type SurveyDef } from '@/lib/core';
 import { useOS } from '@/lib/store';
+import { api } from '@/lib/api';
 import { cn, fmtPct } from '@/lib/utils';
 import { can } from '@/lib/core';
 import { Badge, Button, EmptyState, inputCls } from '@/components/ui/primitives';
@@ -158,59 +159,7 @@ export function ProgrammingAssistant({ def }: { def: SurveyDef }) {
 }
 
 // ───────────────────────── Questionnaire import
-type Parsed = { id: string; text: string; type: QType; options: { code: string; label: string; exclusive?: boolean }[]; notes: string[]; ambiguous: string[]; terminate?: string; displayIf?: string; randomize?: boolean };
-
-export function parseQuestionnaire(src: string): Parsed[] {
-  const out: Parsed[] = [];
-  let cur: Parsed | null = null;
-  for (const raw of src.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const qm = line.match(/^([QS]\d+[a-z]?)[.):\s]+(.*)$/i);
-    if (qm) {
-      cur = { id: qm[1].toUpperCase(), text: qm[2].replace(/\[.*?\]/g, '').trim(), type: 'single', options: [], notes: [], ambiguous: [] };
-      out.push(cur);
-      const tags = [...qm[2].matchAll(/\[(.*?)\]/g)].map((m) => m[1]);
-      tags.forEach((tag) => apply(cur!, tag));
-      continue;
-    }
-    if (!cur) continue;
-    const tag = line.match(/^\[(.*)\]$/);
-    if (tag) { apply(cur, tag[1]); continue; }
-    const om = line.match(/^(?:\d+|[a-z]|-|•)[.)\s]+(.*)$/i);
-    if (om) {
-      const label = om[1].replace(/\[.*?\]/g, '').trim();
-      const exclusive = /none of|don.?t know|prefer not/i.test(label) || /\[exclusive\]/i.test(om[1]);
-      const term = /\[(terminate|screen ?out)\]/i.test(om[1]);
-      cur.options.push({ code: String(cur.options.length + 1), label, exclusive });
-      if (term) cur.terminate = (cur.terminate ? cur.terminate + ',' : '') + String(cur.options.length);
-      continue;
-    }
-    cur.ambiguous.push(`Unrecognised line: “${line.slice(0, 60)}”`);
-  }
-  out.forEach((q) => {
-    if (!q.options.length && q.type === 'single') q.type = /how many|number|percent|%|age/i.test(q.text) ? 'numeric' : 'text';
-    if (/select all|all that apply/i.test(q.text)) q.type = 'multi';
-    if (/recommend/i.test(q.text) && /0.?10|likely/i.test(q.text)) q.type = 'nps';
-    if (q.type === 'single' && q.options.length === 1) q.ambiguous.push('Only one answer option found');
-  });
-  return out;
-  function apply(q: Parsed, tag: string) {
-    const t = tag.toLowerCase();
-    if (/multi|select all/.test(t)) q.type = 'multi';
-    else if (/numeric|number/.test(t)) q.type = 'numeric';
-    else if (/open|text/.test(t)) q.type = 'text';
-    else if (/grid|matrix/.test(t)) q.type = 'matrix';
-    else if (/rank/.test(t)) q.type = 'ranking';
-    if (/random|rotate/.test(t)) q.randomize = true;
-    const ask = t.match(/ask (?:if|only if)\s+(.*)/);
-    if (ask) q.displayIf = ask[1];
-    if (/terminate|screen ?out/.test(t)) q.notes.push(`Termination: ${tag}`);
-    if (/quota/.test(t)) q.notes.push(`Quota: ${tag}`);
-    if (/pipe|insert/.test(t)) q.notes.push(`Piping: ${tag}`);
-    if (/programmer|tbd|\?\?|check with client/.test(t)) q.ambiguous.push(`Needs clarification: ${tag}`);
-  }
-}
+type Parsed = ParsedQuestion;
 
 const sampleDoc = `S1. What is your age? [NUMERIC] [TERMINATE IF UNDER 18]
 S2. Which of these best describes your role?
@@ -236,9 +185,33 @@ export function ImportPanel() {
   const toast = useOS((s) => s.toast);
   const [src, setSrc] = useState(sampleDoc);
   const [parsed, setParsed] = useState<Parsed[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const live = useOS((s) => s.mode === 'live' && !!s.session);
+  type Out = { source: string; chars: number; text?: string; message?: string; result: { data: { questions: Parsed[] }; note: string } | null };
+  const viaApi = async (body: object) => {
+    setBusy(true);
+    try {
+      const r = await api<Out>('/ai/questionnaire', { method: 'POST', body });
+      if (!r.result) { toast(r.message ?? 'No text found', 'warn'); return; }
+      if (r.text && r.source !== 'text') setSrc(r.text);
+      setParsed(r.result.data.questions);
+      setNote(`${r.result.note}${r.source !== 'text' ? ` · ${r.chars.toLocaleString('en-US')} characters read from ${r.source.toUpperCase()}` : ''}`);
+    } catch (e) { toast(e instanceof Error ? e.message : 'Extraction failed', 'warn'); } finally { setBusy(false); }
+  };
   const onFile = async (f: File) => {
-    if (/\.(txt|csv|md)$/i.test(f.name)) setSrc(await f.text());
-    else toast(`${f.name}: Word/PDF/Excel extraction arrives in Phase 5. Paste the text for now.`, 'warn');
+    if (/\.(txt|csv|md)$/i.test(f.name)) { setSrc(await f.text()); return; }
+    if (!live) { toast(`${f.name}: Word, PDF and Excel files are read by the API. Sign in to the live workspace, or paste the text.`, 'warn'); return; }
+    if (f.size > 8 * 1024 * 1024) { toast('Files up to 8 MB', 'warn'); return; }
+    const buf = new Uint8Array(await f.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    await viaApi({ fileName: f.name, base64: btoa(bin) });
+  };
+  const extractNow = () => {
+    if (live) return viaApi({ text: src });
+    setParsed(parseQuestionnaire(src));
+    setNote('Rule-based extraction in the browser (offline demo)');
   };
   const create = () => {
     if (!parsed) return;
@@ -256,12 +229,13 @@ export function ImportPanel() {
           <label className="cursor-pointer"><input type="file" className="hidden" accept=".txt,.csv,.md,.docx,.pdf,.xlsx" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} /><span className="inline-flex h-8 items-center gap-1.5 rounded-xl border hairline px-3 text-xs"><FileUp size={13} /> Upload file</span></label>
         </div>
         <textarea value={src} onChange={(e) => setSrc(e.target.value)} rows={20} className={cn(inputCls, 'h-auto py-3 font-mono text-[11.5px] leading-relaxed')} aria-label="Questionnaire text" />
-        <div className="mt-2 flex items-center gap-2"><Button variant="primary" onClick={() => setParsed(parseQuestionnaire(src))}><Sparkles size={14} /> Extract structure</Button><span className="text-2xs text-ink-3">TXT/CSV parsed now · Word, PDF, Excel planned Phase 5</span></div>
+        <div className="mt-2 flex items-center gap-2"><Button variant="primary" onClick={extractNow} disabled={busy}><Sparkles size={14} /> {busy ? 'Extracting…' : 'Extract structure'}</Button><span className="text-2xs text-ink-3">{live ? 'Word (.docx), PDF with a text layer, Excel and text files' : 'Text files offline · Word, PDF and Excel when signed in'}</span></div>
       </div>
       <div>
         <div className="eyebrow mb-2">Review before creating a draft</div>
         {!parsed ? <EmptyState title="Nothing extracted yet" body="Extraction detects question IDs, types, answer options, skip/ask-if instructions, piping, quotas, randomisation and ambiguous notes." /> : (
           <div className="space-y-2">
+            {note && <div className="rounded-lg bg-cyan/10 px-3 py-1.5 text-2xs text-cyan">{note}</div>}
             {parsed.map((p) => (
               <div key={p.id} className={cn('panel-solid p-3 text-[12px]', p.ambiguous.length && 'ring-1 ring-inset ring-orange/40')}>
                 <div className="flex flex-wrap items-center gap-1.5"><Badge tone="blue">{p.id}</Badge><Badge tone="purple">{p.type}</Badge>{p.randomize && <Badge tone="cyan">randomise</Badge>}{p.displayIf && <Badge tone="orange">ask if {p.displayIf}</Badge>}{p.terminate && <Badge tone="danger">terminate opt {p.terminate}</Badge>}</div>

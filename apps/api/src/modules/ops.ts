@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
-import { can, lifecycleToOps, type LifecycleStage } from '@sampledge/core';
+import { can, evaluate, lifecycleToOps, type LifecycleStage } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { approvalKinds, fallbackDeciders, type ApprovalKind } from '../common/approvals';
@@ -91,6 +91,23 @@ export class ApprovalsService {
         await tx.message.update({ where: { id: String(p.messageId) }, data: { status: ok ? 'queued' : 'cancelled' } });
         if (ok) await emit(tx, tenantId, 'message.queued', { messageId: String(p.messageId) });
         return ok ? 'Message queued for the development adapter (recorded, not sent)' : 'Message cancelled';
+      }
+      case 'Rejecting respondents': {
+        if (!p.responseId) return ok ? 'Recorded' : 'Rejected';
+        if (!ok) return 'Rejection declined; the interview stays in the results';
+        const r = await tx.response.findUniqueOrThrow({ where: { id: String(p.responseId) }, include: { survey: { select: { projectId: true } } } });
+        if (r.rejectedAt) return 'Already rejected';
+        await tx.response.update({ where: { id: r.id }, data: { rejectedAt: new Date() } });
+        // Give the quota places back so fieldwork can replace the interview.
+        const def = await tx.surveyVersion.findFirst({ where: { surveyId: r.surveyId, version: r.version } });
+        const quotas = ((def?.definition as { quotas?: { id: string; when: unknown }[] } | undefined)?.quotas ?? []);
+        let freed = 0;
+        for (const q of quotas) {
+          if (!evaluate(q.when as never, r.answers as never)) continue;
+          freed += await tx.$executeRaw`UPDATE "QuotaCell" SET "count" = GREATEST("count" - 1, 0) WHERE "surveyId" = ${r.surveyId} AND "key" = ${q.id}`;
+        }
+        if (r.survey.projectId) await tx.project.update({ where: { id: r.survey.projectId }, data: { completes: { decrement: 1 } } });
+        return `Interview rejected and removed from results; ${freed} quota place${freed === 1 ? '' : 's'} released`;
       }
       case 'Deleting records': {
         if (!p.panelistId) return ok ? 'Recorded' : 'Rejected';

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Post, Req, UnprocessableEntityException } from '@nestjs/common';
-import { access, answer, displayOptions, evaluate, pipe, start, type Answer, type Answers, type Outcome, type RunState, type SurveyDef } from '@sampledge/core';
+import { access, answer, qualityFlags, displayOptions, evaluate, pipe, start, type Answer, type Answers, type Outcome, type RunState, type SurveyDef } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -71,9 +71,11 @@ export class RuntimeService {
     let outcome = next.outcome;
     if (outcome === 'complete' && r.source !== 'preview') {
       try {
+        const flags = await this.quality(r, def, next.answers);
         await this.db.$transaction(async (tx) => {
           await this.countComplete(tx, r.surveyId, def, next.answers);
           await this.save(tx, r.id, next, 'complete');
+          if (flags.length) await tx.response.update({ where: { id: r.id }, data: { flags } });
         });
       } catch (e) {
         if (!(e instanceof QuotaRace)) throw e;
@@ -107,6 +109,14 @@ export class RuntimeService {
     }
     const s = await tx.survey.findUniqueOrThrow({ where: { id: surveyId }, select: { projectId: true } });
     if (s.projectId) await tx.project.update({ where: { id: s.projectId }, data: { completes: { increment: 1 } } });
+  }
+
+  /** Quality flags on a completed interview (flagging only; rejection is approval-gated). */
+  private async quality(r: { id: string; surveyId: string; respondent: string; startedAt: Date }, def: SurveyDef, answers: Answers) {
+    const s = await this.db.survey.findUniqueOrThrow({ where: { id: r.surveyId }, select: { project: { select: { loi: true } } } });
+    const flags: string[] = qualityFlags(def.questions, answers, (Date.now() - r.startedAt.getTime()) / 1000, s.project?.loi ?? 10);
+    if (r.respondent !== 'anon' && (await this.db.response.count({ where: { surveyId: r.surveyId, respondent: r.respondent, outcome: 'complete', id: { not: r.id } } }))) flags.push('duplicate');
+    return flags;
   }
 
   private save(tx: Prisma.TransactionClient | PrismaService, id: string, st: RunState, outcome: Outcome | undefined) {

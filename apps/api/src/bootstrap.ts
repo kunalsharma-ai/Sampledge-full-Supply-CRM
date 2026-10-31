@@ -19,7 +19,7 @@ export async function createApp() {
   });
   app.enableCors({ origin: config.webOrigin, credentials: true });
   app.setGlobalPrefix('api/v1');
-  app.useBodyParser('json', { limit: '2mb' });
+  app.useBodyParser('json', { limit: '12mb' }); // questionnaire uploads arrive base64-encoded (≤ 8 MB files)
   app.enableShutdownHooks();
   return app;
 }

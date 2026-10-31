@@ -9,6 +9,7 @@ import { access, can } from '@/lib/core';
 import { useOS } from '@/lib/store';
 import { avg, cn, fmtMoney, fmtNum, fmtPct, sum } from '@/lib/utils';
 import { KpiCard } from '@/components/ui/kpi';
+import { ProjectAiSummary } from '@/components/ai/panels';
 import { Badge, Bar, Button, DemoBadge, Drawer, EmptyState, PageHeader, Panel, PanelHeader, ProgressRing, SearchInput, Segmented } from '@/components/ui/primitives';
 import { EChart, axis } from '@/components/charts/echart';
 import { palette } from '@/lib/tokens';
@@ -93,6 +94,7 @@ function ProjectDrawer({ p, onClose }: { p: Project | undefined; onClose: () => 
           <Badge tone={h.tone} dot>{h.label}</Badge><Badge tone={typeTone(p.type)}>{p.type}</Badge>
           {p.countries.map((c) => <Badge key={c}>{countryByCode[c]?.name ?? c}</Badge>)}<DemoBadge />
         </div>
+        <ProjectAiSummary projectId={p.id} />
         <div>
           <div className="eyebrow mb-2">Lifecycle</div>
           <div className="flex flex-wrap gap-1">

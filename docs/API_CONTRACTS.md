@@ -109,5 +109,32 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | GET | `/comms/preview?audience&target` | recipients after consent filtering, `needsApproval`, threshold, adapter |
 | POST | `/comms/messages` | `{ channel: email|sms|in_app, audience, target, subject, body }`. Targets: `client:<id>`, `vendor:<id>`, `panel:<brand>:<all|active|dormant>`, `role:<role>`. Above `COMMS_HIGH_VOLUME` (100) → approval *High-volume communications*; otherwise queued. Vendors and clients may only target `internal` |
 
-## Planned (Phase 5+)
-Cursor pagination on all lists, `Idempotency-Key` on money-bearing POSTs, WebSocket `/ws` for live counters, report exports (PPTX/PDF), AI gateway endpoints.
+## Survey results and quality (module `analytics`, rejection `survey-studio`)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/surveys` | now includes `completes` (recorded, non-preview, not rejected) |
+| GET | `/surveys/:id/results?banner=Q&excludeFlagged=true` | `{ survey, base, flagged, rejected, excludedFlagged, banner: {id,text,cols[{code,label,letter,base}]}, questions[] }`. Question shapes: single/multi `rows[{code,label,count,pct,byBanner?[{count,base,pct,sig[]}]}]`, numeric `mean/median/min/max`, nps `nps/promoters/passives/detractors`, matrix `rows[{dist[]}]`, text `samples[]` |
+| GET | `/surveys/:id/report.pptx?banner&excludeFlagged` | PowerPoint file; 400 when there are no completes; audited |
+| POST | `/surveys/:id/responses/:rid/reject` `{reason}` | creates a *Rejecting respondents* approval (`{approval}`), or `{alreadyPending:true}`. Approval excludes the interview and decrements its quota cells and the project's completes |
+
+`responses.csv` gains `quality_flags` and `rejected` columns.
+
+## AI gateway
+Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok'|'fallback'|'refused'|'error'|'cap_reached', note, costUsd }`.
+| Method | Path | Module | Notes |
+|---|---|---|---|
+| GET | `/ai/status` | any signed-in | provider, model, connected, monthSpendUsd, monthCalls, capUsd, tasks[] |
+| GET | `/ai/usage?take=50` | `admin` | recent `AiCall` rows |
+| POST | `/ai/rfq-extract` `{text}` | `crm` | `{audience, countries[], sampleSize, incidence, loi, title, missing[]}` |
+| POST | `/ai/questionnaire` `{text}` or `{fileName, base64}` | `survey-studio` | `.docx .xlsx .pdf .txt .csv .md`, ≤ 8 MB. Returns `{source, chars, text, result}`; `result.data.questions[]`. Nothing is saved |
+| GET | `/ai/projects/:id/summary` | `projects` | `{headline, bullets[], risks[{level,text}], nextSteps[]}`; budget facts only for `view:margins` |
+
+## DIY research (module `diy`)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/diy/estimate?audience&countries=US,GB&sampleSize&incidence&loi` | `{markets[{country,n,covered,cpiLow,cpiHigh,capacityOk}], totalLow, totalHigh, basis:'rate_card_estimate', disclaimer}`. No vendor names or costs |
+| POST | `/diy/requests` `{...spec, title, objective}` | client users only; creates an opportunity (`channel:'diy'`, stage *New RFQ*) and emits `diy.requested` |
+| GET | `/diy/requests` | client: own requests with client-facing status; internal roles: all DIY requests |
+
+## Planned (Phase 6)
+Cursor pagination on all lists, `Idempotency-Key` on money-bearing POSTs, WebSocket `/ws` for live counters, PDF reports, Data Processing endpoints.

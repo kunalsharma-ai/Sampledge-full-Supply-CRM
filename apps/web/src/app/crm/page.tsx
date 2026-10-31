@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { Calculator, FilePlus2, Mail, Sparkles } from 'lucide-react';
 import { Suspense, useMemo, useState } from 'react';
 import { clients, countries, crmStages, months, monthlyRevenue, vendors, type CrmStage, type Opportunity } from '@/lib/core';
-import { allocate, rankVendors, type Audience } from '@/lib/core';
+import { allocate, extractRfq, rankVendors, type Audience } from '@/lib/core';
 import { access, can } from '@/lib/core';
 import { useOS } from '@/lib/store';
 import { api } from '@/lib/api';
@@ -18,15 +18,19 @@ import { EChart, axis } from '@/components/charts/echart';
 const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id;
 const stageTone: Record<CrmStage, 'blue' | 'cyan' | 'purple' | 'orange' | 'magenta' | 'emerald' | 'danger'> = { 'New RFQ': 'blue', Qualifying: 'cyan', Feasibility: 'purple', 'Quote Sent': 'orange', Negotiation: 'magenta', Won: 'emerald', Lost: 'danger' };
 
-/** RFQ text → structured requirements (regex extraction; Phase 5 swaps in the AI gateway). */
-function extract(text: string) {
-  const t = text.toLowerCase();
-  const n = Number((t.match(/(\d[\d,]*)\s*(?:completes|respondents|interviews|n\b)/) ?? [])[1]?.replace(/,/g, '')) || undefined;
-  const ir = Number((t.match(/(\d{1,2})\s*%\s*(?:ir|incidence)/) ?? t.match(/(?:ir|incidence)[^\d]{0,12}(\d{1,2})\s*%/) ?? [])[1]) / 100 || undefined;
-  const loi = Number((t.match(/(\d{1,2})\s*(?:-| )?(?:min|minute)/) ?? [])[1]) || undefined;
-  const country = countries.find((c) => t.includes(c.name.toLowerCase()) || new RegExp(`\\b${c.code.toLowerCase()}\\b`).test(t))?.code;
-  const audience: Audience | undefined = /hcp|physician|doctor|patient|oncolog|nurse|health/.test(t) ? 'Healthcare' : /b2b|decision.?maker|itdm|cio|it |manager|executive|smb|sme/.test(t) ? 'B2B' : /consumer|gen pop|shopper|b2c|adults/.test(t) ? 'B2C' : undefined;
-  return { n, ir, loi, country, audience };
+type Extracted = { n?: number; ir?: number; loi?: number; country?: string; audience?: Audience };
+type AiRun<T> = { data: T; provider: 'rules' | 'anthropic'; model: string | null; status: string; note: string };
+type RfqOut = { audience: Audience | null; countries: string[]; sampleSize: number | null; incidence: number | null; loi: number | null; title: string | null; missing: string[] };
+
+/** RFQ text → requirements: the AI gateway when signed in (rules or Claude, server-side), core rules offline. */
+async function extract(text: string, live: boolean): Promise<{ fields: Extracted; note: string; missing: string[] }> {
+  if (live) {
+    const r = await api<AiRun<RfqOut>>('/ai/rfq-extract', { method: 'POST', body: { text } });
+    const d = r.data;
+    return { fields: { n: d.sampleSize ?? undefined, ir: d.incidence ?? undefined, loi: d.loi ?? undefined, country: d.countries[0], audience: d.audience ?? undefined }, note: r.note, missing: d.missing };
+  }
+  const e = extractRfq(text, countries);
+  return { fields: { n: e.n, ir: e.ir, loi: e.loi, country: e.countries[0], audience: e.audience }, note: 'Rule-based extraction in the browser (offline demo)', missing: [] };
 }
 
 function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'stage' | 'probability' | 'created' | 'lastTouch' | 'demo'>) => void }) {
@@ -38,17 +42,25 @@ function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'st
   const [ir, setIr] = useState(0.25);
   const [loi, setLoi] = useState(15);
   const [rfqText, setRfqText] = useState('Hi team, can you quote 500 B2B IT decision-makers in Germany, 15 minute survey, approx 25% incidence? Need field in two weeks.');
-  const [extracted, setExtracted] = useState<ReturnType<typeof extract> | null>(null);
+  const [extracted, setExtracted] = useState<Awaited<ReturnType<typeof extract>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const live = useOS((s) => s.mode === 'live' && !!s.session);
   const q = { audience, country, n, ir, loi };
   const ranked = useMemo(() => rankVendors(q, vendors), [audience, country, n, ir, loi]); // eslint-disable-line react-hooks/exhaustive-deps
   const alloc = useMemo(() => allocate(q, ranked), [ranked]); // eslint-disable-line react-hooks/exhaustive-deps
   const cost = alloc.blendedCpi * (n - alloc.shortfall);
   const prices = [1.3, 1.45, 1.6].map((mk) => ({ mk, cpi: alloc.blendedCpi * mk, revenue: alloc.blendedCpi * mk * n, margin: 1 - 1 / mk }));
 
-  const runExtract = () => {
-    const e = extract(rfqText);
-    setExtracted(e);
-    if (e.n) setN(e.n); if (e.ir) setIr(e.ir); if (e.loi) setLoi(e.loi); if (e.country) setCountry(e.country); if (e.audience) setAudience(e.audience);
+  const runExtract = async () => {
+    setBusy(true);
+    try {
+      const r = await extract(rfqText, live);
+      setExtracted(r);
+      const e = r.fields;
+      if (e.n) setN(e.n); if (e.ir) setIr(e.ir); if (e.loi) setLoi(e.loi); if (e.country) setCountry(e.country); if (e.audience) setAudience(e.audience);
+    } catch (err) {
+      useOS.getState().toast(err instanceof Error ? err.message : 'Extraction failed', 'warn');
+    } finally { setBusy(false); }
   };
 
   return (
@@ -57,10 +69,12 @@ function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'st
         <div className="panel-solid p-4">
           <div className="mb-2 flex items-center gap-2 text-[12.5px] font-semibold"><Mail size={14} className="text-cyan" /> Email-to-RFQ</div>
           <textarea value={rfqText} onChange={(e) => setRfqText(e.target.value)} rows={4} className={cn(inputCls, 'h-auto py-2 leading-relaxed')} aria-label="RFQ email text" />
-          <Button size="sm" variant="subtle" className="mt-2 w-full" onClick={runExtract}><Sparkles size={13} /> Extract requirements</Button>
+          <Button size="sm" variant="subtle" className="mt-2 w-full" onClick={runExtract} disabled={busy}><Sparkles size={13} /> {busy ? 'Extracting…' : 'Extract requirements'}</Button>
           {extracted && (
             <div className="mt-2 flex flex-wrap gap-1 text-2xs">
-              {Object.entries(extracted).map(([k, v]) => <Badge key={k} tone={v === undefined ? 'danger' : 'emerald'}>{k}: {v === undefined ? 'not found' : k === 'ir' ? fmtPct(v as number, 0) : String(v)}</Badge>)}
+              {Object.entries(extracted.fields).map(([k, v]) => <Badge key={k} tone={v === undefined ? 'danger' : 'emerald'}>{k}: {v === undefined ? 'not found' : k === 'ir' ? fmtPct(v as number, 0) : String(v)}</Badge>)}
+              {extracted.missing.map((m) => <Badge key={m} tone="orange">missing: {m}</Badge>)}
+              <div className="w-full pt-1 text-ink-3">{extracted.note}</div>
             </div>
           )}
         </div>

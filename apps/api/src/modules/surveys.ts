@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Header, Injectable, NotFoundException, Param, Post, Put, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Injectable, NotFoundException, Param, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
-import { runQA, type SurveyDef } from '@sampledge/core';
+import { runQA, surveyResults, type SurveyDef } from '@sampledge/core';
+import { buildReport } from './report';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requestApproval } from '../common/approvals';
@@ -50,8 +51,9 @@ export class SurveysService {
     return { tenantId: ctx.tenantId, ...(ctx.role === 'client' ? { project: { clientId: ctx.clientId ?? '__none__' } } : {}) };
   }
 
-  list(ctx: Ctx) {
-    return this.db.survey.findMany({ where: this.where(ctx), include: { project: { select: { id: true, code: true, name: true } } }, orderBy: { name: 'asc' } });
+  async list(ctx: Ctx) {
+    const rows = await this.db.survey.findMany({ where: this.where(ctx), include: { project: { select: { id: true, code: true, name: true } }, _count: { select: { responses: { where: { outcome: 'complete', source: { not: 'preview' }, rejectedAt: null } } } } }, orderBy: { name: 'asc' } });
+    return rows.map(({ _count, ...s }) => ({ ...s, completes: _count.responses }));
   }
 
   async get(ctx: Ctx, id: string) {
@@ -142,6 +144,41 @@ export class SurveysService {
     return { approval: ap, alreadyPending: false };
   }
 
+  /** Results from completed, non-rejected responses. Flagged interviews are included unless excluded. */
+  async results(ctx: Ctx, id: string, banner?: string, excludeFlagged = false) {
+    const s = await this.get(ctx, id);
+    if (!s.definition) throw new BadRequestException('This survey has no programmed definition yet');
+    const rows = await this.db.response.findMany({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null }, select: { id: true, answers: true, flags: true } });
+    const used = excludeFlagged ? rows.filter((r) => !r.flags.length) : rows;
+    const rejected = await this.db.response.count({ where: { surveyId: id, rejectedAt: { not: null } } });
+    const res = surveyResults(s.definition.questions, used.map((r) => ({ id: r.id, answers: r.answers as Record<string, never> })), banner);
+    return { survey: { id: s.id, name: s.name, version: s.currentVersion }, flagged: rows.filter((r) => r.flags.length).length, excludedFlagged: excludeFlagged, rejected, ...res };
+  }
+
+  async report(ctx: Ctx, id: string, banner?: string, excludeFlagged = false) {
+    const r = await this.results(ctx, id, banner, excludeFlagged);
+    if (!r.base) throw new BadRequestException('No completed responses to report on yet');
+    await this.audit.log(ctx, 'survey.report_exported', 'Survey', id, undefined, { base: r.base, banner: banner ?? null });
+    return buildReport(r);
+  }
+
+  /** Rejecting a respondent is a 'Rejecting respondents' approval; the decider cannot be the requester. */
+  async requestReject(ctx: Ctx, id: string, responseId: string, reason: string) {
+    const s = await this.get(ctx, id);
+    const r = await this.db.response.findFirst({ where: { id: responseId, surveyId: id } });
+    if (!r) throw new NotFoundException('Response not found');
+    if (r.outcome !== 'complete') throw new BadRequestException('Only completed interviews can be rejected');
+    if (r.rejectedAt) throw new BadRequestException('Already rejected');
+    const pending = await this.db.approval.findFirst({ where: { tenantId: ctx.tenantId, kind: 'Rejecting respondents', status: 'pending', payload: { path: ['responseId'], equals: responseId } } });
+    if (pending) return { approval: pending, alreadyPending: true };
+    const ap = await this.db.$transaction(async (tx) => {
+      const a = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'Rejecting respondents', title: `Reject response ${responseId.slice(-6)} on ${s.name}: ${reason}${r.flags.length ? ` (flags: ${r.flags.join(', ')})` : ''}`, projectId: s.projectId, requestedBy: ctx.userId, payload: { responseId, surveyId: id, reason } });
+      await this.audit.log(ctx, 'response.reject_requested', 'Response', responseId, undefined, { reason, approvalId: a.id }, tx);
+      return a;
+    });
+    return { approval: ap, alreadyPending: false };
+  }
+
   /** CSV of all responses: one row per response, one column per question (arrays joined with |). */
   async csv(ctx: Ctx, id: string) {
     const s = await this.get(ctx, id);
@@ -152,10 +189,10 @@ export class SurveysService {
       const t = v === undefined || v === null ? '' : Array.isArray(v) ? v.join('|') : typeof v === 'object' ? Object.entries(v as Record<string, string>).map(([k, x]) => `${k}=${x}`).join(';') : String(v);
       return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
     };
-    const head = ['response_id', 'version', 'source', 'outcome', 'started_at', 'completed_at', ...qids];
+    const head = ['response_id', 'version', 'source', 'outcome', 'started_at', 'completed_at', 'quality_flags', 'rejected', ...qids];
     const body = rows.map((r) => {
       const a = r.answers as Record<string, unknown>;
-      return [r.id, r.version, r.source, r.outcome ?? 'in_progress', r.startedAt.toISOString(), r.completedAt?.toISOString() ?? '', ...qids.map((q) => a[q])].map(esc).join(',');
+      return [r.id, r.version, r.source, r.outcome ?? 'in_progress', r.startedAt.toISOString(), r.completedAt?.toISOString() ?? '', r.flags.join('|'), r.rejectedAt ? 'yes' : '', ...qids.map((q) => a[q])].map(esc).join(',');
     });
     return [head.join(','), ...body].join('\n') + '\n';
   }
@@ -176,7 +213,8 @@ export class SurveysService {
 export class SurveysController {
   constructor(private s: SurveysService) {}
 
-  @Get() list(@Caller() ctx: Ctx) { return this.s.list(ctx); }
+  /** Listed for Insight Studio too (names and status only), so analysts can pick a survey. */
+  @ForModule('analytics') @Get() list(@Caller() ctx: Ctx) { return this.s.list(ctx); }
   @Get(':id') get(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.get(ctx, id); }
   @Get(':id/versions') versions(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.versions(ctx, id); }
 
@@ -190,6 +228,25 @@ export class SurveysController {
   async exportCsv(@Caller() ctx: Ctx, @Param('id') id: string, @Res({ passthrough: true }) res: Response) {
     res.setHeader('content-disposition', `attachment; filename="${id}-responses.csv"`);
     return this.s.csv(ctx, id);
+  }
+
+  @ForModule('analytics') @Get(':id/results')
+  results(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown) {
+    const x = parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: z.enum(['true', 'false']).optional() }), q);
+    return this.s.results(ctx, id, x.banner, x.excludeFlagged === 'true');
+  }
+
+  @ForModule('analytics') @Get(':id/report.pptx') @Header('content-type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+  async reportPptx(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown, @Res({ passthrough: true }) res: Response) {
+    const x = parse(z.object({ banner: z.string().max(40).optional(), excludeFlagged: z.enum(['true', 'false']).optional() }), q);
+    const buf = await this.s.report(ctx, id, x.banner, x.excludeFlagged === 'true');
+    res.setHeader('content-disposition', `attachment; filename="${id}-report.pptx"`);
+    return new StreamableFile(buf);
+  }
+
+  @Post(':id/responses/:rid/reject') @Write()
+  reject(@Caller() ctx: Ctx, @Param('id') id: string, @Param('rid') rid: string, @Body() b: unknown) {
+    return this.s.requestReject(ctx, id, rid, parse(z.object({ reason: z.string().min(3).max(300) }), b).reason);
   }
 
   @Get(':id/responses')

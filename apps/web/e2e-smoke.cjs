@@ -137,7 +137,60 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await p.getByText(/sent for approval before anything is queued/).first().waitFor({ timeout: 10000 });
   ok('High-volume panel send waits for approval', (await apiGet('/comms/messages')).some((m) => m.status === 'pending_approval'));
 
-  // 10 Vendor scope
+  // 10 Phase 5: results from real interviews, quality flags, methods lab, AI gateway, DIY
+  const done = await p.evaluate(async () => {
+    const base = { S1: 'ft', S2: 'lg', S3: 'final', S4: ['tech'], Q1: ['aws'], Q2: 'aws', Q3: 50, Q4: { posture: '3', identity: '3', workload: '3', data: '3' }, Q5: ['price', 'int', 'sup', 'comp'], Q6: 'flat', Q9: 8, Q10: 'ok', Q11: 4, END: '' };
+    const variants = [{}, { Q1: ['aws', 'az'], Q9: 10, S2: 'md' }, { Q1: ['aws', 'az'], Q2: 'az', Q9: 6, Q10: 'asdfasdf' }, { Q9: 9, S2: 'md' }];
+    const out = [];
+    for (const [i, v] of variants.entries()) {
+      const ans = { ...base, ...v };
+      const post = (u, b) => fetch(`/api/v1${u}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json());
+      const s = await post('/r/sv-cloud/start', { source: 'panel:turn2opinion', respondent: `e2e-${i}` });
+      let q = s.question?.id, last = null;
+      while (q) { last = await post(`/r/session/${s.responseId}/answer`, { questionId: q, value: ans[q] }); q = last.outcome ? null : last.question?.id; }
+      out.push(last?.outcome);
+    }
+    return out;
+  });
+  ok(`Four interviews recorded through the public runtime (${done.join(', ')})`, done.filter((x) => x === 'complete').length >= 3);
+  await switchTo('survey_programmer');
+  await go('/analytics');
+  await p.getByText(/^Base \d+ completes/).first().waitFor({ timeout: 15000 });
+  ok('Insight Studio shows results computed from the recorded interviews', await p.getByRole('link', { name: 'PowerPoint report' }).isVisible());
+  const pptx = await p.evaluate(async () => { const r = await fetch('/api/v1/surveys/sv-cloud/report.pptx'); return { s: r.status, t: r.headers.get('content-type'), n: (await r.arrayBuffer()).byteLength }; });
+  ok('PowerPoint report downloads', pptx.s === 200 && /presentationml/.test(pptx.t) && pptx.n > 20000);
+  await p.getByRole('button', { name: 'Request rejection' }).first().click();
+  await p.getByText(/Rejection sent for approval/).first().waitFor({ timeout: 10000 });
+  ok('Rejecting a flagged respondent goes to approval', (await apiGet('/approvals')).some((a) => a.kind === 'Rejecting respondents' && a.status === 'pending'));
+  await go('/analytics?view=methods');
+  await p.getByRole('radio', { name: 'Conjoint' }).or(p.getByRole('button', { name: 'Conjoint', exact: true })).first().click();
+  await p.getByText('Part-worth utilities and importance').waitFor({ timeout: 10000 });
+  ok('Methods lab estimates conjoint utilities on simulated respondents', await p.getByText('Simulated respondents').first().isVisible());
+  const qn = await apiSend('POST', '/ai/questionnaire', { text: 'Q1. Which brands do you know? [MULTI]\n1. Alpha\n2. Beta\nQ2. How old are you?' });
+  ok('Questionnaire extraction runs through the AI gateway (rules)', qn.status === 200 && qn.body.result.provider === 'rules' && qn.body.result.data.questions.length === 2);
+
+  await switchTo('project_manager');
+  await go('/projects?open=pr-002');
+  await p.getByRole('button', { name: 'Summarise' }).click();
+  await p.getByText(/Rule-based: no AI model is connected/).first().waitFor({ timeout: 10000 });
+  ok('Project status summary from the AI gateway', true);
+
+  await switchTo('client');
+  await go('/diy');
+  await p.getByText(/per complete/).first().waitFor({ timeout: 15000 });
+  await p.getByLabel('Study name').fill('E2E snack tracker');
+  await p.getByLabel('Objective').fill('Track awareness of our snack brand each quarter.');
+  await p.getByRole('button', { name: 'Send request' }).click();
+  await p.getByText(/Request sent/).first().waitFor({ timeout: 10000 });
+  await p.getByText('E2E snack tracker').first().waitFor({ timeout: 10000 });
+  ok('Client submits a DIY request with an indicative range', true);
+
+  await switchTo('platform_admin');
+  await go('/automation');
+  await p.getByText('Rule-based mode').waitFor({ timeout: 10000 });
+  ok('Automation shows the AI gateway in rule-based mode with usage', await p.getByText(/project\.summary/).first().isVisible());
+
+  // 11 Vendor scope
   await switchTo('vendor');
   await go('/command-center');
   ok('Vendor role blocked from Command Center', await p.getByText(/is not available to Sample Vendor/).isVisible());
@@ -154,7 +207,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   ok('Vendor answers feasibility in the portal', (await apiGet('/feasibility')).some((f) => f.status === 'responded'));
   ok('Vendor portal lists the new purchase order', await p.getByText(/PO-26\d+/).first().isVisible());
 
-  // 11 Sign out
+  // 12 Sign out
   await p.getByRole('button', { name: 'Sign out' }).click();
   await p.waitForURL(/\/login/, { timeout: 10000 });
   const me = await p.evaluate(async () => (await fetch('/api/v1/auth/me')).status);

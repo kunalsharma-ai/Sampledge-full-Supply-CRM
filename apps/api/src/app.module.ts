@@ -20,6 +20,9 @@ import { CommsController, CommsService } from './modules/comms';
 import { FeasibilityController, FeasibilityService } from './modules/feasibility';
 import { FinanceController, FinanceService } from './modules/finance';
 import { EventsWorker } from './modules/worker';
+import { AiController } from './ai/ai.controller';
+import { DiyController, DiyService } from './modules/diy';
+import { AiGateway } from './ai/gateway';
 
 @Controller('health')
 class HealthController {
@@ -28,7 +31,7 @@ class HealthController {
   async health() {
     await this.db.$queryRaw`SELECT 1`;
     const pending = await this.db.outboxEvent.count({ where: { processedAt: null } });
-    return { status: 'ok', db: 'ok', version: '0.4.0', outboxPending: pending };
+    return { status: 'ok', db: 'ok', version: '0.5.0', outboxPending: pending };
   }
 }
 
@@ -37,9 +40,9 @@ class HealthController {
     JwtModule.register({ secret: config.jwtSecret, signOptions: { issuer: 'sampledge-api' }, verifyOptions: { issuer: 'sampledge-api' } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: () => Number(process.env.RATE_LIMIT ?? 600) }]),
   ],
-  controllers: [HealthController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController],
+  controllers: [HealthController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController],
   providers: [
-    PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker,
+    PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

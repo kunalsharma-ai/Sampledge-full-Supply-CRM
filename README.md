@@ -1,8 +1,8 @@
 # Sampledge AI Research OS
 
-**Phase 4: integrated workflow.** A Next.js web app on a NestJS + Postgres API, sharing one TypeScript domain package. Sign-in, roles, tenant isolation, projects, CRM and quotes, vendors and allocations, survey versions, a public respondent runtime with atomic quotas, panelists and consent, and human approvals all run on the database. Phase 4 connects them: a transactional outbox and worker hand work between modules, supplier feasibility, purchase orders, invoices and vendor payments, a Comms Hub, and client and vendor portals.
+**Phase 5: AI and analytics.** A Next.js web app on a NestJS + Postgres API, sharing one TypeScript domain package. Sign-in, roles, tenant isolation, projects, CRM and quotes, vendors and allocations, survey versions, a public respondent runtime with atomic quotas, panelists and consent, and human approvals all run on the database. Phase 4 connects them: a transactional outbox and worker hand work between modules, supplier feasibility, purchase orders, invoices and vendor payments, a Comms Hub, and client and vendor portals. Phase 5 adds an AI gateway (rule-based by default, Claude optional), questionnaire import from Word, Excel and PDF, survey results and PowerPoint reports from recorded responses, respondent quality checks, advanced research methods and DIY research requests.
 
-Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected: messages are recorded by a development adapter and never sent, "paid" is a record (no payment rail), and there are no supplier, panel-site or AI model APIs.
+Seeded records are fictional demo data and are labelled as such in the UI. No external integrations are connected: messages are recorded by a development adapter and never sent, "paid" is a record (no payment rail), and there are no supplier or panel-site APIs. AI tasks run on deterministic rules unless `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` are set in `apps/api/.env`.
 
 ## Run it
 

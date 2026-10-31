@@ -2,7 +2,10 @@
 import dynamic from 'next/dynamic';
 import { motion } from 'motion/react';
 import { Box, Database, Download, Maximize2, Minimize2, ScatterChart, Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { SurveyResults } from '@/components/analytics/results';
+import { MethodsLab } from '@/components/analytics/methods';
 import { crosstab, kmeans, makeDataset, metrics, vars, weights, type CatVar, type Metric } from '@/lib/core';
 import { useOS } from '@/lib/store';
 import { palette } from '@/lib/tokens';
@@ -16,7 +19,7 @@ const DATASET = { id: 'ds-brand-health-q4', name: 'Brand Health Tracker Q4', ver
 const segColors = [palette.cyan, palette.purple, palette.orange];
 const segNames = ['Value seekers', 'Quality loyalists', 'Early adopters'];
 
-export default function AnalyticsPage() {
+function DemoAnalytics({ switcher }: { switcher: React.ReactNode }) {
   const toast = useOS((s) => s.toast);
   const reduced = useOS((s) => s.motion === 'reduced');
   const data = useMemo(() => makeDataset(), []);
@@ -55,6 +58,7 @@ export default function AnalyticsPage() {
           <Button onClick={() => setPresent(!present)}>{present ? <><Minimize2 size={14} /> Exit presentation</> : <><Maximize2 size={14} /> Presentation view</>}</Button>
         </>} />
 
+      {!present && switcher}
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiCard label="Respondents (base)" value={data.length} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
         <KpiCard label="Effective base" value={Math.round(W * W / w.reduce((s, x) => s + x * x, 0))} format={(n) => fmtNum(n)} status={{ tone: 'ok', text: weighted ? 'Weighting efficiency applied' : 'Unweighted' }} />
@@ -155,3 +159,25 @@ export default function AnalyticsPage() {
     </div>
   );
 }
+
+type View = 'demo' | 'results' | 'methods';
+function InsightStudio() {
+  const sp = useSearchParams();
+  const router = useRouter();
+  const view = (['demo', 'results', 'methods'].includes(sp?.get('view') ?? '') ? sp!.get('view') : 'results') as View;
+  const switcher = (
+    <Segmented className="mb-5" label="Insight Studio view" value={view} onChange={(v) => router.replace(`/analytics?view=${v}`)}
+      options={[{ value: 'results', label: 'Survey results' }, { value: 'methods', label: 'Advanced methods' }, { value: 'demo', label: 'Demo dataset' }]} />
+  );
+  if (view === 'demo') return <DemoAnalytics switcher={switcher} />;
+  return (
+    <div>
+      <PageHeader eyebrow="Insight Studio" title={view === 'results' ? 'Survey results' : 'Advanced methods'}
+        subtitle={view === 'results' ? 'Frequencies, banners with significance letters and a PowerPoint report, computed from recorded responses.' : 'Design generators and analyses for MaxDiff, choice-based conjoint, Van Westendorp, Gabor-Granger and TURF.'} />
+      {switcher}
+      {view === 'results' ? <SurveyResults /> : <MethodsLab />}
+    </div>
+  );
+}
+
+export default function AnalyticsPage() { return <Suspense><InsightStudio /></Suspense>; }

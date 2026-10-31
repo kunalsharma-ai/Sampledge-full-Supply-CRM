@@ -1,8 +1,8 @@
-# Implementation status: Phase 4
+# Implementation status: Phase 5
 
 Legend: **Functional** = real logic, persisted in Postgres and enforced by the API · **Functional (client)** = real logic in the browser only · **Simulated** = fictional demo data or a stand-in for a future service, labelled in the UI · **Planned** = not built.
 
-Seeded records are fictional. No real clients, suppliers, panelists or health data are used. No external system is connected: no email or SMS provider (messages are recorded by a development adapter and never leave the system), no accounting system or payment rail (paid means recorded), no supplier or panel-site APIs, no AI model. Panel brand names are Sampledge's; their headline metrics are simulated.
+Seeded records are fictional. No real clients, suppliers, panelists or health data are used. No external system is connected: no email or SMS provider (messages are recorded by a development adapter and never leave the system), no accounting system or payment rail (paid means recorded), no supplier or panel-site APIs. AI runs in rule-based mode unless an operator sets `AI_PROVIDER=anthropic` and an API key; the Claude path is tested against a local stub server, not against the live API. Panel brand names are Sampledge's; their headline metrics are simulated.
 
 ## Platform
 
@@ -23,7 +23,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Docker compose (Postgres, API, web) | Functional | images built and the e2e test passed against the stack |
 | CI workflow | Written, not yet run | no GitHub repository attached yet |
 | Workflow engine: transactional outbox + worker | Functional | events are written in the same transaction as the change, so a rolled-back change never fires a side effect. The worker claims batches with `FOR UPDATE SKIP LOCKED` and a 30 s lease, retries up to 5 times and records the last error. Runs inside the API by default or as a separate process (`node dist/worker.js`, `WORKER_INLINE=false`). Postgres instead of Redis: one less moving part at this scale; the claim query is the swap point |
-| Live push (WebSocket) | Planned (Phase 5) | UI refreshes after each action |
+| Live push (WebSocket) | Planned (Phase 6) | UI refreshes after each action |
 
 ## Command Center
 | Feature | Status |
@@ -92,25 +92,41 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Staff preview (`?preview=1`) never counts toward quotas | Functional |
 | Publishing blocked while QA reports critical issues; published only after approval | Functional |
 | Responses by outcome and source (`GET /surveys/:id/responses`), CSV export (`responses.csv`, linked from the studio) | Functional |
-| Respondent fraud checks, device fingerprinting, supplier redirects | Planned (Phase 5) |
+| Quality flags at completion (speed, straight-lining, duplicates, gibberish) | Functional (Phase 5) |
+| Device fingerprinting, supplier redirects | Planned (Phase 6) |
 
 ## Insight Studio
 | Feature | Status |
 |---|---|
-| Respondent dataset (n=1,200) | Simulated |
-| Weighting, effective base, crosstabs, column-letter significance (z-test), CSV export | Functional statistics |
-| k-means segmentation with 3D and 2D views | Functional |
-| Sankey journey, NPS distribution, wave trend | Functional on simulated data |
-| Editable narrative | Template-generated from computed figures, labelled AI-assisted draft |
-| Presentation view | Functional |
-| PPTX/PDF report generation | Planned Phase 5 |
+| **Survey results from recorded responses**: frequencies, numeric summaries, NPS, matrix distributions, open-end verbatims | Functional (API), tested. Excludes staff previews and rejected interviews |
+| Banner (crosstab by a single-choice question) with column-letter significance (two-proportion z, 95%, n ≥ 30 per column) | Functional |
+| Include or exclude quality-flagged interviews | Functional |
+| **PowerPoint report** (title slide with base and exclusions, one slide per question: bar charts, banner tables, NPS, matrix, verbatims) | Functional, tested. Every figure comes from the results computation |
+| **Respondent quality flags** at completion: speeder (< ⅓ of LOI, min 60 s), straight-liner (matrix with 4+ rows), duplicate respondent reference, gibberish open end | Functional, tested. Flags never remove anyone |
+| Respondent rejection: request → *Rejecting respondents* approval (not the requester) → excluded from results and its quota place released | Functional, tested |
+| **Methods lab**: MaxDiff (balanced design + counting scores), choice-based conjoint (level-balanced design + aggregate MNL part-worths, importances, share simulator), Van Westendorp, Gabor-Granger, TURF (exhaustive or greedy) | Functional engines in `packages/core`, unit-tested. The lab runs them on **simulated respondents**, labelled as such. Hierarchical Bayes is not implemented |
+| Demo dataset view (n=1,200): weighting, k-means segmentation, 3D/2D views, Sankey, trends, narrative, presentation | Simulated data, functional statistics (unchanged from Phase 2) |
+| PDF report, scheduled report delivery | Planned (Phase 6) |
+
+## AI gateway (new)
+| Feature | Status |
+|---|---|
+| Provider-independent task registry: versioned prompt, typed output schema, rule-based implementation per task | Functional |
+| Tasks: RFQ e-mail → requirements; questionnaire text → structured draft questions; project status summary with risks | Functional in rule-based mode (default) |
+| Claude provider (`AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`), model `claude-opus-5-5` with server-side fallback models enabled, structured output | Implemented and tested against a stub server only. **Not exercised against the live Anthropic API** in this build |
+| Fallback to rules on refusal, invalid output, provider error or spent monthly cap (`AI_MONTHLY_CAP_USD`, default $50) | Functional, tested |
+| Every call logged (task, provider, model, status, tokens, cost, duration) and shown to admins | Functional |
+| Cost facts reach the model only for roles with `view:margins` | Functional, tested |
+| Document text extraction: Word (.docx), Excel (.xlsx), PDF with a text layer, plain text; 8 MB limit; file signature checked | Functional, tested with fixtures. Scanned PDFs (OCR) are not supported |
+| AI output is a draft: nothing is created, sent or published without the existing approvals | By design |
 
 ## AI Automation
 | Feature | Status |
 |---|---|
 | Workflow editor: add/connect/delete nodes, inspector, retry policy, validation (approval required upstream of consequential actions), versioned save, animated dry-run | Functional (client-side) |
 | Approval queue with permission-checked approve/reject | Functional: decisions persist and apply their effect (publish survey, approve allocation → PO, send quote, pay vendor, release a high-volume send, delete panelist) |
-| Agent toggles, cost caps | Toggles persisted; usage figures simulated; agents do not run |
+| AI gateway panel: provider, month spend vs cap, registered tasks, recent calls | Functional (live API) |
+| Agent toggles, cost caps | Toggles persisted; agent usage figures simulated; the twelve agents do not run autonomously |
 | Execution log, reliability chart | Simulated |
 
 ## Finance (new)
@@ -121,7 +137,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Purchase orders and payables raised on approved sample purchases | Functional. Vendors see their own; roles without `view:vendor_bids` see none |
 | Vendor payment: request → *Issuing payments* approval (not the requester) → paid | Functional as a record. No payment rail or accounting system is connected |
 | Receivable, overdue, collected, payable and paid-out KPIs | Functional, computed from records |
-| Multi-currency, incentives ledger, reconciliation, forecast vs actuals | Planned (Phase 5) |
+| Multi-currency, incentives ledger, reconciliation, forecast vs actuals | Planned (Phase 6) |
 
 ## Comms Hub (new)
 | Feature | Status |
@@ -146,13 +162,23 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Own projects with stage, completes vs target and deadline; no costs, margins or vendors | Functional |
 | Sign-offs waiting on the client (survey publish approvals on own projects) | Functional |
 | Issued invoices and correspondence; message the project team | Functional |
-| Deliverables and report downloads | Planned (Phase 5) |
+| Deliverables and report downloads | Planned (Phase 6) |
+
+## DIY Research (new)
+| Feature | Status |
+|---|---|
+| Configure audience, markets, completes, incidence and LOI; indicative per-market and total range from rate cards (±15%), no supplier names or costs | Functional, tested. Labelled "Indicative pricing, not a quote" |
+| Submit (client users only) → CRM opportunity in *New RFQ* with channel `diy`; Business Development and executives notified | Functional, tested |
+| Client-facing request status (Received, Being reviewed, Quote sent, …) without margins or owners | Functional |
+| Self-service questionnaire building and launch | Planned (Phase 6): fielding stays with the research team and its approvals |
 
 ## Other modules
-Data Processing, DIY Research, Integrations and Admin & Security are navigable placeholders that state their scope and role access. No functionality is simulated on them.
+Data Processing (Phase 6), Integrations and Admin & Security are navigable placeholders that state their scope and role access. No functionality is simulated on them.
 
 ## Known limitations
-- Insight Studio still analyses a simulated respondent dataset; it does not read survey responses yet (Phase 4).
+- Survey results read recorded responses; the segmentation, Sankey and trend views still use the simulated demo dataset.
+- The Claude path of the AI gateway has only been tested against a stub server.
+- The CRM bid assistant and Survey Studio import call the AI gateway when signed in; offline they use the same rules in the browser.
 - The CRM quote builder and Survey Studio QA run in the browser; the API has equivalent endpoints, used for persistence and enforcement.
 - Notification read state is per role, not per user.
 - Lists are not cursor-paginated yet except panelists; fine for demo volumes.

@@ -12,3 +12,6 @@ export {
 export type { Country, Vendor, Project, Quota, Opportunity, SurveySummary, PanelBrand, OpsStage, LifecycleStage, CrmStage } from './demo/data';
 /** Seed records. Only the API seed script should import these. */
 export * as seed from './demo/data';
+export * from './methods';
+export * from './extract';
+export * from './results';

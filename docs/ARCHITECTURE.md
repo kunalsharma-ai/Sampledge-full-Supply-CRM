@@ -119,7 +119,7 @@ GSAP was listed as optional; Motion covers every animation in Phase 2, so GSAP i
 
 ## 4. Backend architecture
 
-### Implemented in Phases 3–4
+### Implemented in Phases 3–5
 - **Monorepo** (npm workspaces): `packages/core` (survey engine, roles and permissions, pricing, analytics, demo seed) is compiled once and imported by both `apps/api` and `apps/web`, so routing, quota rules, the role matrix and CPI estimates cannot drift between client and server.
 - **NestJS modular monolith** (`apps/api`): projects, commercial (clients, opportunities, quotes), vendors, surveys, respondent runtime, panels, approvals and ops (agents, notifications, audit, dashboard). Compiled with `tsc` (decorator metadata).
 - **PostgreSQL + Prisma** (`apps/api/prisma/schema.prisma`, four migrations). Every business row carries `tenantId`.
@@ -127,14 +127,17 @@ GSAP was listed as optional; Motion covers every animation in Phase 2, so GSAP i
 - **Atomic quotas**: `UPDATE "QuotaCell" SET count = count + 1 WHERE id = $1 AND (hard = false OR count < target)` inside the completion transaction; zero rows updated means the cell filled first, so the completion rolls back and the respondent is overquota. Tested with four concurrent respondents racing for one slot.
 - **Transactional outbox** (Phase 4): `emit(tx, …)` writes an `OutboxEvent` in the caller's transaction, so side effects happen only for committed changes. The worker claims a batch with `FOR UPDATE SKIP LOCKED` and a 30 s lease (safe with several workers), handles each event in its own transaction, retries up to 5 times and keeps `lastError`. It runs in the API process by default; set `WORKER_INLINE=false` and run `node dist/worker.js` to separate it. `/health` reports `outboxPending`.
 - **Delivery adapter** (Phase 4): every outbound message is a `Message` row; the only adapter is *development* (status `delivered_dev`, nothing sent). Email/SMS providers implement the same `deliver()` in Phase 6.
+- **AI gateway** (Phase 5, `apps/api/src/ai`): each task is `{name, version, system, render, schema (zod), rules}`. `AiGateway.run` uses the rules unless `AI_PROVIDER=anthropic` and a key are set; then it calls Claude (`claude-opus-5-5`, server-side fallback models enabled, structured JSON output), parses and schema-checks the result, and falls back to the rules on refusal, invalid output, error or the tenant's monthly cap. Every call writes an `AiCall` row (tokens, cost, status). Document text extraction (docx via mammoth, xlsx via exceljs, PDF via unpdf) checks file signatures and size first.
+- **Results and reports** (Phase 5): `surveyResults` and `qualityFlags` live in `packages/core` and run on recorded responses; the API builds PowerPoint files with pptxgenjs from the same result object. Quality flags are computed inside the completion transaction.
+- **Research methods** (Phase 5): `packages/core/src/methods.ts` is import-free so the same MaxDiff, conjoint, pricing and TURF code runs in the browser, the API and the unit tests.
 - **Web ↔ API**: Next rewrites `/api/v1/*` to the API, keeping the session cookie first-party. The Zustand store hydrates from the API after sign-in and turns each action into an API call (optimistic update, reload on error). If the API is unreachable the app falls back to the labelled offline demo.
 
 ### Planned
 - **Broker or Temporal** only if volume or long-running timers call for it; the outbox claim query is the swap point.
-- **WebSocket fan-out** for live counters (Phase 5).
-- **Columnar analytics store** for responses at volume (Phase 5).
-- **AI gateway**: provider-independent interface (`complete`, `structured`, `toolCall`), prompt registry, evals, per-tenant and per-agent cost caps, approval checkpoints (Phase 5). The rule-based assistant uses the same record-level tool functions the gateway will call.
-- **Object storage** for uploads and exports with content-type validation and scanning (Phase 4–5).
+- **WebSocket fan-out** for live counters (Phase 6).
+- **Columnar analytics store** for responses at volume (Phase 6).
+- **AI evaluation set** run against the live provider before enabling it per tenant; per-agent caps; tool-calling agents behind the approval gate (Phase 6).
+- **Object storage** for uploads and exports with content-type validation and scanning (Phase 6).
 - **Observability**: OpenTelemetry traces, structured logs, metrics (Phase 6).
 
 ## 5. Security model
