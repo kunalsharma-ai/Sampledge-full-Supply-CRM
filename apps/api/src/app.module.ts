@@ -28,6 +28,7 @@ import { IntegrationsController, IntegrationsService } from './modules/integrati
 import { AiController } from './ai/ai.controller';
 import { DiyController, DiyService } from './modules/diy';
 import { AdminController } from './modules/admin';
+import { RetentionController } from './modules/retention';
 import { renderMetrics } from './common/observability';
 import { LiveController, LiveHub } from './common/live';
 import { SamlController, SamlService } from './auth/saml';
@@ -73,7 +74,7 @@ class HealthController {
     JwtModule.register({ secret: config.jwtSecret, signOptions: { issuer: 'sampledge-api' }, verifyOptions: { issuer: 'sampledge-api' } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: () => Number(process.env.RATE_LIMIT ?? 600) }]),
   ],
-  controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController, AdminController, DpController, SsoController, SamlController, LiveController, PanelBackendController, IntegrationsController],
+  controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController, AdminController, RetentionController, DpController, SsoController, SamlController, LiveController, PanelBackendController, IntegrationsController],
   providers: [
     PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, SamlService, LiveHub,
     SharedThrottlerStorage, PanelBackend, PanelBackendService, PanelSyncService, IntegrationsService,

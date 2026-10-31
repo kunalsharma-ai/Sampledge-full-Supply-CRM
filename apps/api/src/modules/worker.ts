@@ -28,6 +28,7 @@ async function nextNumber(tx: Tx, tenantId: string, kind: 'PO' | 'INV') {
 
 // Delivery lives in ./delivery; re-exported here because callers import it from the worker.
 import { deliveryAdapter } from './delivery';
+import { applyRetention, logRun } from './retention';
 export { deliveryAdapter };
 
 /**
@@ -70,6 +71,20 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // the panel before anything is sent again.
     const stuck = await this.db.panelCall.updateMany({ where: { status: 'sending', createdAt: { lt: new Date(Date.now() - 600_000) } }, data: { status: 'needs_review', error: 'Interrupted while sending; check the panel before retrying' } });
     if (stuck.count) this.log.warn(`${stuck.count} panel call(s) need review`);
+    await this.retention();
+  }
+
+  /** Applies each workspace's retention policies, at most once a day per workspace. */
+  async retention() {
+    const due = await this.db.tenant.findMany({ where: { NOT: { retention: { equals: {} } }, OR: [{ retentionRunAt: null }, { retentionRunAt: { lt: new Date(Date.now() - 24 * 3600_000) } }] }, select: { id: true } });
+    for (const t of due) {
+      await asTenant(t.id, () => this.db.$transaction(async (tx) => {
+        const counts = await applyRetention(tx, t.id);
+        await logRun(tx, t.id, { userId: null, name: 'system (daily retention)' }, counts as Record<string, number>);
+        const n = Object.values(counts).reduce((a, b) => a + (b ?? 0), 0);
+        if (n) this.log.log(`retention: ${n} record(s) removed or redacted in ${t.id}`);
+      })).catch((e) => this.log.error(e));
+    }
   }
 
   async tick(): Promise<number> {

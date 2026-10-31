@@ -207,7 +207,9 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Sign out everywhere | Functional, tested | Revokes a member's live sessions in this workspace; audited |
 | Audit trail viewer with record type, action and actor filters | Functional, tested | Append-only; written in the same transaction as each change |
 | Role matrix | Functional | The same matrix the API guards use |
-| Retention policies, tenant management | Planned | |
+| Workspace settings: name, identifier, what the workspace holds | Functional, tested | Renaming is audited. Counts come from this workspace only |
+| Data retention policies | Functional, tested | Per workspace, per category (message content, notifications, ended sessions, AI usage log, panel request log), default keep, with a minimum period each. Turning one on or shortening it is a *Deleting records* approval decided by someone else; lengthening or turning off applies at once. The worker applies them daily; admins can run them now. Message content is redacted and the log row kept; the others are deleted. Every run is audited with counts. Research data, finance records and the audit trail are not covered |
+| Workspace (tenant) creation | Functional, tested | Operator command on the server (`node dist/tenant.js create|list`): creates the workspace and its first platform admin with a one-time password. Not available from inside a workspace |
 
 Integrations is a navigable placeholder that states its scope.
 

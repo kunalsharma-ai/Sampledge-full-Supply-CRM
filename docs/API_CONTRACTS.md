@@ -184,6 +184,11 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | POST | `/admin/users/:id/sessions/revoke` | write; revokes the member's live sessions in this workspace (not your own). Audited as `sessions.revoked` |
 | GET | `/comms/adapter` | module `communications`: `{mode: development|smtp, name, channels: {email: development|smtp|off, sms: development|api|off}}`; never credentials |
 | GET | `/admin/audit/facets` | record types and actions in the audit trail, with counts |
+| GET | `/admin/workspace` | `{id, name, slug, createdAt, counts}` for this workspace |
+| PATCH | `/admin/workspace` | write; `{ name }`. Audited as `workspace.renamed` |
+| GET | `/admin/retention` | `{lastRun, categories: [{category, label, min, what, days|null, eligibleNow, pending}]}` |
+| PUT | `/admin/retention` | write; `{ category, days|null }`. Below the minimum → 400. Turning on or shortening returns `{changed: false, approvalId, wouldRemove}` (a *Deleting records* approval); lengthening or `null` applies at once (`retention.changed`) |
+| POST | `/admin/retention/run` | write; applies the policies now, returns `{counts}`; audited as `retention.applied` |
 | GET | `/live` | Server-Sent Events: `change` `{type}` for the workspace, `notification` `{type,module,title}` for the caller's role |
 | GET | `/auth/sso/config` · `/auth/sso/start?next=` · `/auth/sso/callback` | OpenID Connect sign-in (public) |
 | GET · POST | `/auth/saml/config` · `/auth/saml/metadata` · `/auth/saml/start?next=` · POST `/auth/saml/acs` · `/auth/saml/finish` | SAML 2.0 sign-in (public). The ACS validates and hands over to `/finish`, which checks the browser's flow cookie before setting the session |

@@ -17,6 +17,9 @@ model Tenant {
   name        String
   slug        String       @unique
   createdAt   DateTime     @default(now())
+  /// Retention periods in days per category (see modules/retention.ts); a missing key means keep.
+  retention      Json      @default("{}")
+  retentionRunAt DateTime?
   memberships Membership[]
 }
 

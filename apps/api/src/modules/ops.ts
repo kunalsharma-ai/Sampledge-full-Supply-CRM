@@ -1,3 +1,4 @@
+import { applyApprovedRetention } from './retention';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { pageInMemory, paged, pageArgs } from '../common/paging';
@@ -139,6 +140,7 @@ export class ApprovalsService {
         return `Role changed from ${m.role} to platform_admin`;
       }
       case 'Deleting records': {
+        if (p.retention) return ok ? applyApprovedRetention(tx, tenantId, p.retention as unknown as { category: string; days: number }) : 'Rejected; retention policy unchanged';
         if (!p.panelistId) return ok ? 'Recorded' : 'Rejected';
         if (!ok) {
           await tx.panelist.update({ where: { id: String(p.panelistId) }, data: { status: 'active' } });
