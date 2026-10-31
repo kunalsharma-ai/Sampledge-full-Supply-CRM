@@ -46,6 +46,9 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | POST | `/deliverables` | `{ projectId, surveyId, kind: report_pdf\|report_pptx\|tables_xlsx\|responses_csv\|data_sav, title?, note? }`. Team only (full Client Portal access). Reports are released at once; CSV/SPSS create a *Releasing sensitive datasets* approval |
 | GET | `/deliverables/:id/download` | The stored file, with `X-Content-SHA256`. Clients: released and own project only (404 otherwise); audited |
 | POST | `/deliverables/:id/withdraw` | Team only. Hides the file from the client and closes a pending release approval |
+| GET | `/report-schedules` | Team only. Scheduled deliveries with next run and last result |
+| POST | `/report-schedules` | `{ projectId, surveyId, kind: report_pdf\|report_pptx\|tables_xlsx, frequency: daily\|weekly, weekday? (0=Sunday, required for weekly), hourUtc }`. Team only; respondent-level data is refused |
+| POST | `/report-schedules/:id/pause` · `/resume` | Team only. Resuming schedules the next future slot (a missed run is not fired) |
 
 ## Surveys (module `survey-studio`)
 | Method | Path | Notes |

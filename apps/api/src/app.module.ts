@@ -35,6 +35,7 @@ import { SsoController, SsoService } from './auth/sso';
 import { IdempotencyInterceptor } from './common/idempotency';
 import { DpController, DpService } from './modules/dp';
 import { DeliverablesController, DeliverablesService } from './modules/deliverables';
+import { ReportSchedulesController, ReportSchedulesService } from './modules/report-schedules';
 import { AiGateway } from './ai/gateway';
 
 @Controller('metrics')
@@ -74,9 +75,9 @@ class HealthController {
     JwtModule.register({ secret: config.jwtSecret, signOptions: { issuer: 'sampledge-api' }, verifyOptions: { issuer: 'sampledge-api' } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: () => Number(process.env.RATE_LIMIT ?? 600) }]),
   ],
-  controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController, AdminController, DpController, SsoController, SamlController, DeliverablesController, LiveController, PanelBackendController, IntegrationsController],
+  controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, CommsController, AiController, DiyController, AdminController, DpController, SsoController, SamlController, DeliverablesController, ReportSchedulesController, LiveController, PanelBackendController, IntegrationsController],
   providers: [
-    PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, SamlService, DeliverablesService, LiveHub,
+    PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, SamlService, DeliverablesService, ReportSchedulesService, LiveHub,
     SharedThrottlerStorage, PanelBackend, PanelBackendService, PanelSyncService, IntegrationsService,
     { provide: ThrottlerStorage, useExisting: SharedThrottlerStorage },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
