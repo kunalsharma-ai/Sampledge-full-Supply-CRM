@@ -19,7 +19,7 @@ type Results = {
   questions: QuestionResult[];
 };
 type RespRow = { id: string; respondent: string; source: string; outcome: string | null; flags: string[]; rejectedAt: string | null; completedAt: string | null };
-const flagLabel: Record<string, string> = { speeder: 'Speeder', straightliner: 'Straight-liner', duplicate: 'Duplicate', gibberish: 'Gibberish open end' };
+const flagLabel: Record<string, string> = { speeder: 'Speeder', straightliner: 'Straight-liner', duplicate: 'Duplicate', duplicate_device: 'Same browser as another complete', gibberish: 'Gibberish open end' };
 
 function QuestionCard({ q, banner }: { q: QuestionResult; banner: Results['banner'] }) {
   return (

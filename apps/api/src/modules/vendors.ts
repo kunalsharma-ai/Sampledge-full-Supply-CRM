@@ -1,9 +1,10 @@
 import type { Response } from 'express';
-import { Controller, Get, Injectable, NotFoundException, Param, Query, Res } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, Patch, Query, Res } from '@nestjs/common';
 import { rankVendors, type Vendor as CoreVendor } from '@sampledge/core';
 import type { Vendor } from '@prisma/client';
 import { z } from 'zod';
-import { Caller, ForModule, type Ctx } from '../common/context';
+import { AuditService } from '../common/audit.service';
+import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { DEFAULT_PAGE, pageArgs, paged, type Page } from '../common/paging';
 import { PrismaService } from '../common/prisma.service';
 import { redactAllocation, redactVendor } from '../common/redact';
@@ -15,11 +16,29 @@ export const toCoreVendor = (v: Vendor & { _count?: { allocations: number } }): 
   delivered: v.delivered, pendingPayment: v.pendingPayment, bidWinRate: v.bidWinRate, verified: v.verified,
 });
 
+/** Exit links must be https and may carry {rid}; nothing else from the response is ever substituted. */
+const ExitUrl = z.string().trim().max(2000).url().refine((u) => u.startsWith('https://'), 'Use an https:// link').nullable().optional();
+const Redirects = z.object({ completeUrl: ExitUrl, screenoutUrl: ExitUrl, overquotaUrl: ExitUrl }).strict();
+
 const RankQuery = z.object({ audience: z.enum(['B2B', 'B2C', 'Healthcare']), country: z.string().length(2), n: z.coerce.number().int().positive(), ir: z.coerce.number().gt(0).max(1), loi: z.coerce.number().int().positive() });
 
 @Injectable()
 export class VendorsService {
-  constructor(private db: PrismaService) {}
+  constructor(private db: PrismaService, private audit: AuditService) {}
+
+  /** Exit links for one allocation: the vendor it belongs to, or a team member with full Sample Exchange access. */
+  async setRedirects(ctx: Ctx, id: string, body: z.infer<typeof Redirects>) {
+    const a = await this.db.allocation.findFirst({ where: { id, tenantId: ctx.tenantId } });
+    if (!a) throw new NotFoundException('Allocation not found');
+    if (ctx.role === 'vendor' && a.vendorId !== ctx.vendorId) throw new ForbiddenException('Not your allocation');
+    const pick = (x: { completeUrl: string | null; screenoutUrl: string | null; overquotaUrl: string | null }) => ({ completeUrl: x.completeUrl, screenoutUrl: x.screenoutUrl, overquotaUrl: x.overquotaUrl });
+    const data = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) as Partial<ReturnType<typeof pick>>;
+    return this.db.$transaction(async (tx) => {
+      const u = await tx.allocation.update({ where: { id }, data });
+      await this.audit.log(ctx, 'allocation.redirects', 'Allocation', id, pick(a), pick(u), tx);
+      return { id: u.id, ...pick(u) };
+    });
+  }
 
   /** Vendor users see only their own vendor record. */
   private where(ctx: Ctx) {
@@ -41,7 +60,7 @@ export class VendorsService {
   async allocations(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
     const rows = await this.db.allocation.findMany({
       where: { tenantId: ctx.tenantId, ...(ctx.role === 'vendor' ? { vendorId: ctx.vendorId ?? '__none__' } : {}) },
-      include: { project: { select: { code: true, name: true, countries: true, audience: true, deadline: true } }, vendor: { select: { name: true } } },
+      include: { project: { select: { code: true, name: true, countries: true, audience: true, deadline: true, surveys: { where: { status: 'Published', hasDefinition: true }, select: { id: true, name: true } } } }, vendor: { select: { name: true } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...page,
     });
     return rows.map((a) => redactAllocation(ctx, a));
@@ -61,6 +80,8 @@ export class VendorsController {
   @Get('vendors') async list(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.list(ctx, pg), pg.want, res); }
   @Get('vendors/:id') get(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.get(ctx, id); }
   @Get('allocations') async allocations(@Caller() ctx: Ctx, @Query() q: unknown, @Res({ passthrough: true }) res: Response) { const pg = pageArgs(q, 500, 500); return paged(await this.s.allocations(ctx, pg), pg.want, res); }
+  @Patch('allocations/:id/redirects') @Write({ allowScoped: true })
+  redirects(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) { return this.s.setRedirects(ctx, id, parse(Redirects, b ?? {})); }
 }
 
 @ForModule('crm')

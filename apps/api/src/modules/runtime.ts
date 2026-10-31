@@ -1,8 +1,10 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Post, Req, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Post, Req, Res, UnprocessableEntityException } from '@nestjs/common';
+import { createHmac, randomBytes } from 'node:crypto';
 import { live } from '../common/live';
 import { access, answer, qualityFlags, displayOptions, evaluate, pipe, start, type Answer, type Answers, type Outcome, type RunState, type SurveyDef } from '@sampledge/core';
 import { Prisma } from '@prisma/client';
-import type { Request } from 'express';
+import type { Request, Response as ExpressResponse } from 'express';
+import { config } from '../common/config';
 import { z } from 'zod';
 import type { Ctx } from '../common/context';
 import { Public } from '../common/context';
@@ -11,6 +13,18 @@ import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
 import { SurveysService } from './surveys';
 import { enterTenant } from '../common/tenant-scope';
+
+const DEVICE_COOKIE = 'sx_dev';
+
+/** The device cookie is never stored as is: only a keyed hash per survey, so it cannot link surveys. */
+export const deviceHash = (surveyId: string, device: string) => createHmac('sha256', config.jwtSecret).update(`device:${surveyId}:${device}`).digest('base64url');
+
+/** Builds a supplier exit link. Only the supplier's own respondent id is substituted, URL-encoded. */
+export function exitUrl(a: { completeUrl: string | null; screenoutUrl: string | null; overquotaUrl: string | null } | null, outcome: string | null | undefined, rid: string | null) {
+  if (!a || !outcome) return null;
+  const url = outcome === 'complete' ? a.completeUrl : outcome === 'screenout' ? a.screenoutUrl : outcome === 'overquota' ? a.overquotaUrl : null;
+  return url ? url.split('{rid}').join(encodeURIComponent(rid ?? '')) : null;
+}
 
 /** Thrown inside the completion transaction when a hard cell filled up between check and write. */
 class QuotaRace extends Error {}
@@ -37,7 +51,7 @@ export class RuntimeService {
     };
   }
 
-  async start(surveyId: string, body: { source?: string; respondent?: string; preview?: boolean }, staff: Ctx | undefined) {
+  async start(surveyId: string, body: { source?: string; respondent?: string; preview?: boolean; allocation?: string }, staff: Ctx | undefined, device?: string) {
     const s = await this.db.survey.findUnique({ where: { id: surveyId } });
     if (!s || !s.hasDefinition) throw new NotFoundException('Survey not found');
     enterTenant(s.tenantId);
@@ -46,10 +60,23 @@ export class RuntimeService {
       if (!staff || staff.tenantId !== s.tenantId || access(staff.role, 'survey-studio') === 'none') throw new ForbiddenException('This survey is not live');
       source = 'preview';
     }
+    // Supplier entry: the allocation must belong to this survey's project and be approved or live.
+    let allocationId: string | null = null;
+    if (body.allocation && source !== 'preview') {
+      const a = await this.db.allocation.findFirst({ where: { id: body.allocation, tenantId: s.tenantId } });
+      if (!a || !s.projectId || a.projectId !== s.projectId) throw new NotFoundException('This survey link is not valid');
+      if (a.status !== 'approved' && a.status !== 'live') throw new ForbiddenException('This survey is not open for this supplier');
+      allocationId = a.id;
+      source = `vendor:${a.vendorId}`;
+    }
     const def = await this.surveys.definition(s.id, s.currentVersion);
     const st = start(def);
+    const supplierRid = allocationId ? body.respondent ?? null : null;
     const r = await this.db.response.create({
-      data: { tenantId: s.tenantId, surveyId: s.id, version: s.currentVersion, source, respondent: body.respondent ?? 'anon', answers: {}, path: [], cursor: st.cursor },
+      data: {
+        tenantId: s.tenantId, surveyId: s.id, version: s.currentVersion, source, respondent: body.respondent ?? 'anon', answers: {}, path: [], cursor: st.cursor,
+        allocationId, supplierRid, deviceHash: device && source !== 'preview' ? deviceHash(s.id, device) : null,
+      },
     });
     return { responseId: r.id, version: s.currentVersion, preview: source === 'preview', ...this.render(def, st, r.id) };
   }
@@ -60,7 +87,13 @@ export class RuntimeService {
     enterTenant(r.tenantId);
     const def = await this.surveys.definition(r.surveyId, r.version);
     const st: RunState = { cursor: r.cursor, answers: r.answers as Answers, path: r.path, outcome: (r.outcome ?? undefined) as Outcome | undefined };
-    return { responseId: r.id, outcome: r.outcome, ...this.render(def, st, r.id) };
+    return { responseId: r.id, outcome: r.outcome, redirect: await this.redirectFor(r, r.outcome), ...this.render(def, st, r.id) };
+  }
+
+  private async redirectFor(r: { allocationId: string | null; supplierRid: string | null }, outcome: string | null | undefined) {
+    if (!r.allocationId || !outcome) return null;
+    const a = await this.db.allocation.findUnique({ where: { id: r.allocationId }, select: { completeUrl: true, screenoutUrl: true, overquotaUrl: true } });
+    return exitUrl(a, outcome, r.supplierRid);
   }
 
   async answer(responseId: string, qid: string, value: Answer) {
@@ -91,7 +124,7 @@ export class RuntimeService {
     } else {
       await this.save(this.db, r.id, next, outcome);
     }
-    return { responseId: r.id, outcome: outcome ?? null, ...(outcome ? {} : this.render(def, next, r.id)) };
+    return { responseId: r.id, outcome: outcome ?? null, ...(outcome ? { redirect: await this.redirectFor(r, outcome) } : this.render(def, next, r.id)) };
   }
 
   /**
@@ -118,10 +151,12 @@ export class RuntimeService {
   }
 
   /** Quality flags on a completed interview (flagging only; rejection is approval-gated). */
-  private async quality(r: { id: string; surveyId: string; respondent: string; startedAt: Date }, def: SurveyDef, answers: Answers) {
+  private async quality(r: { id: string; surveyId: string; respondent: string; startedAt: Date; deviceHash: string | null; allocationId: string | null }, def: SurveyDef, answers: Answers) {
     const s = await this.db.survey.findUniqueOrThrow({ where: { id: r.surveyId }, select: { project: { select: { loi: true } } } });
     const flags: string[] = qualityFlags(def.questions, answers, (Date.now() - r.startedAt.getTime()) / 1000, s.project?.loi ?? 10);
     if (r.respondent !== 'anon' && (await this.db.response.count({ where: { surveyId: r.surveyId, respondent: r.respondent, outcome: 'complete', id: { not: r.id } } }))) flags.push('duplicate');
+    // The same browser completing twice: flagged for review, never blocked or rejected automatically.
+    if (r.deviceHash && (await this.db.response.count({ where: { surveyId: r.surveyId, deviceHash: r.deviceHash, outcome: 'complete', id: { not: r.id } } }))) flags.push('duplicate_device');
     return flags;
   }
 
@@ -138,9 +173,15 @@ export class RuntimeController {
   constructor(private s: RuntimeService) {}
 
   @Public() @Post(':surveyId/start')
-  startSession(@Param('surveyId') id: string, @Body() b: unknown, @Req() req: Request & { ctx?: Ctx }) {
-    const x = parse(z.object({ source: z.string().max(60).regex(/^[a-z0-9:_-]+$/i).optional(), respondent: z.string().max(80).optional(), preview: z.boolean().optional() }), b ?? {});
-    return this.s.start(id, x, req.ctx);
+  startSession(@Param('surveyId') id: string, @Body() b: unknown, @Req() req: Request & { ctx?: Ctx }, @Res({ passthrough: true }) res: ExpressResponse) {
+    const x = parse(z.object({ source: z.string().max(60).regex(/^[a-z0-9:_-]+$/i).optional(), respondent: z.string().max(80).optional(), preview: z.boolean().optional(), allocation: z.string().max(40).optional() }), b ?? {});
+    // A random first-party id for duplicate checks; it carries no information about the person.
+    let device = typeof req.cookies?.[DEVICE_COOKIE] === 'string' && /^[\w-]{16,64}$/.test(req.cookies[DEVICE_COOKIE]) ? req.cookies[DEVICE_COOKIE] as string : undefined;
+    if (!device) {
+      device = randomBytes(18).toString('base64url');
+      res.cookie(DEVICE_COOKIE, device, { httpOnly: true, sameSite: 'lax', secure: config.cookieSecure, maxAge: 365 * 86400_000, path: '/api/v1/r' });
+    }
+    return this.s.start(id, x, req.ctx, device);
   }
 
   @Public() @Get('session/:id')

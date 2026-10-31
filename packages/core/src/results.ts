@@ -104,7 +104,7 @@ export function surveyResults(questions: Q[], responses: ResultRow[], bannerId?:
 
 // ───────────────────────── Respondent quality
 
-export type QualityFlag = 'speeder' | 'straightliner' | 'duplicate' | 'gibberish';
+export type QualityFlag = 'speeder' | 'straightliner' | 'duplicate' | 'duplicate_device' | 'gibberish';
 
 /**
  * Flags for a completed interview. Flags never remove a respondent on their own: rejecting one is a
