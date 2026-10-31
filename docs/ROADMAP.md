@@ -11,7 +11,8 @@
 | **Known-limitation fixes (v0.7.0)** ✅ | Respondent flow (Sankey), fieldwork trend and segmentation on recorded responses; per-person notification read state; cursor paging on every growing list; tenant scope entered on public routes and per worker event | 114 API tests + 35 engine tests; 34-step browser e2e |
 | **Reports and exports (v0.8.0)** ✅ | PDF survey report, recodes (grouping and bands) usable everywhere a question is, SPSS .sav export with labels and weights | 120 API tests + 37 engine tests; 36-step browser e2e; .sav verified with pyreadstat |
 | **Scale-out and AI evaluation (v0.9.0)** ✅ | Rate limits shared across API instances (Postgres store), `TRUST_PROXY`, multi-instance check in CI (two API processes + separate worker), load test across instances, AI evaluation set with an admin scorecard | 127 API tests + 37 engine tests; 15 cross-instance checks; rules score 16/17 cases, 0 critical |
-| Next | SAML, Integrations (panel and e-mail/SMS adapters), AI evaluation scores on Claude (needs an API key), external pen test | |
+| **Panel backend adapter (v0.10.0)** ✅ | Turn2Opinion backend: per-panel connection, CPI, feasibility count, project status; invites, soft launch and cancel behind approvals, sent at most once | 7 adapter tests against a local stand-in; not yet run against the real backend |
+| Next | Panel adapter: project sync and response hand-off (need the backend's request/response formats), verification on staging; SAML; e-mail/SMS adapters; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4
 - **Postgres outbox instead of Redis.** Events commit with the change that caused them, and the worker claims them with `FOR UPDATE SKIP LOCKED`. This removes a service and a failure mode; the claim function is the single place to swap in a broker if volume calls for it.

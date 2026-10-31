@@ -572,3 +572,25 @@ model RateLimitBucket {
 
   @@index([resetAt])
 }
+
+/// Calls to the Turn2Opinion panel backend that change something there (invites, soft launch,
+/// cancel). Each is created by an approved request and sent at most once by the worker.
+model PanelCall {
+  id          String    @id @default(cuid())
+  tenantId    String
+  panel       String    // t2o | mfr | mho
+  action      String    // invites | soft-launch | cancel
+  method      String
+  path        String
+  body        Json?
+  status      String    @default("queued") // queued | sending | sent | failed | not_sent | needs_review
+  httpStatus  Int?
+  response    Json?
+  error       String?
+  approvalId  String?
+  requestedBy String
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([tenantId, createdAt])
+}

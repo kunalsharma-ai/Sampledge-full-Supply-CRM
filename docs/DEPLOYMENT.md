@@ -24,7 +24,7 @@ Every tenant table has `FORCE ROW LEVEL SECURITY`. Postgres skips policies for s
 `docker/db-init.sql` creates the application role for Docker. On a managed service, create the same roles by hand. The API logs a warning at start-up if it connects as a role that bypasses RLS, and **Admin → `GET /api/v1/admin/security`** reports what Postgres enforces for the current request.
 
 ## Environment
-API (`apps/api/.env`, see `.env.example`): `DATABASE_URL`, `JWT_SECRET` (32+ random characters; production refuses `dev-` secrets), `WEB_ORIGIN`, `COOKIE_SECURE=true` behind HTTPS, `SESSION_HOURS`, `LOGIN_RATE_LIMIT`, `RATE_LIMIT`, `WORKER_INLINE`, `COMMS_HIGH_VOLUME`, `AI_PROVIDER` / `ANTHROPIC_API_KEY` / `AI_MONTHLY_CAP_USD`, `OIDC_*` for single sign-on, `LOG_FORMAT=json`, `METRICS_TOKEN`.
+API (`apps/api/.env`, see `.env.example`): `DATABASE_URL`, `JWT_SECRET` (32+ random characters; production refuses `dev-` secrets), `WEB_ORIGIN`, `COOKIE_SECURE=true` behind HTTPS, `SESSION_HOURS`, `LOGIN_RATE_LIMIT`, `RATE_LIMIT`, `WORKER_INLINE`, `COMMS_HIGH_VOLUME`, `AI_PROVIDER` / `ANTHROPIC_API_KEY` / `AI_MONTHLY_CAP_USD`, `OIDC_*` for single sign-on, `LOG_FORMAT=json`, `METRICS_TOKEN`, `PANEL_{T2O,MFR,MHO}_URL` / `PANEL_{T2O,MFR,MHO}_TOKEN` / `PANEL_BACKEND_TENANT` for the panel backend (see docs/integrations/TURN2OPINION.md), `TRUST_PROXY`, `RATE_LIMIT_STORE`.
 Web: `API_ORIGIN` (where Next forwards `/api/v1`), `NEXT_PUBLIC_DEMO_LOGINS=false` outside demos, `HSTS=true` when served over HTTPS.
 
 ## Steps
