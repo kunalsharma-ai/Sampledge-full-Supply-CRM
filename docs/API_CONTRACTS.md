@@ -123,6 +123,11 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/surveys` | now includes `completes` (recorded, non-preview, not rejected) |
+| GET | `/surveys` | also `completionRate` (completes ÷ starts excluding screen-outs and over-quotas; null before any start) and `complexity` (display logic + rules + piped questions per question, 0–1; null without a questionnaire), computed per request |
+| POST | `/surveys/:id/time` | `edit:surveys`; `{ hours }` (0.25–24 in quarter hours) adds programming time; audited `survey.time_logged` |
+| GET | `/surveys/:id/methods` | analytics module; `{ survey, base, numeric[], single[], multi[] }`: questions each method can use |
+| POST | `/surveys/:id/methods` | analytics module, 200; `{ method: 'vw', tooCheap, cheap, expensive, tooExpensive }` · `{ method: 'gg', prices[{price, questionId, yes[]}] }` · `{ method: 'turf', questionId, k }` → `{ method, base, answered, result }` from completed, non-rejected interviews |
+| POST | `/opportunities` | `owner` is optional and defaults to the signed-in user |
 | GET | `/surveys/:id/results?banner=Q&excludeFlagged=true` | `{ survey, base, flagged, rejected, excludedFlagged, banner: {id,text,cols[{code,label,letter,base}]}, questions[] }`. Question shapes: single/multi `rows[{code,label,count,pct,byBanner?[{count,base,pct,sig[]}]}]`, numeric `mean/median/min/max`, nps `nps/promoters/passives/detractors`, matrix `rows[{dist[]}]`, text `samples[]` |
 | GET | `/surveys/:id/report.pptx?banner&excludeFlagged` | PowerPoint file; 400 when there are no completes; audited |
 | POST | `/surveys/:id/responses/:rid/reject` `{reason}` | creates a *Rejecting respondents* approval (`{approval}`), or `{alreadyPending:true}`. Approval excludes the interview and decrements its quota cells and the project's completes |
