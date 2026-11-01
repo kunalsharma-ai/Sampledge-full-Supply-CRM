@@ -290,8 +290,6 @@ model Survey {
   programmer     String
   currentVersion Int             @default(1)
   hoursSpent     Float           @default(0)
-  complexity     Float           @default(0.3)
-  completionRate Float           @default(0)
   loi            Int             @default(10)
   languages      String[]
   alerts         Int             @default(0)

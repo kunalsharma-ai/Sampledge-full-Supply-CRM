@@ -113,7 +113,7 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
     await db.survey.create({
       data: {
         id: s.id, tenantId: t, projectId: s.projectId, name: s.name, status: s.status, programmer: s.programmer, currentVersion: isCloud ? cloudSurvey.version : 1,
-        hoursSpent: s.hoursSpent, complexity: s.complexity, completionRate: s.completionRate, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud || isCx || isBrand, questionCount: isCloud ? cloudSurvey.questions.length : isCx ? cxSurvey.questions.length : isBrand ? brandSurvey.questions.length : s.questions,
+        hoursSpent: s.hoursSpent, loi: s.loi, languages: s.languages, alerts: s.alerts, hasDefinition: isCloud || isCx || isBrand, questionCount: isCloud ? cloudSurvey.questions.length : isCx ? cxSurvey.questions.length : isBrand ? brandSurvey.questions.length : s.questions,
       },
     });
   }

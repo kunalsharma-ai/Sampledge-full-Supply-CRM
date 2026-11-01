@@ -219,8 +219,8 @@ export const opportunities: Opportunity[] = oppTitles.map((title, i) => {
 
 // ───────────────────────── Surveys
 export type SurveySummary = {
-  id: string; name: string; projectId?: string; status: 'Draft' | 'In QA' | 'Published' | 'Closed'; questions: number; complexity: number;
-  loi: number; completionRate: number; programmer: string; hoursSpent: number; alerts: number; languages: string[]; demo: true;
+  id: string; name: string; projectId?: string; status: 'Draft' | 'In QA' | 'Published' | 'Closed'; questions: number; complexity: number | null;
+  loi: number; completionRate: number | null; programmer: string; hoursSpent: number; alerts: number; languages: string[]; demo: true;
 };
 export const surveys: SurveySummary[] = [
   ['Cloud Security Buyer Study', 'In QA', 'pr-002'], ['Brand Health Tracker Q4', 'Published', 'pr-001'], ['Oncology HCP Message Test', 'Published', 'pr-003'],
