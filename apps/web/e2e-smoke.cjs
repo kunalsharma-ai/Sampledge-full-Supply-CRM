@@ -68,6 +68,10 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   // The answer arrives after a network round trip; wait for it rather than a fixed delay.
   const traced = await p.getByText(/Traced to \d+ record/).first().waitFor({ timeout: 15000 }).then(() => true, () => false);
   ok('Assistant answers with sources', traced);
+  // Command Center figures are the API's, counted from records (no simulated series).
+  const ov = await apiGet('/insights/overview');
+  await p.waitForTimeout(1800); // count-up animation
+  ok(`Command Center KPI matches the API (${ov.kpis && ov.kpis.active_projects.value} active projects)`, !!ov.kpis && (await p.getByText('Total active projects').first().isVisible()) && (await p.getByText('Invoiced revenue, purchase cost and forecast').isVisible()));
 
   // 6 Survey programmer: QA fix saves a new server version, then publish goes to approval
   await switchTo('survey_programmer');

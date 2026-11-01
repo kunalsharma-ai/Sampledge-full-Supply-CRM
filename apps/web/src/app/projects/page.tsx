@@ -186,7 +186,7 @@ function ProjectsInner() {
         <KpiCard label="Active projects" value={list.filter((p) => p.stage !== 'Project Closure').length} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
         <KpiCard label="In field" value={field.length} format={(n) => fmtNum(n)} status={{ tone: 'ok', text: `${fmtNum(sum(field.map((p) => p.completes)))} completes` }} />
         <KpiCard label="Avg incidence" value={avg(field.map((p) => p.ir))} format={(n) => fmtPct(n)} color="rgb(var(--orange))" />
-        <KpiCard label="Avg dropout" value={avg(field.map((p) => p.dropout))} format={(n) => fmtPct(n)} delta={0.012} deltaGoodWhen="down" color="rgb(var(--magenta))" />
+        <KpiCard label="Avg dropout" value={avg(field.map((p) => p.dropout))} format={(n) => fmtPct(n)} deltaGoodWhen="down" color="rgb(var(--magenta))" />
         <KpiCard label="Delivery risks" value={risks.length} format={(n) => fmtNum(n)} status={{ tone: risks.length ? 'risk' : 'ok', text: 'From AI PM rule' }} color="rgb(var(--danger))" />
         <KpiCard label="Expected margin" value={avg(list.filter((p) => p.completes).map((p) => 1 - p.cpiCost / p.cpiSell))} format={(n) => fmtPct(n)} redacted={!can(s.role, 'view:margins')} color="rgb(var(--emerald))" />
       </div>

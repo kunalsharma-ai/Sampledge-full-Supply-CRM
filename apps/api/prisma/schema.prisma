@@ -761,3 +761,16 @@ model IncentiveEntry {
   @@index([tenantId, panelistId])
   @@index([tenantId, createdAt])
 }
+
+/// One value per business metric per day, recorded by the worker (and refreshed when the Command
+/// Center is opened), so KPI trends and period comparisons come from recorded history.
+model MetricSnapshot {
+  tenantId  String
+  day       DateTime @db.Date
+  key       String
+  value     Float
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@id([tenantId, day, key])
+  @@index([tenantId, key, day])
+}

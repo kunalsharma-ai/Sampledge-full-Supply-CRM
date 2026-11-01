@@ -105,7 +105,7 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
             <KpiCard label="Draft questionnaires" value={s.surveys.filter((v) => v.status === 'Draft').length} format={(n) => fmtNum(n)} />
             <KpiCard label="Awaiting QA" value={s.surveys.filter((v) => v.status === 'In QA').length} format={(n) => fmtNum(n)} color="rgb(var(--orange))" />
             <KpiCard label="Published" value={s.surveys.filter((v) => v.status === 'Published').length} format={(n) => fmtNum(n)} color="rgb(var(--emerald))" />
-            <KpiCard label="Avg programming time" value={avg(s.surveys.map((v) => v.hoursSpent))} format={(n) => `${n.toFixed(1)} h`} delta={-0.12} deltaGoodWhen="down" color="rgb(var(--purple))" />
+            <KpiCard label="Avg programming time" value={avg(s.surveys.map((v) => v.hoursSpent))} format={(n) => `${n.toFixed(1)} h`} deltaGoodWhen="down" color="rgb(var(--purple))" />
             <KpiCard label="Quality alerts" value={sum(s.surveys.map((v) => v.alerts))} format={(n) => fmtNum(n)} status={{ tone: 'warn', text: 'Across open surveys' }} color="rgb(var(--danger))" />
           </div>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">

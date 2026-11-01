@@ -3,7 +3,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { Calculator, FilePlus2, Mail, Sparkles } from 'lucide-react';
 import { Suspense, useMemo, useState } from 'react';
-import { clients, countries, crmStages, months, monthlyRevenue, vendors, type CrmStage, type Opportunity } from '@/lib/core';
+import { clients, countries, crmStages, vendors, type CrmStage, type Opportunity } from '@/lib/core';
 import { allocate, extractRfq, rankVendors, type Audience } from '@/lib/core';
 import { access, can } from '@/lib/core';
 import { useOS } from '@/lib/store';
@@ -207,12 +207,12 @@ function CrmInner() {
           {canEdit && <Button variant="primary" onClick={() => router.push('/crm?new=1')}><FilePlus2 size={14} /> New RFQ</Button>}</>} />
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <KpiCard label="New RFQs" value={s.opportunities.filter((o) => o.stage === 'New RFQ').length} format={(n) => fmtNum(n)} delta={0.25} color="rgb(var(--blue))" />
+        <KpiCard label="New RFQs" value={s.opportunities.filter((o) => o.stage === 'New RFQ').length} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
         <KpiCard label="Open opportunities" value={open.length} format={(n) => fmtNum(n)} />
         <KpiCard label="Quotes awaiting client" value={s.opportunities.filter((o) => o.stage === 'Quote Sent' || o.stage === 'Negotiation').length} format={(n) => fmtNum(n)} color="rgb(var(--orange))" />
         <KpiCard label="Pipeline value" value={sum(open.map((o) => o.value))} format={(n) => fmtMoney(n)} color="rgb(var(--purple))" />
         <KpiCard label="Weighted forecast" value={sum(open.map((o) => o.value * o.probability))} format={(n) => fmtMoney(n)} color="rgb(var(--cyan))" />
-        <KpiCard label="Win rate" value={won.length / Math.max(1, won.length + lost.length)} format={(n) => fmtPct(n, 0)} delta={0.04} color="rgb(var(--emerald))" />
+        <KpiCard label="Win rate" value={won.length / Math.max(1, won.length + lost.length)} format={(n) => fmtPct(n, 0)} color="rgb(var(--emerald))" />
         <KpiCard label="Avg gross margin" value={sum(s.opportunities.map((o) => o.margin)) / s.opportunities.length} format={(n) => fmtPct(n)} redacted={!margins} color="rgb(var(--emerald))" />
       </div>
 
@@ -255,22 +255,7 @@ function CrmInner() {
                   data: crmStages.slice(0, 6).map((st, i) => ({ name: st, value: s.opportunities.filter((o) => crmStages.indexOf(o.stage) >= i && o.stage !== 'Lost').length, itemStyle: { color: [palette.blue, '#2F7CFB', palette.cyan, palette.purple, palette.magenta, palette.emerald][i] } })) }],
               })} />
             </Panel>
-            <Panel>
-              <PanelHeader eyebrow="Forecast" title="Revenue: actual vs weighted pipeline" actions={<DemoBadge />} />
-              <EChart ariaLabel="Revenue forecast" height={260} deps={[open]} option={(t) => {
-                const weighted = sum(open.map((o) => o.value * o.probability));
-                const next = ['Nov', 'Dec', 'Jan'];
-                return {
-                  tooltip: { trigger: 'axis', valueFormatter: (v) => fmtMoney(Number(v)) }, legend: { right: 0 },
-                  xAxis: { type: 'category', data: [...months.slice(6), ...next], ...axis(t), splitLine: { show: false } },
-                  yAxis: { type: 'value', ...axis(t), axisLabel: { ...axis(t).axisLabel, formatter: (v: number) => fmtMoney(v) } },
-                  series: [
-                    { name: 'Actual', type: 'bar', barWidth: 14, itemStyle: { borderRadius: [4, 4, 0, 0], color: palette.blue }, data: [...monthlyRevenue.slice(6), null, null, null] },
-                    { name: 'Forecast', type: 'bar', barWidth: 14, itemStyle: { borderRadius: [4, 4, 0, 0], color: 'rgba(24,215,242,.55)' }, data: [...Array(6).fill(null), monthlyRevenue[11] * 0.97 + weighted * 0.45, monthlyRevenue[11] * 0.9 + weighted * 0.35, monthlyRevenue[11] * 0.95 + weighted * 0.2] },
-                  ],
-                };
-              }} />
-            </Panel>
+            <RevenueForecast />
             <Panel>
               <PanelHeader eyebrow="Win / loss" title="Outcomes and loss reasons" />
               <EChart ariaLabel="Win loss" height={260} deps={[s.opportunities]} option={() => ({
@@ -309,3 +294,31 @@ function CrmInner() {
 }
 
 export default function CrmPage() { return <Suspense><CrmInner /></Suspense>; }
+
+type Revenue = { currency: string; months: { month: string; revenue: number }[]; forecast: { month: string; draftInvoices: number; weightedPipeline: number }[]; weightedPipeline: number; openOpportunities: number };
+const monthLabel = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+
+/** Last six months of invoiced revenue, then draft invoices and the probability-weighted open pipeline. */
+function RevenueForecast() {
+  const opps = useOS((s) => s.opportunities);
+  const { data: r, error } = useLive<Revenue>('/crm/insights/revenue', [opps]);
+  const recent = r?.months.slice(-6) ?? [];
+  const empty = !!r && !recent.some((m) => m.revenue) && r.weightedPipeline === 0;
+  return (
+    <Panel>
+      <PanelHeader eyebrow="Forecast" title="Invoiced revenue vs weighted pipeline" actions={r && <span className="text-2xs text-ink-3">{r.openOpportunities} open · {r.currency}</span>} />
+      {error ? <EmptyState title="Forecast unavailable" body={error} /> : !r ? <div className="h-[260px] animate-pulse rounded-xl bg-white/5" /> : empty ? <EmptyState title="No invoices or open opportunities" body="Issued invoices and weighted open deals appear here." /> : (
+        <EChart ariaLabel="Revenue forecast" height={260} deps={[r]} option={(t) => ({
+          tooltip: { trigger: 'axis', valueFormatter: (v) => (v == null ? '—' : fmtMoney(Number(v))) }, legend: { right: 0 },
+          xAxis: { type: 'category', data: [...recent.map((m) => monthLabel(m.month)), ...r.forecast.map((f) => monthLabel(f.month))], ...axis(t), splitLine: { show: false } },
+          yAxis: { type: 'value', ...axis(t), axisLabel: { ...axis(t).axisLabel, formatter: (v: number) => fmtMoney(v) } },
+          series: [
+            { name: 'Invoiced', type: 'bar', barWidth: 14, stack: 'r', itemStyle: { borderRadius: [4, 4, 0, 0], color: palette.blue }, data: [...recent.map((m) => m.revenue), null, null, null] },
+            { name: 'Draft invoices', type: 'bar', barWidth: 14, stack: 'r', itemStyle: { color: 'rgba(36,107,253,.45)' }, data: [...Array(recent.length).fill(null), ...r.forecast.map((f) => f.draftInvoices || null)] },
+            { name: 'Weighted pipeline', type: 'bar', barWidth: 14, stack: 'r', itemStyle: { borderRadius: [4, 4, 0, 0], color: 'rgba(24,215,242,.55)' }, data: [...Array(recent.length).fill(null), ...r.forecast.map((f) => f.weightedPipeline || null)] },
+          ],
+        })} />
+      )}
+    </Panel>
+  );
+}
