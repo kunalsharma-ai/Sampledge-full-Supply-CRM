@@ -255,6 +255,15 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await go('/automation');
   await p.getByText('Rule-based mode').waitFor({ timeout: 10000 });
   ok('Automation shows the AI gateway in rule-based mode with usage', await p.getByText(/project\.summary/).first().isVisible());
+  // Agents run for real: run one now, and its run is logged with what it did.
+  await p.locator('div.panel-solid', { hasText: 'Project Management Agent' }).first().click();
+  await p.getByRole('button', { name: 'Run now' }).click();
+  let runs = [];
+  for (let i = 0; i < 20 && !runs.length; i++) { await p.waitForTimeout(500); runs = await apiGet('/agents/runs'); }
+  ok(`Agent run is logged (${runs[0] && runs[0].summary})`, Array.isArray(runs) && runs[0] && runs[0].status === 'succeeded' && runs[0].trigger === 'manual');
+  await p.getByRole('switch', { name: 'Toggle Respondent Quality Agent' }).click();
+  await p.waitForTimeout(1500);
+  ok('Agent can be switched on', (await apiGet('/agents')).find((a) => a.key === 'respondent-quality').enabled === true);
 
   // 12 Vendor scope
   await switchTo('vendor');

@@ -248,26 +248,20 @@ export const panels: PanelBrand[] = [
 ];
 
 // ───────────────────────── Automation agents
-export const agents = [
-  'Survey Programming Agent', 'Survey QA Agent', 'Research Feasibility Agent', 'Vendor Recommendation Agent', 'Panel Engagement Agent',
-  'Respondent Quality Agent', 'Project Management Agent', 'Data Processing Agent', 'Reporting Agent', 'CRM and Bidding Agent',
-  'Finance Reconciliation Agent', 'Executive Intelligence Agent',
-].map((name, i) => ({
+export const agents = ([
+  ['Survey Programming Agent', 'survey-programming'], ['Survey QA Agent', 'survey-qa'], ['Research Feasibility Agent', 'feasibility'], ['Vendor Recommendation Agent', 'supplier-delivery'],
+  ['Panel Engagement Agent', 'panel-engagement'], ['Respondent Quality Agent', 'respondent-quality'], ['Project Management Agent', 'project-health'], ['Data Processing Agent', 'data-processing'],
+  ['Reporting Agent', 'reporting'], ['CRM and Bidding Agent', 'pipeline-followup'], ['Finance Reconciliation Agent', 'finance-overdue'], ['Executive Intelligence Agent', 'executive-digest'],
+] as const).map(([name, key], i) => ({
   id: `ag-${String(i + 1).padStart(2, '0')}`,
+  key,
   name,
-  enabled: i !== 10,
-  runs30d: int(40, 1400),
-  successRate: +between(0.86, 0.995).toFixed(3),
-  avgSeconds: int(4, 180),
-  minutesSaved: int(300, 9000),
-  pendingApprovals: [0, 0, 1, 2, 0, 3, 1, 0, 1, 2, 0, 0][i],
-  costUsd30d: +between(8, 260).toFixed(2),
-  costCapUsd: [300, 200, 150, 150, 250, 200, 150, 150, 200, 150, 100, 250][i],
+  // Agents start paused; they run only once someone turns them on (see apps/api/src/modules/agents.ts).
+  enabled: false,
   requiresApprovalFor: ([
-    ['Publishing surveys'], ['Publishing surveys'], [], ['Purchasing sample'], ['High-volume communications'], ['Rejecting respondents'],
+    ['Publishing surveys'], ['Publishing surveys'], ['Purchasing sample'], ['Purchasing sample'], ['High-volume communications'], ['Rejecting respondents'],
     [], ['Releasing sensitive datasets'], ['Releasing sensitive datasets'], ['Sending binding quotations'], ['Issuing payments'], [],
   ] as string[][])[i],
-  demo: true as const,
 }));
 
 export const approvals = [

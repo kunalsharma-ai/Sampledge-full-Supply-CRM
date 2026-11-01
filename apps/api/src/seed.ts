@@ -9,6 +9,7 @@ import { Prisma, PrismaClient, type Role } from '@prisma/client';
 import { prismaOptions } from './common/db-adapter';
 import { access, brandSurvey, cloudSurvey, cxResponses, cxSurvey, rng, roles, seed, type ModuleId } from '@sampledge/core';
 import bcrypt from 'bcryptjs';
+import { AGENTS } from './modules/agents';
 
 export const DEMO_PASSWORD = 'demo1234';
 export const MAIN_TENANT = 'sampledge-demo';
@@ -141,7 +142,7 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
   });
 
   await db.agent.createMany({
-    data: seed.agents.map((a) => ({ id: a.id, tenantId: t, name: a.name, enabled: a.enabled, runs30d: a.runs30d, successRate: a.successRate, avgSeconds: a.avgSeconds, minutesSaved: a.minutesSaved, costUsd30d: a.costUsd30d, costCapUsd: a.costCapUsd, requiresApproval: a.requiresApprovalFor })),
+    data: seed.agents.map((a) => ({ id: a.id, tenantId: t, key: a.key, name: a.name, enabled: false, requiresApproval: a.requiresApprovalFor, everyMinutes: AGENTS.find((d) => d.key === a.key)?.everyMinutes ?? 60 })),
   });
   await db.approval.createMany({
     data: seed.approvals.map((a) => ({ id: a.id, tenantId: t, agentId: a.agentId, kind: a.kind, title: `${a.title} (demo)`, projectId: a.projectId ?? null, amount: a.amount ?? null, requestedBy: `agent:${a.agentId}`, createdAt: new Date(a.requested), payload: { demo: true } })),

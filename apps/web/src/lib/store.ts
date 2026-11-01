@@ -28,7 +28,9 @@ export type ThemePref = 'dark' | 'light' | 'system';
 
 type Notification = (typeof notificationsSeed)[number];
 type Approval = Omit<(typeof approvalsSeed)[number], 'projectId' | 'amount' | 'agentId'> & { projectId?: string; amount?: number; agentId?: string; canDecide?: boolean };
-type Agent = (typeof agentsSeed)[number];
+type Agent = ApiAgent & { pendingApprovals?: number };
+/** Offline: the agent list without any runs (agents only run against the API). */
+const offlineAgents = (): Agent[] => agentsSeed.map((a) => ({ ...a, requiresApprovalFor: [...a.requiresApprovalFor], description: '', available: false, unavailable: 'Agents run only when signed in to the API', everyMinutes: 60, settings: {}, nextRunAt: null, lastRunAt: null, runs30d: 0, successRate: null, avgMs: null, produced30d: { notifications: 0, approvals: 0, messages: 0 } }));
 export type Mode = 'connecting' | 'live' | 'offline';
 export type ResponseRecord = { id: string; surveyId: string; version: number; outcome: Outcome; answers: Answers; at: string; source: 'preview' };
 export type AuditEntry = { id: string; at: string; actor: string; action: string; entity: string };
@@ -91,7 +93,7 @@ const seed = (): Omit<State, 'theme' | 'motion' | 'role' | 'assistantOpen' | 'pa
   surveyDefs: { [cloudSurvey.id]: structuredClone(cloudSurvey) },
   surveyHistory: {},
   responses: [],
-  agents: structuredClone(agentsSeed),
+  agents: offlineAgents(),
   approvals: structuredClone(approvalsSeed),
   notifications: structuredClone(notificationsSeed),
   audit: [],
@@ -335,7 +337,7 @@ export const useOS = create<State & Actions>()(
               surveyDefs: defs,
               approvals: (approvals ?? []).map((a) => ({ id: a.id, agentId: a.agentId ?? undefined, kind: a.kind, title: a.title, projectId: a.projectId ?? undefined, amount: a.amount ?? undefined, requested: a.createdAt, status: a.status, canDecide: a.canDecide, demo: true as const })),
               notifications: (notifications ?? []).map((n) => ({ id: n.id, title: n.title, body: n.body, module: n.module, time: relTime(n.createdAt), read: n.read, demo: true as const })),
-              agents: (agents ?? []).map((a) => ({ ...a, requiresApprovalFor: a.requiresApproval, pendingApprovals: pendingByAgent.get(a.id) ?? 0, demo: true as const })),
+              agents: (agents ?? []).map((a) => ({ ...a, pendingApprovals: pendingByAgent.get(a.id) ?? 0 })),
             });
           } catch (e) {
             if (e instanceof ApiError && e.status === 401) set({ session: null });
