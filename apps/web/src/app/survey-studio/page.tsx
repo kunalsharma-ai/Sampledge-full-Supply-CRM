@@ -122,7 +122,7 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
   return (
     <div>
       <PageHeader eyebrow="AI Survey Programming Studio" title="Survey Studio" subtitle="Schema-driven questionnaires with a visual logic builder, deterministic runtime, live preview and automated QA."
-        actions={<>{s.mode !== 'live' && <DemoBadge />}
+        actions={<><DemoBadge />
           {tab !== 'overview' && tab !== 'import' && <select aria-label="Survey" className="h-9 rounded-xl border hairline bg-surface-2/40 px-3 text-xs" value={def.id} onChange={(e) => setSurveyId(e.target.value)}>{defIds.map((id) => <option key={id} value={id}>{s.surveyDefs[id].name} · v{s.surveyDefs[id].version}</option>)}</select>}</>} />
 
       <div className="mb-6 overflow-x-auto">

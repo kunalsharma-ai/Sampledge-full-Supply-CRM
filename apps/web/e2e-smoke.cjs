@@ -62,6 +62,18 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   const op2 = await apiGet('/opportunities/op-002');
   ok('Marking Lost records the loss reason', op2.stage === 'Lost' && op2.lossReason === 'Timeline');
 
+  // 4b Bid assistant drafts a quote for the chosen client, owned by the signed-in user
+  await go('/crm');
+  await p.getByRole('radio', { name: /AI bid assistant/ }).or(p.getByRole('button', { name: /AI bid assistant/ })).first().click();
+  const cl = (await apiGet('/clients'))[2];
+  await p.getByLabel('Client', { exact: true }).selectOption(cl.id);
+  const oppsBefore = (await apiGet('/opportunities')).length;
+  await p.getByRole('button', { name: /Create draft quote/ }).nth(1).click();
+  await until(async () => (await apiGet('/opportunities')).length === oppsBefore + 1, 'bid assistant RFQ');
+  const bdMe = await apiGet('/auth/me');
+  const made = (await apiGet('/opportunities')).find((o) => o.clientId === cl.id && o.stage === 'New RFQ' && /study/.test(o.title));
+  ok(`Bid assistant RFQ is for ${cl.name}, owned by ${bdMe.user.name}`, !!made && made.owner === bdMe.user.name);
+
   // 5 Assistant answers from records
   await go('/command-center');
   await p.getByRole('button', { name: 'Show projects likely to miss their deadlines.' }).first().click();

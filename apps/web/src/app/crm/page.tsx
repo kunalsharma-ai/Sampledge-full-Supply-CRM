@@ -5,7 +5,7 @@ import { Calculator, FilePlus2, Mail, Sparkles } from 'lucide-react';
 import { Suspense, useMemo, useState } from 'react';
 import { clients, countries, crmStages, vendors, type CrmStage, type Opportunity } from '@/lib/core';
 import { allocate, extractRfq, rankVendors, type Audience } from '@/lib/core';
-import { access, can } from '@/lib/core';
+import { access, can, roles } from '@/lib/core';
 import { useOS } from '@/lib/store';
 import { api } from '@/lib/api';
 import { act, fmtCpi, useLive, type Feasibility } from '@/lib/live';
@@ -16,6 +16,8 @@ import { Badge, Button, DemoBadge, Drawer, EmptyState, Field, inputCls, PageHead
 import { EChart, axis } from '@/components/charts/echart';
 
 const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id;
+/** New opportunities are owned by whoever creates them (the API applies the same default). */
+const ownerName = (s: { session: { user: { name: string } } | null; role: string }) => s.session?.user.name ?? roles.find((r) => r.id === s.role)?.persona.split(' · ')[0] ?? 'Unassigned';
 const stageTone: Record<CrmStage, 'blue' | 'cyan' | 'purple' | 'orange' | 'magenta' | 'emerald' | 'danger'> = { 'New RFQ': 'blue', Qualifying: 'cyan', Feasibility: 'purple', 'Quote Sent': 'orange', Negotiation: 'magenta', Won: 'emerald', Lost: 'danger' };
 
 type Extracted = { n?: number; ir?: number; loi?: number; country?: string; audience?: Audience };
@@ -36,6 +38,9 @@ async function extract(text: string, live: boolean): Promise<{ fields: Extracted
 function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'stage' | 'probability' | 'created' | 'lastTouch' | 'demo'>) => void }) {
   const role = useOS((s) => s.role);
   const margins = can(role, 'view:margins');
+  const owner = useOS(ownerName);
+  const [picked, setClientId] = useState('');
+  const clientId = picked || clients[0]?.id || '';
   const [audience, setAudience] = useState<Audience>('B2B');
   const [country, setCountry] = useState('DE');
   const [n, setN] = useState(500);
@@ -78,6 +83,7 @@ function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'st
             </div>
           )}
         </div>
+        <Field label="Client"><select aria-label="Client" className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Audience"><select className={inputCls} value={audience} onChange={(e) => setAudience(e.target.value as Audience)}>{['B2C', 'B2B', 'Healthcare'].map((a) => <option key={a}>{a}</option>)}</select></Field>
           <Field label="Country"><select className={inputCls} value={country} onChange={(e) => setCountry(e.target.value)}>{countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}</select></Field>
@@ -108,7 +114,7 @@ function BidAssistant({ onCreate }: { onCreate: (o: Omit<Opportunity, 'id' | 'st
                   <div className="num mt-1 font-jakarta text-2xl font-bold">${p.cpi.toFixed(2)}<span className="text-xs font-medium text-ink-3"> CPI</span></div>
                   <div className="num text-[12px] text-ink-2">{fmtMoney(p.revenue, false)} total</div>
                   {margins ? <div className="num mt-1 text-[12px] font-semibold text-emerald">Gross margin {fmtPct(p.margin)} · {fmtMoney(p.revenue - cost, false)}</div> : <div className="mt-1 text-2xs text-ink-3">Margin hidden for your role</div>}
-                  <Button size="sm" className="mt-3 w-full" onClick={() => onCreate({ title: `${audience} study · ${countries.find((c) => c.code === country)?.name} (n=${n})`, clientId: 'cl-07', owner: 'Lena Ortiz', value: Math.round(p.revenue), margin: +p.margin.toFixed(3), type: audience, countries: [country], sampleSize: n, ir, loi })}>
+                  <Button size="sm" className="mt-3 w-full" disabled={!clientId} onClick={() => onCreate({ title: `${audience} study · ${countries.find((c) => c.code === country)?.name} (n=${n})`, clientId, owner, value: Math.round(p.revenue), margin: +p.margin.toFixed(3), type: audience, countries: [country], sampleSize: n, ir, loi })}>
                     <FilePlus2 size={13} /> Create draft quote
                   </Button>
                 </motion.div>
@@ -162,11 +168,13 @@ function FeasibilitySection({ oppId, stage, canEdit }: { oppId: string; stage: C
 
 function NewRfqDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useOS((s) => s.createRfq);
-  const [f, setF] = useState({ title: '', clientId: 'cl-01', type: 'B2C' as Audience, country: 'US', n: 1000, ir: 0.5, loi: 12, value: 8000 });
-  const valid = f.title.trim().length > 2 && f.n > 0;
+  const owner = useOS(ownerName);
+  const [form, setF] = useState({ title: '', clientId: '', type: 'B2C' as Audience, country: 'US', n: 1000, ir: 0.5, loi: 12, value: 8000 });
+  const f = { ...form, clientId: form.clientId || clients[0]?.id || '' };
+  const valid = f.title.trim().length > 2 && f.n > 0 && !!f.clientId;
   return (
     <Drawer open={open} onClose={onClose} title="New RFQ" subtitle="Creates an opportunity in New RFQ. Visible to Projects and Finance once won.">
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!valid) return; create({ title: f.title, clientId: f.clientId, owner: 'Lena Ortiz', value: f.value, margin: 0.4, type: f.type, countries: [f.country], sampleSize: f.n, ir: f.ir, loi: f.loi }); onClose(); }}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!valid) return; create({ title: f.title, clientId: f.clientId, owner, value: f.value, margin: 0.4, type: f.type, countries: [f.country], sampleSize: f.n, ir: f.ir, loi: f.loi }); onClose(); }}>
         <Field label="Study title"><input required className={inputCls} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Q1 Brand Lift Wave" /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Client"><select className={inputCls} value={f.clientId} onChange={(e) => setF({ ...f, clientId: e.target.value })}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>

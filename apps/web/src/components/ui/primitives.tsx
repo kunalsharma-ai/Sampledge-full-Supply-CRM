@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, FlaskConical, Inbox, Search, X } from 'lucide-react';
 import { forwardRef, useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useOS } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 // ───────────────────────── Panel
@@ -74,10 +75,17 @@ export function Badge({ tone = 'neutral', children, className, dot }: { tone?: T
 }
 
 /** Mandatory on every simulated surface: makes demo data unmistakable. */
-export function DemoBadge({ label = 'Demo data', className }: { label?: string; className?: string }) {
+/**
+ * Marks fictional content. Without a label it marks a panel as showing seed records, which is only
+ * true in the offline demo, so it hides itself once records come from the API. A label states a
+ * specific caveat (rule-based AI, synthetic interviews) and always shows.
+ */
+export function DemoBadge({ label, className }: { label?: string; className?: string }) {
+  const live = useOS((s) => s.mode === 'live');
+  if (!label && live) return null;
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full border border-dashed border-orange/50 bg-orange/10 px-2 py-0.5 text-2xs font-semibold text-orange', className)} title="Fictional demonstration data. Not connected to live systems.">
-      <FlaskConical size={11} /> {label}
+    <span className={cn('inline-flex items-center gap-1 rounded-full border border-dashed border-orange/50 bg-orange/10 px-2 py-0.5 text-2xs font-semibold text-orange', className)} title={label ? undefined : 'Fictional seed records kept in this browser. The API is not connected.'}>
+      <FlaskConical size={11} /> {label ?? 'Demo data'}
     </span>
   );
 }
