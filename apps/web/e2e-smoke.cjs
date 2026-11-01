@@ -143,6 +143,17 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await p.getByText(/sent for approval before anything is queued/).first().waitFor({ timeout: 10000 });
   ok('High-volume panel send waits for approval', (await apiGet('/comms/messages')).some((m) => m.status === 'pending_approval'));
 
+  // Panels: analytics counted from member records; the reward policy saves as a new version.
+  await go('/panels');
+  const pa = await apiGet('/panels/analytics');
+  await p.getByText('Member profile funnel').waitFor({ timeout: 15000 });
+  ok(`Panel analytics come from member records (${pa.kpis && pa.kpis.registered} members)`, !!pa.kpis && pa.kpis.registered > 0 && !(await p.getByText(/Simulated/).count()));
+  await p.getByLabel('Redemption threshold (pts)').fill('1500');
+  await p.getByRole('button', { name: 'Save as new version' }).click();
+  await p.getByText(/v1 in force/).waitFor({ timeout: 10000 });
+  const rp = await apiGet('/panels/reward-policy');
+  ok('Reward policy saved as version 1', rp.current && rp.current.version === 1 && rp.current.redemptionThreshold === 1500);
+
   // 10 Phase 5: results from real interviews, quality flags, methods lab, AI gateway, DIY
   const done = await p.evaluate(async () => {
     const base = { S1: 'ft', S2: 'lg', S3: 'final', S4: ['tech'], Q1: ['aws'], Q2: 'aws', Q3: 50, Q4: { posture: '3', identity: '3', workload: '3', data: '3' }, Q5: ['price', 'int', 'sup', 'comp'], Q6: 'flat', Q9: 8, Q10: 'ok', Q11: 4, END: '' };

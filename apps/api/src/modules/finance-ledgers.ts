@@ -17,6 +17,7 @@ import { requestApproval } from '../common/approvals';
 import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
+import { currentRewardPolicy } from './panel-analytics';
 import { parse } from '../common/zod';
 
 type Tx = Prisma.TransactionClient | PrismaService;
@@ -224,6 +225,11 @@ export class FinanceLedgersController {
       if (b.projectId && !(await tx.project.findFirst({ where: { id: b.projectId, tenantId: ctx.tenantId } }))) throw new NotFoundException('Project not found');
       const reserved = -((await tx.incentiveEntry.aggregate({ where: { tenantId: ctx.tenantId, panelistId: p.id, status: 'pending_approval' }, _sum: { points: true } }))._sum.points ?? 0);
       if (delta < 0 && p.points - reserved + delta < 0) throw new BadRequestException(`Only ${p.points - reserved} point(s) available${reserved ? ` (${reserved} awaiting a redemption decision)` : ''}`);
+      if (b.kind === 'redeem') {
+        // The panel reward policy in force sets the smallest balance a member may redeem from.
+        const policy = await currentRewardPolicy(tx, ctx.tenantId);
+        if (policy && p.points - reserved < policy.redemptionThreshold) throw new BadRequestException(`Redemption needs a balance of at least ${policy.redemptionThreshold.toLocaleString('en-US')} points (reward policy v${policy.version}); ${p.handle} has ${p.points - reserved}`);
+      }
       const t = await tx.tenant.findUniqueOrThrow({ where: { id: ctx.tenantId }, select: { pointValue: true, baseCurrency: true } });
       const valueBase = Math.round(delta * t.pointValue * 100) / 100;
       if (b.kind === 'redeem') {

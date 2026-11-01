@@ -774,3 +774,19 @@ model MetricSnapshot {
   @@id([tenantId, day, key])
   @@index([tenantId, key, day])
 }
+
+/// Panel reward policy: each save is a new version; the newest is in force (see modules/panel-analytics.ts).
+model PanelRewardPolicy {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  version             Int
+  categories          Json     // [{ id, name, maxLoi, points, minQuality }]
+  redemptionThreshold Int
+  weeklyInviteCap     Int
+  note                String?
+  createdBy           String
+  createdById         String
+  createdAt           DateTime @default(now())
+
+  @@unique([tenantId, version])
+}

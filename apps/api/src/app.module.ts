@@ -41,6 +41,7 @@ import { DeliverablesController, DeliverablesService } from './modules/deliverab
 import { ReportSchedulesController, ReportSchedulesService } from './modules/report-schedules';
 import { AiGateway } from './ai/gateway';
 import { CrmInsightsController, InsightsController, InsightsService } from './modules/insights';
+import { PanelAnalyticsController, PanelAnalyticsService } from './modules/panel-analytics';
 
 /** Constant-time comparison, so response timing does not reveal how much of the token matched. */
 function sameSecret(a: string, b: string) {
@@ -85,9 +86,9 @@ class HealthController {
     JwtModule.register({ secret: config.jwtSecret, signOptions: { issuer: 'sampledge-api' }, verifyOptions: { issuer: 'sampledge-api' } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: () => Number(process.env.RATE_LIMIT ?? 600) }]),
   ],
-  controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, FinanceLedgersController, CommsController, AiController, DiyController, AdminController, RetentionController, DpController, SsoController, SamlController, DeliverablesController, ReportSchedulesController, LiveController, PanelBackendController, IntegrationsController, InsightsController, CrmInsightsController],
+  controllers: [HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, FinanceLedgersController, CommsController, AiController, DiyController, AdminController, RetentionController, DpController, SsoController, SamlController, DeliverablesController, ReportSchedulesController, LiveController, PanelBackendController, IntegrationsController, InsightsController, CrmInsightsController, PanelAnalyticsController],
   providers: [
-    PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, SamlService, DeliverablesService, ReportSchedulesService, LiveHub, InsightsService,
+    PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, SamlService, DeliverablesService, ReportSchedulesService, LiveHub, InsightsService, PanelAnalyticsService,
     SharedThrottlerStorage, PanelBackend, PanelBackendService, PanelSyncService, IntegrationsService,
     { provide: ThrottlerStorage, useExisting: SharedThrottlerStorage },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
