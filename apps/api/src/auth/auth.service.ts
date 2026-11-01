@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, UnauthorizedExcept
 import { JwtService } from '@nestjs/jwt';
 import { permissionsFor, moduleAccess, type ModuleId } from '@sampledge/core';
 import bcrypt from 'bcryptjs';
-import { authenticator } from 'otplib';
+import { authenticator as otp } from 'otplib';
 import { AuditService } from '../common/audit.service';
 import { config } from '../common/config';
 import type { Ctx } from '../common/context';
@@ -10,6 +10,12 @@ import { PrismaService } from '../common/prisma.service';
 import { enterTenant } from '../common/tenant-scope';
 
 /** Compared against when the email is unknown, so response time does not reveal which emails exist. */
+/**
+ * TOTP check that also accepts the code from the previous or next 30-second step (RFC 6238 §5.2),
+ * so a code typed or sent just as the step rolls over, or with slight clock drift, is not refused.
+ */
+const authenticator = otp.clone({ window: 1 });
+
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
 
 @Injectable()
