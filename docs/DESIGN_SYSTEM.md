@@ -39,7 +39,7 @@ Spacing: 4-pt scale. Radii: 8/12/16/20/pill. Motion: fast 150 ms, base 280 ms, s
 | GlobeExplorer / GlobeScene | `three/` | R3F, time scrubber, 2D fallback |
 | Scatter3D, ParticleField | `three/` | |
 | OpsFlow | `flow/ops-flow.tsx` | |
-| LogicBuilder, WorkflowEditor | `survey/`, `flow/` | React Flow |
+| LogicBuilder, OpsFlow | `survey/`, `flow/` | React Flow |
 | Shell, CommandPalette, Assistant | `shell/` | |
 
 ## Accessibility

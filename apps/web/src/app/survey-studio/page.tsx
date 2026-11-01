@@ -20,8 +20,8 @@ type Tab = 'overview' | 'logic' | 'preview' | 'qa' | 'assistant' | 'import';
 
 const qTypes = [
   ['Single select', 'live'], ['Multiple select', 'live'], ['Dropdown', 'live'], ['Text entry', 'live'], ['Numeric entry', 'live'], ['Rating scale', 'live'], ['Likert', 'live'], ['Matrix', 'live'], ['Ranking', 'live'], ['NPS', 'live'],
-  ['Date & time', 'P3'], ['Slider', 'P3'], ['Constant sum', 'P3'], ['Semantic differential', 'P3'], ['Image selection', 'P3'], ['File upload', 'P3'], ['Video evaluation', 'P4'], ['Audio response', 'P4'], ['Heatmap', 'P4'], ['Click testing', 'P4'], ['Card sorting', 'P4'],
-  ['MaxDiff', 'P5'], ['Conjoint', 'P5'], ['Choice-based conjoint', 'P5'], ['Van Westendorp', 'P5'], ['Gabor-Granger', 'P5'], ['TURF', 'P5'], ['Concept testing', 'P4'], ['Product testing', 'P4'], ['Brand tracking', 'P4'], ['Custom scripted', 'P6'],
+  ['Date & time', 'planned'], ['Slider', 'planned'], ['Constant sum', 'planned'], ['Semantic differential', 'planned'], ['Image selection', 'planned'], ['File upload', 'planned'], ['Video evaluation', 'planned'], ['Audio response', 'planned'], ['Heatmap', 'planned'], ['Click testing', 'planned'], ['Card sorting', 'planned'],
+  ['MaxDiff', 'analysis'], ['Conjoint', 'analysis'], ['Choice-based conjoint', 'analysis'], ['Van Westendorp', 'analysis'], ['Gabor-Granger', 'analysis'], ['TURF', 'analysis'], ['Concept testing', 'planned'], ['Product testing', 'planned'], ['Brand tracking', 'planned'], ['Custom scripted', 'planned'],
 ] as const;
 
 function StudioInner() {
@@ -70,6 +70,43 @@ function PublishBar({ def }: { def: SurveyDef }) {
   );
 }
 
+function Complexity({ value }: { value: number }) {
+  return (
+    <div className="flex items-center gap-2"><div className="flex gap-0.5">{Array.from({ length: 5 }, (_, i) => <span key={i} className={cn('h-3 w-1.5 rounded-sm', i < Math.round(value * 5) ? (value > 0.7 ? 'bg-orange' : 'bg-cyan') : 'bg-ink-3/20')} />)}</div><span className="num text-2xs text-ink-3">{Math.round(value * 100)}</span></div>
+  );
+}
+
+/** Records programming time against a survey; the workload chart is the sum of these entries. */
+function LogTime({ surveys }: { surveys: { id: string; name: string; status: string }[] }) {
+  const s = useOS();
+  const open = surveys.filter((v) => v.status !== 'Closed');
+  const [id, setId] = useState(open[0]?.id ?? '');
+  const [hours, setHours] = useState('1');
+  const [busy, setBusy] = useState(false);
+  const h = Number(hours);
+  const valid = id && h >= 0.25 && h <= 24 && Number.isInteger(h * 4);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api(`/surveys/${id}/time`, { method: 'POST', body: { hours: h } });
+      s.toast(`${h} h logged`, 'ok');
+      void s.refresh();
+    } catch (e) {
+      s.toast(e instanceof ApiError ? e.message : 'Could not reach the API', 'warn');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open.length) return null;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+      <select aria-label="Survey to log time on" className="h-8 min-w-0 flex-1 rounded-lg border hairline bg-surface-2/40 px-2" value={id} onChange={(e) => setId(e.target.value)}>{open.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
+      <input aria-label="Hours" type="number" min={0.25} max={24} step={0.25} className="h-8 w-20 rounded-lg border hairline bg-surface-2/40 px-2" value={hours} onChange={(e) => setHours(e.target.value)} />
+      <Button size="sm" disabled={!valid || busy} onClick={submit}>Log hours</Button>
+    </div>
+  );
+}
+
 function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDef; surveyId: string; setSurveyId: (v: string) => void; tab: Tab; setTab: (t: Tab) => void }) {
   const s = useOS();
   void surveyId;
@@ -78,6 +115,7 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
   const issuesByQ = useMemo(() => qa.issues.reduce<Record<string, number>>((m, i) => (i.questionId ? { ...m, [i.questionId]: (m[i.questionId] ?? 0) + 1 } : m), {}), [qa]);
   const [q, setQ] = useState('');
   const list = s.surveys.filter((v) => v.name.toLowerCase().includes(q.toLowerCase()));
+  const scatter = useMemo(() => s.surveys.flatMap((v) => (v.complexity !== null && v.completionRate !== null ? [[v.complexity, v.completionRate, v.loi, v.name]] : [])), [s.surveys]);
   const statusTone = { Draft: 'neutral', 'In QA': 'orange', Published: 'emerald', Closed: 'purple' } as const;
   const programmers = [...new Set(s.surveys.map((v) => v.programmer))];
 
@@ -105,7 +143,7 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
             <KpiCard label="Draft questionnaires" value={s.surveys.filter((v) => v.status === 'Draft').length} format={(n) => fmtNum(n)} />
             <KpiCard label="Awaiting QA" value={s.surveys.filter((v) => v.status === 'In QA').length} format={(n) => fmtNum(n)} color="rgb(var(--orange))" />
             <KpiCard label="Published" value={s.surveys.filter((v) => v.status === 'Published').length} format={(n) => fmtNum(n)} color="rgb(var(--emerald))" />
-            <KpiCard label="Avg programming time" value={avg(s.surveys.map((v) => v.hoursSpent))} format={(n) => `${n.toFixed(1)} h`} delta={-0.12} deltaGoodWhen="down" color="rgb(var(--purple))" />
+            <KpiCard label="Avg programming time" value={avg(s.surveys.map((v) => v.hoursSpent))} format={(n) => `${n.toFixed(1)} h`} deltaGoodWhen="down" color="rgb(var(--purple))" />
             <KpiCard label="Quality alerts" value={sum(s.surveys.map((v) => v.alerts))} format={(n) => fmtNum(n)} status={{ tone: 'warn', text: 'Across open surveys' }} color="rgb(var(--danger))" />
           </div>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -122,8 +160,8 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
                           <td className="px-4 py-2.5 font-medium">{v.name}{live && <Badge tone="cyan" className="ml-2">editable</Badge>}<div className="text-2xs text-ink-3">{v.languages.map((l) => l.toUpperCase()).join(' · ')}</div></td>
                           <td className="px-4 py-2.5"><Badge tone={statusTone[v.status]} dot>{v.status}</Badge></td>
                           <td className="num px-4 py-2.5">{live ? live.questions.length : v.questions}</td>
-                          <td className="px-4 py-2.5"><div className="flex items-center gap-2"><div className="flex gap-0.5">{Array.from({ length: 5 }, (_, i) => <span key={i} className={cn('h-3 w-1.5 rounded-sm', i < Math.round(v.complexity * 5) ? (v.complexity > 0.7 ? 'bg-orange' : 'bg-cyan') : 'bg-ink-3/20')} />)}</div><span className="num text-2xs text-ink-3">{Math.round(v.complexity * 100)}</span></div></td>
-                          <td className="num px-4 py-2.5">{v.loi}m</td><td className="num px-4 py-2.5">{v.status === 'Draft' ? '—' : fmtPct(v.completionRate, 0)}</td>
+                          <td className="px-4 py-2.5">{v.complexity === null ? <span className="text-2xs text-ink-3">—</span> : <Complexity value={v.complexity} />}</td>
+                          <td className="num px-4 py-2.5">{v.loi}m</td><td className="num px-4 py-2.5">{v.completionRate === null ? '—' : fmtPct(v.completionRate, 0)}</td>
                           <td className="px-4 py-2.5">{v.alerts ? <span className="flex items-center gap-1 text-orange"><AlertTriangle size={12} />{v.alerts}</span> : <span className="text-ink-3">0</span>}</td>
                           <td className="px-4 py-2.5 text-ink-2">{v.programmer}</td>
                         </tr>
@@ -136,6 +174,7 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
             <div className="space-y-6">
               <Panel>
                 <PanelHeader eyebrow="Workload" title="Programming hours by programmer and status" />
+                {s.mode === 'live' && can(s.role, 'edit:surveys') && <LogTime surveys={s.surveys} />}
                 <EChart ariaLabel="Programming workload" height={220} deps={[s.surveys]} option={(t) => ({
                   tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } }, legend: { right: 0 }, grid: { left: 8, right: 8, top: 30, bottom: 4, containLabel: true },
                   xAxis: { type: 'category', data: programmers, ...axis(t), splitLine: { show: false } }, yAxis: { type: 'value', ...axis(t) },
@@ -143,20 +182,21 @@ function StudioBody({ def, surveyId, setSurveyId, tab, setTab }: { def: SurveyDe
                 })} />
               </Panel>
               <Panel>
-                <PanelHeader eyebrow="Performance" title="Logic complexity vs completion rate" actions={<DemoBadge />} />
-                <EChart ariaLabel="Complexity vs completion" height={220} deps={[]} option={(t) => ({
+                <PanelHeader eyebrow="Performance" title="Logic complexity vs completion rate" />
+                {scatter.length === 0 ? <EmptyState title="No completion data yet" body="Surveys appear here once they have a programmed questionnaire and respondents have started." /> : <EChart ariaLabel="Complexity vs completion" height={220} deps={[scatter]} option={(t) => ({
                   tooltip: { formatter: (p: unknown) => { const d = (p as { data: (number | string)[] }).data; return `${d[3]}<br/>complexity ${d[0]} · completion ${(Number(d[1]) * 100).toFixed(0)}% · LOI ${d[2]}m`; } },
                   xAxis: { type: 'value', name: 'Complexity', nameTextStyle: { color: '#707EA8', fontSize: 10 }, min: 0, max: 1, ...axis(t) },
-                  yAxis: { type: 'value', min: 0.5, max: 1, ...axis(t), axisLabel: { ...axis(t).axisLabel, formatter: (v: number) => `${Math.round(v * 100)}%` } },
-                  series: [{ type: 'scatter', data: s.surveys.filter((v) => v.status !== 'Draft').map((v) => [v.complexity, v.completionRate, v.loi, v.name]), symbolSize: (d: number[]) => 6 + d[2] * 0.9, itemStyle: { color: palette.cyan, opacity: 0.8, borderColor: palette.blue } }],
-                })} />
+                  yAxis: { type: 'value', min: 0, max: 1, ...axis(t), axisLabel: { ...axis(t).axisLabel, formatter: (v: number) => `${Math.round(v * 100)}%` } },
+                  series: [{ type: 'scatter', data: scatter, symbolSize: (d: number[]) => 6 + d[2] * 0.9, itemStyle: { color: palette.cyan, opacity: 0.8, borderColor: palette.blue } }],
+                })} />}
+                <p className="mt-2 text-2xs text-ink-3">Completion is completes divided by qualified starts (screen-outs and over-quotas excluded), from recorded interviews. Complexity is display logic, routing rules and piping per question in the current version.</p>
               </Panel>
             </div>
           </div>
           <Panel className="mt-6">
-            <PanelHeader eyebrow="Question library" title="Supported question types and methodologies" actions={<span className="text-2xs text-ink-3">“live” = runs in the Phase 2 engine and preview</span>} />
-            <div className="flex flex-wrap gap-1.5">{qTypes.map(([n, st]) => <Badge key={n} tone={st === 'live' ? 'emerald' : st === 'P5' ? 'purple' : 'neutral'}>{n} · {st}</Badge>)}</div>
-            <p className="mt-3 text-2xs text-ink-3">MaxDiff, conjoint, Van Westendorp, Gabor-Granger and TURF will ship with statistically valid design generation and estimation (balanced incomplete block designs, HB/MNL estimation) in Phase 5. They are not simulated here.</p>
+            <PanelHeader eyebrow="Question library" title="Supported question types and methodologies" actions={<span className="text-2xs text-ink-3">live = runs in the survey engine and preview · analysis = estimated in Insight Studio · planned = not available yet</span>} />
+            <div className="flex flex-wrap gap-1.5">{qTypes.map(([n, st]) => <Badge key={n} tone={st === 'live' ? 'emerald' : st === 'analysis' ? 'purple' : 'neutral'}>{n} · {st}</Badge>)}</div>
+            <p className="mt-3 text-2xs text-ink-3">Van Westendorp, Gabor-Granger and TURF run in Insight Studio on a survey&apos;s recorded interviews. MaxDiff and conjoint generate a design to field and estimate from the answers you upload.</p>
           </Panel>
         </>
       )}

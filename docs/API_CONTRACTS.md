@@ -123,6 +123,11 @@ Source of truth: `apps/api/src/modules/*.ts`. Tests: `apps/api/src/test/api.test
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/surveys` | now includes `completes` (recorded, non-preview, not rejected) |
+| GET | `/surveys` | also `completionRate` (completes ÷ starts excluding screen-outs and over-quotas; null before any start) and `complexity` (display logic + rules + piped questions per question, 0–1; null without a questionnaire), computed per request |
+| POST | `/surveys/:id/time` | `edit:surveys`; `{ hours }` (0.25–24 in quarter hours) adds programming time; audited `survey.time_logged` |
+| GET | `/surveys/:id/methods` | analytics module; `{ survey, base, numeric[], single[], multi[] }`: questions each method can use |
+| POST | `/surveys/:id/methods` | analytics module, 200; `{ method: 'vw', tooCheap, cheap, expensive, tooExpensive }` · `{ method: 'gg', prices[{price, questionId, yes[]}] }` · `{ method: 'turf', questionId, k }` → `{ method, base, answered, result }` from completed, non-rejected interviews |
+| POST | `/opportunities` | `owner` is optional and defaults to the signed-in user |
 | GET | `/surveys/:id/results?banner=Q&excludeFlagged=true` | `{ survey, base, flagged, rejected, excludedFlagged, banner: {id,text,cols[{code,label,letter,base}]}, questions[] }`. Question shapes: single/multi `rows[{code,label,count,pct,byBanner?[{count,base,pct,sig[]}]}]`, numeric `mean/median/min/max`, nps `nps/promoters/passives/detractors`, matrix `rows[{dist[]}]`, text `samples[]` |
 | GET | `/surveys/:id/report.pptx?banner&excludeFlagged` | PowerPoint file; 400 when there are no completes; audited |
 | POST | `/surveys/:id/responses/:rid/reject` `{reason}` | creates a *Rejecting respondents* approval (`{approval}`), or `{alreadyPending:true}`. Approval excludes the interview and decrements its quota cells and the project's completes |
@@ -215,5 +220,12 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET · POST | `/auth/saml/config` · `/auth/saml/metadata` · `/auth/saml/start?next=` · POST `/auth/saml/acs` · `/auth/saml/finish` | SAML 2.0 sign-in (public). The ACS validates and hands over to `/finish`, which checks the browser's flow cookie before setting the session |
 | GET | `/metrics` | Prometheus text; requires `Authorization: Bearer $METRICS_TOKEN`, 404 otherwise |
 | GET | `/integrations` | `integrations` module: `[{id, name, group, state: connected\|configured\|development\|off\|not_built, detail, settings[{name, set}], lastActivity}]`; read from server settings and recent activity, never returns secret values. The panel rows show settings only to the workspace that owns the panels |
+| GET | `/insights/overview` | `command-center`: `{asOf, kpis: {key: {value, spark[], delta\|null, comparedWith}}, pendingInvoiceCount, fieldCount, revenue, fieldwork[30]}`; counted from records; trends from daily `MetricSnapshot` history only (cost and margin need `view:margins`) |
+| GET | `/crm/insights/revenue` | `crm`: 12 months of invoiced revenue (cost with `view:margins`), 3-month forecast of draft invoices + weighted open pipeline, base currency |
+| GET | `/panels/analytics?brand=` | `panels`: member counts, profile funnel, age/gender pyramid, quality histogram, monthly sign-ups/activity/panel survey starts, cohort retention, engagement and health-consent counts, from panel member records |
+| GET · PUT | `/panels/reward-policy` | `panels`; PUT is write: `{categories[{id,name,maxLoi,points,minQuality}], redemptionThreshold, weeklyInviteCap, note?}` saved as a new audited version; the incentive ledger refuses redemptions below the threshold in force |
+| GET | `/agents` · `/agents/runs?agentId=` · `/agents/daily` | `automation`: built-in agents with schedule, settings and 30-day run statistics from `AgentRun`; the last 50 runs; runs per day (14 days) |
+| PATCH | `/agents/:id` | write + `edit:automations`; `{enabled?, everyMinutes?, settings?}`. Agents that cannot run here (need an AI provider or a person) refuse `enabled: true` |
+| POST | `/agents/:id/run` | write + `edit:automations`; runs the agent now and returns the logged run `{status, summary, examined, notifications, approvals, messages, error}` |
 
 **Headers.** Writes accept `Idempotency-Key` (8–100 of `[A-Za-z0-9_.:-]`): a retry with the same key and body returns the stored response with `Idempotent-Replayed: true`; a different body gives 422; a retry during the first request gives 409. `GET /audit`, `/comms/messages`, `/ai/usage`, `/projects`, `/clients`, `/opportunities`, `/surveys`, `/approvals`, `/invoices`, `/purchase-orders`, `/payables`, `/vendors`, `/allocations`, `/diy/requests` and `/feasibility` take `take` and `cursor` and return `X-Next-Cursor` when more rows exist (lists default to 500 rows per page). Every response has `X-Request-Id`; error bodies include `requestId`.

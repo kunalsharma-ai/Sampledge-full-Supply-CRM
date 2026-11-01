@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Header, Injectable, NotFoundException, Param, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, HttpCode, Injectable, NotFoundException, Param, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
-import { applyRecodes, type Recode, flowQuestions, responseFlow, responseSegments, responseTrend, runQA, segmentationVariables, surveyResults, type SurveyDef } from '@sampledge/core';
+import { applyRecodes, gaborGranger, turf, vanWestendorp, type Recode, flowQuestions, responseFlow, responseSegments, responseTrend, runQA, segmentationVariables, surveyResults, type SurveyDef } from '@sampledge/core';
 import { buildReport } from './report';
 import { buildPdfReport } from './report-pdf';
 import { Prisma } from '@prisma/client';
@@ -56,6 +56,28 @@ export const exploreQuery = (q: unknown): ExploreOpts => parse(z.object({
   interval: z.enum(['day', 'week']).optional(), k: z.coerce.number().int().min(2).max(6).optional(),
 }), q);
 
+/**
+ * Share of qualified starts that finished: completes / (all starts − screenouts − over-quotas).
+ * Screened-out and over-quota respondents were never eligible to finish, so they are left out.
+ * Null until someone has started.
+ */
+export function completionRate(by: Record<string, number>): number | null {
+  const starts = Object.values(by).reduce((a, b) => a + b, 0);
+  const eligible = starts - (by.screenout ?? 0) - (by.overquota ?? 0);
+  return eligible > 0 ? Math.round(((by.complete ?? 0) / eligible) * 1000) / 1000 : null;
+}
+
+/**
+ * Routing and display logic per question, from 0 to 1: questions with display logic, routing
+ * rules and piped text, divided by the number of questions (one logic element per question = 1).
+ */
+export function logicComplexity(def: SurveyDef): number {
+  const n = def.questions.length;
+  if (!n) return 0;
+  const logic = def.questions.filter((q) => q.displayIf).length + def.rules.length + def.questions.filter((q) => /\{\{\w+\}\}/.test(q.text)).length;
+  return Math.round(Math.min(1, logic / n) * 100) / 100;
+}
+
 @Injectable()
 export class SurveysService {
   constructor(private db: PrismaService, private audit: AuditService) {}
@@ -66,7 +88,17 @@ export class SurveysService {
 
   async list(ctx: Ctx, { want: _w, ...page }: Page = DEFAULT_PAGE) {
     const rows = await this.db.survey.findMany({ where: this.where(ctx), include: { project: { select: { id: true, code: true, name: true } }, _count: { select: { responses: { where: { outcome: 'complete', source: { not: 'preview' }, rejectedAt: null } } } } }, orderBy: [{ name: 'asc' }, { id: 'asc' }], ...page });
-    return rows.map(({ _count, ...s }) => ({ ...s, completes: _count.responses }));
+    const ids = rows.map((r) => r.id);
+    const [outcomes, versions] = await Promise.all([
+      ids.length ? this.db.response.groupBy({ by: ['surveyId', 'outcome'], where: { surveyId: { in: ids }, source: { not: 'preview' }, rejectedAt: null }, _count: { _all: true } }) : [],
+      this.db.surveyVersion.findMany({ where: { OR: rows.filter((r) => r.hasDefinition).map((r) => ({ surveyId: r.id, version: r.currentVersion })) }, select: { surveyId: true, definition: true } }),
+    ]);
+    const defs = new Map(versions.map((v) => [v.surveyId, v.definition as unknown as SurveyDef]));
+    return rows.map(({ _count, ...s }) => {
+      const by = Object.fromEntries(outcomes.filter((o) => o.surveyId === s.id).map((o) => [o.outcome ?? 'in_progress', o._count._all]));
+      const def = defs.get(s.id);
+      return { ...s, completes: _count.responses, completionRate: completionRate(by), complexity: def ? logicComplexity(def) : null };
+    });
   }
 
   async get(ctx: Ctx, id: string) {
@@ -89,6 +121,16 @@ export class SurveysService {
   async versions(ctx: Ctx, id: string) {
     await this.get(ctx, id);
     return this.db.surveyVersion.findMany({ where: { surveyId: id }, select: { version: true, label: true, createdBy: true, createdAt: true, publishedAt: true }, orderBy: { version: 'desc' } });
+  }
+
+  /** Adds programming time to a survey; the Workload chart sums these per programmer. */
+  async logTime(ctx: Ctx, id: string, hours: number) {
+    const before = await this.get(ctx, id);
+    return this.db.$transaction(async (tx) => {
+      const s = await tx.survey.update({ where: { id }, data: { hoursSpent: { increment: hours } }, select: { id: true, hoursSpent: true } });
+      await this.audit.log(ctx, 'survey.time_logged', 'Survey', id, { hoursSpent: before.hoursSpent }, { hoursSpent: s.hoursSpent, hours }, tx);
+      return s;
+    });
   }
 
   async create(ctx: Ctx, b: { name: string; projectId: string; languages: string[] }) {
@@ -206,6 +248,59 @@ export class SurveysService {
     };
   }
 
+  /** Questions a pricing or portfolio method can use, for the Insight Studio mapping form. */
+  async methodOptions(ctx: Ctx, id: string) {
+    const s = await this.get(ctx, id);
+    if (!s.definition) throw new BadRequestException('This survey has no programmed definition yet');
+    const q = (types: string[]) => s.definition!.questions.filter((x) => types.includes(x.type)).map((x) => ({ id: x.id, text: x.text, options: x.options?.map((o) => ({ code: o.code, label: o.label })) ?? [] }));
+    const base = await this.db.response.count({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null } });
+    return { survey: { id: s.id, name: s.name, version: s.currentVersion }, base, numeric: q(['numeric', 'slider']), single: q(['single', 'dropdown', 'likert']), multi: q(['multi']), weightingAvailable: !!(s.dp as DpConfig | null)?.weighting };
+  }
+
+  /**
+   * Van Westendorp, Gabor-Granger or TURF computed from the survey's completed, non-rejected
+   * interviews, using the questions the analyst maps to the method's inputs.
+   */
+  async method(ctx: Ctx, id: string, b: z.infer<typeof MethodBody>) {
+    const s = await this.get(ctx, id);
+    if (!s.definition) throw new BadRequestException('This survey has no programmed definition yet');
+    const qs = new Map(s.definition.questions.map((q) => [q.id, q]));
+    const need = (qid: string, types: string[]) => {
+      const q = qs.get(qid);
+      if (!q) throw new BadRequestException(`Question ${qid} is not in this survey`);
+      if (!types.includes(q.type)) throw new BadRequestException(`${qid} is a ${q.type} question; this input needs ${types.join(' or ')}`);
+      return q;
+    };
+    const rows = await this.db.response.findMany({ where: { surveyId: id, outcome: 'complete', source: { not: 'preview' }, rejectedAt: null }, select: { answers: true, flags: true, weight: true } });
+    const used = b.excludeFlagged ? rows.filter((r) => !r.flags.length) : rows;
+    const ans = used.map((r) => r.answers as Record<string, unknown>);
+    const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
+    const meta = { survey: { id: s.id, name: s.name }, base: used.length, excludedFlagged: !!b.excludeFlagged };
+    try {
+      if (b.method === 'vw') {
+        for (const k of ['tooCheap', 'cheap', 'expensive', 'tooExpensive'] as const) need(b[k], ['numeric', 'slider']);
+        const answers = ans.map((a) => ({ tooCheap: num(a[b.tooCheap]), cheap: num(a[b.cheap]), expensive: num(a[b.expensive]), tooExpensive: num(a[b.tooExpensive]) }))
+          .filter((x) => Object.values(x).every(Number.isFinite));
+        return { ...meta, method: 'vw' as const, answered: answers.length, result: vanWestendorp(answers, 120) };
+      }
+      if (b.method === 'gg') {
+        if (new Set(b.prices.map((p) => p.price)).size !== b.prices.length) throw new BadRequestException('Each price point can be mapped once');
+        for (const p of b.prices) need(p.questionId, ['single', 'dropdown', 'likert']);
+        const answers = ans.map((a) => Object.fromEntries(b.prices.filter((p) => a[p.questionId] !== undefined && a[p.questionId] !== null && a[p.questionId] !== '').map((p) => [p.price, p.yes.includes(String(a[p.questionId]))])) as Record<number, boolean>);
+        return { ...meta, method: 'gg' as const, answered: answers.filter((a) => Object.keys(a).length).length, result: gaborGranger(b.prices.map((p) => p.price), answers) };
+      }
+      const q = need(b.questionId, ['multi']);
+      const items = (q.options ?? []).filter((o) => !o.exclusive);
+      if (b.k > items.length) throw new BadRequestException(`The question has ${items.length} items; pick a portfolio of at most that size`);
+      const weighted = !!b.weighted && !!(s.dp as DpConfig | null)?.weighting;
+      const reach = ans.map((a) => { const v = a[b.questionId]; const picked = Array.isArray(v) ? v.map(String) : []; return items.map((o) => picked.includes(o.code)); });
+      return { ...meta, method: 'turf' as const, weighted, answered: reach.filter((r) => r.some(Boolean)).length, result: turf(items.map((o) => o.label), reach, b.k, weighted ? { weights: used.map((r) => r.weight) } : {}) };
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
   async report(ctx: Ctx, id: string, o: ResultsOpts = {}, format: 'pptx' | 'pdf' = 'pptx') {
     const r = await this.results(ctx, id, o);
     if (!r.base) throw new BadRequestException('No completed responses to report on yet');
@@ -259,6 +354,12 @@ export class SurveysService {
   }
 }
 
+const MethodBody = z.discriminatedUnion('method', [
+  z.object({ method: z.literal('vw'), tooCheap: z.string(), cheap: z.string(), expensive: z.string(), tooExpensive: z.string(), excludeFlagged: z.boolean().optional() }).strict(),
+  z.object({ method: z.literal('gg'), prices: z.array(z.object({ price: z.number().positive(), questionId: z.string(), yes: z.array(z.string()).min(1) }).strict()).min(2).max(12), excludeFlagged: z.boolean().optional() }).strict(),
+  z.object({ method: z.literal('turf'), questionId: z.string(), k: z.number().int().min(1).max(10), weighted: z.boolean().optional(), excludeFlagged: z.boolean().optional() }).strict(),
+]);
+
 @ForModule('survey-studio')
 @Controller('surveys')
 export class SurveysController {
@@ -285,6 +386,13 @@ export class SurveysController {
   explore(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown) {
     return this.s.explore(ctx, id, exploreQuery(q));
   }
+
+  @ForModule('analytics') @Get(':id/methods')
+  methodOptions(@Caller() ctx: Ctx, @Param('id') id: string) { return this.s.methodOptions(ctx, id); }
+
+  /** Read-only analysis (POST only because the mapping is a body). */
+  @ForModule('analytics') @Post(':id/methods') @HttpCode(200)
+  method(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) { return this.s.method(ctx, id, parse(MethodBody, b)); }
 
   @ForModule('analytics') @Get(':id/results')
   results(@Caller() ctx: Ctx, @Param('id') id: string, @Query() q: unknown) {
@@ -325,6 +433,11 @@ export class SurveysController {
   save(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) {
     const x = parse(z.object({ definition: SurveyDefSchema, label: z.string().min(1).max(200), baseVersion: z.number().int().optional() }), b);
     return this.s.saveVersion(ctx, id, x.definition as SurveyDef, x.label, x.baseVersion);
+  }
+
+  @Post(':id/time') @Write() @RequirePerm('edit:surveys') @HttpCode(200)
+  logTime(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) {
+    return this.s.logTime(ctx, id, parse(z.object({ hours: z.number().min(0.25).max(24).multipleOf(0.25) }).strict(), b).hours);
   }
 
   @Post(':id/qa')

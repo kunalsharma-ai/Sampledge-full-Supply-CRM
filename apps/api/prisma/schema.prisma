@@ -290,8 +290,6 @@ model Survey {
   programmer     String
   currentVersion Int             @default(1)
   hoursSpent     Float           @default(0)
-  complexity     Float           @default(0.3)
-  completionRate Float           @default(0)
   loi            Int             @default(10)
   languages      String[]
   alerts         Int             @default(0)
@@ -386,19 +384,48 @@ model Consent {
 
 // ───────────────────────── Automation & approvals
 model Agent {
-  id               String   @id
+  id               String    @id
   tenantId         String
+  /// which built-in agent this is (see modules/agents.ts); unique per workspace
+  key              String
   name             String
-  enabled          Boolean  @default(true)
-  runs30d          Int
-  successRate      Float
-  avgSeconds       Int
-  minutesSaved     Int
-  costUsd30d       Float
-  costCapUsd       Float
+  enabled          Boolean   @default(false)
   requiresApproval String[]
+  /// minutes between scheduled runs
+  everyMinutes     Int       @default(60)
+  /// agent-specific thresholds, validated by the agent's own schema
+  settings         Json      @default("{}")
+  /// agent memory between runs (e.g. survey versions already checked)
+  state            Json      @default("{}")
+  nextRunAt        DateTime?
+  lastRunAt        DateTime?
+  runs             AgentRun[]
 
+  @@unique([tenantId, key])
   @@index([tenantId])
+}
+
+/// One execution of an agent: what triggered it, how it ended and what it did.
+model AgentRun {
+  id            String    @id @default(cuid())
+  tenantId      String
+  agentId       String
+  trigger       String    // schedule | manual
+  triggeredBy   String?
+  status        String    // succeeded | failed
+  startedAt     DateTime  @default(now())
+  ms            Int       @default(0)
+  summary       String
+  /// records the run looked at, and what it produced
+  examined      Int       @default(0)
+  notifications Int       @default(0)
+  approvals     Int       @default(0)
+  messages      Int       @default(0)
+  error         String?
+  agent         Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, startedAt])
+  @@index([agentId, startedAt])
 }
 
 model Approval {
@@ -760,4 +787,33 @@ model IncentiveEntry {
 
   @@index([tenantId, panelistId])
   @@index([tenantId, createdAt])
+}
+
+/// One value per business metric per day, recorded by the worker (and refreshed when the Command
+/// Center is opened), so KPI trends and period comparisons come from recorded history.
+model MetricSnapshot {
+  tenantId  String
+  day       DateTime @db.Date
+  key       String
+  value     Float
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@id([tenantId, day, key])
+  @@index([tenantId, key, day])
+}
+
+/// Panel reward policy: each save is a new version; the newest is in force (see modules/panel-analytics.ts).
+model PanelRewardPolicy {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  version             Int
+  categories          Json     // [{ id, name, maxLoi, points, minQuality }]
+  redemptionThreshold Int
+  weeklyInviteCap     Int
+  note                String?
+  createdBy           String
+  createdById         String
+  createdAt           DateTime @default(now())
+
+  @@unique([tenantId, version])
 }

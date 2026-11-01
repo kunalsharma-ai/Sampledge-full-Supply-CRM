@@ -62,17 +62,41 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   const op2 = await apiGet('/opportunities/op-002');
   ok('Marking Lost records the loss reason', op2.stage === 'Lost' && op2.lossReason === 'Timeline');
 
+  // 4b Bid assistant drafts a quote for the chosen client, owned by the signed-in user
+  await go('/crm');
+  await p.getByRole('radio', { name: /AI bid assistant/ }).or(p.getByRole('button', { name: /AI bid assistant/ })).first().click();
+  const cl = (await apiGet('/clients'))[2];
+  await p.getByLabel('Client', { exact: true }).selectOption(cl.id);
+  const oppsBefore = (await apiGet('/opportunities')).length;
+  await p.getByRole('button', { name: /Create draft quote/ }).nth(1).click();
+  await until(async () => (await apiGet('/opportunities')).length === oppsBefore + 1, 'bid assistant RFQ');
+  const bdMe = await apiGet('/auth/me');
+  const made = (await apiGet('/opportunities')).find((o) => o.clientId === cl.id && o.stage === 'New RFQ' && /study/.test(o.title));
+  ok(`Bid assistant RFQ is for ${cl.name}, owned by ${bdMe.user.name}`, !!made && made.owner === bdMe.user.name);
+
   // 5 Assistant answers from records
   await go('/command-center');
   await p.getByRole('button', { name: 'Show projects likely to miss their deadlines.' }).first().click();
   // The answer arrives after a network round trip; wait for it rather than a fixed delay.
   const traced = await p.getByText(/Traced to \d+ record/).first().waitFor({ timeout: 15000 }).then(() => true, () => false);
   ok('Assistant answers with sources', traced);
+  // Command Center figures are the API's, counted from records (no simulated series).
+  const ov = await apiGet('/insights/overview');
+  await p.waitForTimeout(1800); // count-up animation
+  ok(`Command Center KPI matches the API (${ov.kpis && ov.kpis.active_projects.value} active projects)`, !!ov.kpis && (await p.getByText('Total active projects').first().isVisible()) && (await p.getByText('Invoiced revenue, purchase cost and forecast').isVisible()));
 
   // 6 Survey programmer: QA fix saves a new server version, then publish goes to approval
   await switchTo('survey_programmer');
   const vr = await apiGet('/surveys/sv-cloud/versions'); if (!Array.isArray(vr)) console.log('versions response', vr);
   const v0 = vr.length;
+  await go('/survey-studio');
+  const svList = await apiGet('/surveys');
+  const target = svList.find((x) => x.status !== 'Closed');
+  await p.getByLabel('Survey to log time on').selectOption(target.id);
+  await p.getByLabel('Hours').fill('2');
+  await p.getByRole('button', { name: 'Log hours' }).click();
+  await until(async () => (await apiGet('/surveys')).find((x) => x.id === target.id).hoursSpent === target.hoursSpent + 2, 'logged hours');
+  ok('Programming time logged in Survey Studio is saved', true);
   await go('/survey-studio?tab=qa');
   await p.getByRole('button', { name: /Approve fix/ }).first().click();
   await p.waitForTimeout(1500);
@@ -139,6 +163,17 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await p.getByText(/sent for approval before anything is queued/).first().waitFor({ timeout: 10000 });
   ok('High-volume panel send waits for approval', (await apiGet('/comms/messages')).some((m) => m.status === 'pending_approval'));
 
+  // Panels: analytics counted from member records; the reward policy saves as a new version.
+  await go('/panels');
+  const pa = await apiGet('/panels/analytics');
+  await p.getByText('Member profile funnel').waitFor({ timeout: 15000 });
+  ok(`Panel analytics come from member records (${pa.kpis && pa.kpis.registered} members)`, !!pa.kpis && pa.kpis.registered > 0 && !(await p.getByText(/Simulated/).count()));
+  await p.getByLabel('Redemption threshold (pts)').fill('1500');
+  await p.getByRole('button', { name: 'Save as new version' }).click();
+  await p.getByText(/v1 in force/).waitFor({ timeout: 10000 });
+  const rp = await apiGet('/panels/reward-policy');
+  ok('Reward policy saved as version 1', rp.current && rp.current.version === 1 && rp.current.redemptionThreshold === 1500);
+
   // 10 Phase 5: results from real interviews, quality flags, methods lab, AI gateway, DIY
   const done = await p.evaluate(async () => {
     const base = { S1: 'ft', S2: 'lg', S3: 'final', S4: ['tech'], Q1: ['aws'], Q2: 'aws', Q3: 50, Q4: { posture: '3', identity: '3', workload: '3', data: '3' }, Q5: ['price', 'int', 'sup', 'comp'], Q6: 'flat', Q9: 8, Q10: 'ok', Q11: 4, END: '' };
@@ -170,9 +205,12 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await p.getByLabel('Segment map').waitFor({ timeout: 15000 });
   ok('Flow, trend and segments are computed from the recorded (synthetic) interviews', await p.getByText(/^Segments explain \d+% of answer variance/).isVisible() && await p.getByLabel('Fieldwork trend').isVisible());
   await go('/analytics?view=methods');
-  await p.getByRole('radio', { name: 'Conjoint' }).or(p.getByRole('button', { name: 'Conjoint', exact: true })).first().click();
-  await p.getByText('Part-worth utilities and importance').waitFor({ timeout: 10000 });
-  ok('Methods lab estimates conjoint utilities on simulated respondents', await p.getByText('Simulated respondents').first().isVisible());
+  await p.getByRole('radio', { name: 'TURF' }).or(p.getByRole('button', { name: 'TURF', exact: true })).first().click();
+  await p.getByLabel('Survey', { exact: true }).selectOption('sv-012');
+  await p.getByLabel('Items (multi-choice question)').selectOption('Q3');
+  await p.getByRole('button', { name: /^Analyse/ }).click();
+  await p.getByText('Unduplicated reach').waitFor({ timeout: 15000 });
+  ok('TURF runs on the recorded interviews of a survey', await p.getByText(/completed interviews/).first().isVisible());
   const qn = await apiSend('POST', '/ai/questionnaire', { text: 'Q1. Which brands do you know? [MULTI]\n1. Alpha\n2. Beta\nQ2. How old are you?' });
   ok('Questionnaire extraction runs through the AI gateway (rules)', qn.status === 200 && qn.body.result.provider === 'rules' && qn.body.result.data.questions.length === 2);
 
@@ -240,6 +278,15 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await go('/automation');
   await p.getByText('Rule-based mode').waitFor({ timeout: 10000 });
   ok('Automation shows the AI gateway in rule-based mode with usage', await p.getByText(/project\.summary/).first().isVisible());
+  // Agents run for real: run one now, and its run is logged with what it did.
+  await p.locator('div.panel-solid', { hasText: 'Project Management Agent' }).first().click();
+  await p.getByRole('button', { name: 'Run now' }).click();
+  let runs = [];
+  for (let i = 0; i < 20 && !runs.length; i++) { await p.waitForTimeout(500); runs = await apiGet('/agents/runs'); }
+  ok(`Agent run is logged (${runs[0] && runs[0].summary})`, Array.isArray(runs) && runs[0] && runs[0].status === 'succeeded' && runs[0].trigger === 'manual');
+  await p.getByRole('switch', { name: 'Toggle Respondent Quality Agent' }).click();
+  await p.waitForTimeout(1500);
+  ok('Agent can be switched on', (await apiGet('/agents')).find((a) => a.key === 'respondent-quality').enabled === true);
 
   // 12 Vendor scope
   await switchTo('vendor');

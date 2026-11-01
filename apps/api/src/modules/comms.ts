@@ -9,8 +9,7 @@ import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { emit } from '../common/events';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
-import { SMS_MAX } from './delivery';
-import { deliveryAdapter } from './worker';
+import { deliveryAdapter, SMS_MAX } from './delivery';
 
 /** Sends to more recipients than this wait for a 'High-volume communications' approval. */
 export const HIGH_VOLUME = Number(process.env.COMMS_HIGH_VOLUME ?? 100);
@@ -100,6 +99,27 @@ export class CommsService {
       await this.audit.log(ctx, 'message.create', 'Message', m.id, undefined, { to: b.target, recipients: r.recipients, status: m.status }, tx);
       return { message: m, recipients: r.recipients, needsApproval: big, adapter: deliveryAdapter.name };
     });
+  }
+
+  /**
+   * A message drafted by an automation agent, inside the agent run's transaction. Same consent
+   * filtering and high-volume approval as a person's message; the approval names the agent.
+   * Returns null when nobody is eligible.
+   */
+  async sendAsAgent(tx: Prisma.TransactionClient, agent: { id: string; tenantId: string; name: string }, b: { channel: 'email'; audience: 'panel' | 'internal'; target: string; subject: string; body: string }) {
+    const ctx: Ctx = { userId: `agent:${agent.id}`, sessionId: 'agent', tenantId: agent.tenantId, role: 'platform_admin', name: agent.name, email: '', vendorId: null, clientId: null };
+    const r = await this.resolve(ctx, b.audience, b.target);
+    if (r.recipients === 0) return null;
+    const big = r.recipients > HIGH_VOLUME;
+    const m = await tx.message.create({ data: { tenantId: ctx.tenantId, channel: b.channel, audience: b.audience, toRef: b.target, recipients: r.recipients, subject: b.subject, body: b.body, status: big ? 'pending_approval' : 'queued', createdBy: agent.name } });
+    if (big) {
+      const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'High-volume communications', agentId: agent.id, title: `${b.channel.toUpperCase()} "${b.subject}" to ${r.recipients.toLocaleString('en-US')} recipients (${r.label})`, requestedBy: ctx.userId, payload: { messageId: m.id } });
+      await tx.message.update({ where: { id: m.id }, data: { approvalId: ap.id } });
+    } else {
+      await emit(tx, ctx.tenantId, 'message.queued', { messageId: m.id });
+    }
+    await this.audit.log(ctx, 'message.create', 'Message', m.id, undefined, { to: b.target, recipients: r.recipients, status: m.status, agent: agent.name }, tx);
+    return { message: m, recipients: r.recipients, needsApproval: big };
   }
 
   async render(ctx: Ctx, key: string, vars: Record<string, string>) {

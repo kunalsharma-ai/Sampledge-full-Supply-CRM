@@ -62,7 +62,7 @@ export function AiGatewayPanel() {
   const admin = access(role, 'admin') !== 'none';
   const usage = useLive<AiCall[]>(admin ? '/ai/usage?take=12' : null);
   if (!st.live) return (
-    <Panel><PanelHeader eyebrow="AI gateway" title="Model provider" /><EmptyState icon={<Bot size={18} />} title="Sign in to the live workspace" body="AI tasks run on the API so keys and data stay server-side. The agent figures on this page are simulated." /></Panel>
+    <Panel><PanelHeader eyebrow="AI gateway" title="Model provider" /><EmptyState icon={<Bot size={18} />} title="Sign in to the live workspace" body="AI tasks run on the API so keys and data stay server-side." /></Panel>
   );
   const s = st.data;
   return (

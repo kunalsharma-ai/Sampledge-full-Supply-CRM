@@ -10,6 +10,8 @@ import { asTenant } from '../common/tenant-scope';
 import { PanelBackend, PanelBackendError, PANELS, type PanelId } from '../integrations/panel-backend';
 import { PanelSyncService } from '../integrations/panel-sync.service';
 import { ReportSchedulesService } from './report-schedules';
+import { InsightsService } from './insights';
+import { AgentsService } from './agents';
 
 type Tx = Prisma.TransactionClient;
 type Ev = { id: string; tenantId: string; type: string; payload: Record<string, string | number>; createdAt: Date };
@@ -44,7 +46,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private log = new Logger('EventsWorker');
-  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService, private schedules: ReportSchedulesService) {}
+  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService, private schedules: ReportSchedulesService, private insights: InsightsService, private agents: AgentsService) {}
 
   onApplicationBootstrap() {
     if (process.env.WORKER_INLINE === 'false') return;
@@ -75,6 +77,8 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     const stuck = await this.db.panelCall.updateMany({ where: { status: 'sending', createdAt: { lt: new Date(Date.now() - 600_000) } }, data: { status: 'needs_review', error: 'Interrupted while sending; check the panel before retrying' } });
     if (stuck.count) this.log.warn(`${stuck.count} panel call(s) need review`);
     await this.retention();
+    // Business-metric history for Command Center trends (today's row is overwritten each hour).
+    await this.insights.snapshotAll().catch((e) => this.log.error(e));
   }
 
   /** Applies each workspace's retention policies, at most once a day per workspace. */
@@ -103,6 +107,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     if (Date.now() - this.lastSchedules > 60_000) {
       this.lastSchedules = Date.now();
       void this.schedules.runDue().then((n) => n && this.log.log(`ran ${n} scheduled report deliver${n === 1 ? 'y' : 'ies'}`)).catch((e) => this.log.error(e));
+      void this.agents.runDue().then((n) => n && this.log.log(`ran ${n} automation agent${n === 1 ? '' : 's'}`)).catch((e) => this.log.error(e));
     }
     this.running = true;
     try {

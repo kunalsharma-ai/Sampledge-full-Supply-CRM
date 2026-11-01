@@ -141,7 +141,7 @@ function MarketInner() {
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <KpiCard label={isVendor ? 'Open opportunities' : 'Active vendors'} value={isVendor ? opportunities.length : visible.filter((x) => x.activeAllocations).length} format={(n) => fmtNum(n)} color="rgb(var(--blue))" />
         <KpiCard label="Active allocations" value={sum(visible.map((x) => x.activeAllocations))} format={(n) => fmtNum(n)} />
-        <KpiCard label="Delivered completes" value={sum(visible.map((x) => x.delivered))} format={(n) => fmtCompact(n)} delta={0.07} color="rgb(var(--cyan))" />
+        <KpiCard label="Delivered completes" value={sum(visible.map((x) => x.delivered))} format={(n) => fmtCompact(n)} color="rgb(var(--cyan))" />
         <KpiCard label="Avg quality score" value={avg(visible.map((x) => x.quality))} format={(n) => fmtPct(n)} color="rgb(var(--emerald))" />
         {/* Rate cards, bids and payables are removed by the API for roles without view:vendor_bids. */}
         <KpiCard label={isVendor ? 'Bid conversion' : 'Avg bid win rate'} value={seeAll || isVendor ? avg(visible.map((x) => x.bidWinRate)) : 0} format={(n) => (seeAll || isVendor ? fmtPct(n, 0) : 'Restricted')} color="rgb(var(--purple))" />

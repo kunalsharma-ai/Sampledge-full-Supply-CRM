@@ -121,7 +121,11 @@ export type ApiVendor = Vendor;
 
 export type ApiApproval = { id: string; agentId: string | null; kind: string; title: string; projectId: string | null; amount: number | null; status: 'pending' | 'approved' | 'rejected'; createdAt: string; canDecide: boolean; requestedBy: string; decidedBy: string | null };
 export type ApiNotification = { id: string; title: string; body: string; module: string; read: boolean; createdAt: string };
-export type ApiAgent = { id: string; name: string; enabled: boolean; runs30d: number; successRate: number; avgSeconds: number; minutesSaved: number; costUsd30d: number; costCapUsd: number; requiresApproval: string[] };
+export type ApiAgent = {
+  id: string; key: string; name: string; description: string; enabled: boolean; available: boolean; unavailable: string | null; requiresApprovalFor: string[];
+  everyMinutes: number; settings: Record<string, number>; nextRunAt: string | null; lastRunAt: string | null;
+  runs30d: number; successRate: number | null; avgMs: number | null; produced30d: { notifications: number; approvals: number; messages: number };
+};
 export type ApiSurveyDetail = ApiSurvey & { definition: SurveyDef | null };
 
 export function relTime(iso: string, now = Date.now()) {

@@ -2,22 +2,21 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { AnimatePresence, motion, useInView } from 'motion/react';
-import { Box, Map as MapIcon, Pause, Play, X } from 'lucide-react';
+import { Box, Map as MapIcon, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import landDots from '@/lib/geo/land-dots.json';
 import { clients, countryActivity, vendors, countryByCode } from '@/lib/core';
 import { useOS } from '@/lib/store';
 import { palette } from '@/lib/tokens';
-import { fmtCompact, fmtMoney, rng } from '@/lib/utils';
+import { fmtCompact, fmtMoney } from '@/lib/utils';
 import { useResolvedTheme } from '@/components/charts/echart';
-import { Badge, Bar, Button, DemoBadge, Segmented, Skeleton } from '@/components/ui/primitives';
+import { Badge, Bar, Button, Segmented, Skeleton } from '@/components/ui/primitives';
 import type { GlobeArc, GlobePoint } from './globe-scene';
 
 const GlobeScene = dynamic(() => import('./globe-scene'), { ssr: false, loading: () => <Skeleton className="absolute inset-0 rounded-full !bg-transparent" /> });
 
 type Metric = 'live' | 'completes' | 'suppliers' | 'demand';
 const metricLabel: Record<Metric, string> = { live: 'Live projects', completes: 'Respondent completes', suppliers: 'Supplier coverage', demand: 'Research demand ($)' };
-const WEEKS = 12;
 
 function webglOK() {
   try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; }
@@ -46,8 +45,6 @@ export function GlobeExplorer({ height = 520 }: { height?: number }) {
   const reduced = useOS((s) => s.motion === 'reduced');
   const theme = useResolvedTheme();
   const [metric, setMetric] = useState<Metric>('live');
-  const [week, setWeek] = useState(WEEKS - 1);
-  const [playing, setPlaying] = useState(false);
   const [mode, setMode] = useState<'3d' | '2d'>('3d');
   const [selected, setSelected] = useState<string | null>(null);
   const [gl, setGl] = useState(true);
@@ -55,24 +52,12 @@ export function GlobeExplorer({ height = 520 }: { height?: number }) {
   const inView = useInView(ref, { margin: '-80px' });
 
   useEffect(() => { const ok = webglOK(); setGl(ok); if (!ok) setMode('2d'); }, []);
-  useEffect(() => {
-    if (!playing) return;
-    const t = setInterval(() => setWeek((w) => (w + 1) % WEEKS), 900);
-    return () => clearInterval(t);
-  }, [playing]);
 
   const activity = useMemo(() => countryActivity(projects), [projects]);
-  // Weekly history is SIMULATED (deterministic per country) to demonstrate the time dimension.
-  const weekly = useMemo(() => Object.fromEntries(activity.map((c) => {
-    const r = rng(c.code.charCodeAt(0) * 97 + c.code.charCodeAt(1));
-    let v = 0.35 + r() * 0.2;
-    return [c.code, Array.from({ length: WEEKS }, (_, i) => (i === WEEKS - 1 ? 1 : (v = Math.min(1, v + r() * 0.12))))];
-  })), [activity]);
-
   const points: GlobePoint[] = activity
     .filter((c) => c.projects > 0 || metric === 'suppliers')
     .map((c) => {
-      const f = metric === 'suppliers' ? 1 : weekly[c.code][week];
+      const f = 1;
       const raw = metric === 'live' ? c.live + c.projects * 0.25 : metric === 'completes' ? c.completes : metric === 'suppliers' ? c.suppliers : c.demand;
       const value = raw * f;
       const label = metric === 'live' ? `${c.live} live · ${c.projects} total projects` : metric === 'completes' ? `${fmtCompact(Math.round(c.completes * f))} completes` : metric === 'suppliers' ? `${c.suppliers} suppliers` : `${fmtMoney(c.demand * f)} demand`;
@@ -98,7 +83,6 @@ export function GlobeExplorer({ height = 520 }: { height?: number }) {
       <div className="absolute left-0 right-0 top-0 z-10 flex flex-wrap items-center gap-2">
         <Segmented size="sm" label="globe-metric" value={metric} onChange={setMetric} options={(Object.keys(metricLabel) as Metric[]).map((m) => ({ value: m, label: metricLabel[m] }))} />
         <div className="ml-auto flex items-center gap-2">
-          <DemoBadge label="Simulated activity" />
           <Segmented size="sm" label="globe-mode" value={mode} onChange={(m) => (m === '3d' && !gl ? null : setMode(m))} options={[{ value: '3d', label: <span className="flex items-center gap-1"><Box size={11} />3D</span> }, { value: '2d', label: <span className="flex items-center gap-1"><MapIcon size={11} />2D</span> }]} />
         </div>
       </div>
@@ -112,14 +96,8 @@ export function GlobeExplorer({ height = 520 }: { height?: number }) {
         {!gl && <div className="absolute bottom-2 left-2 text-2xs text-ink-3">WebGL unavailable, showing 2D map.</div>}
       </div>
 
-      {/* Time scrubber: the 4th dimension */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 flex items-center gap-3 rounded-xl border hairline bg-surface-2/50 px-3 py-2 backdrop-blur">
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause timeline' : 'Play timeline'} disabled={metric === 'suppliers'}>
-          {playing ? <Pause size={13} /> : <Play size={13} />}
-        </Button>
-        <input type="range" min={0} max={WEEKS - 1} value={week} onChange={(e) => { setWeek(+e.target.value); setPlaying(false); }} disabled={metric === 'suppliers'}
-          className="h-1 flex-1 cursor-pointer accent-cyan" aria-label="Week" />
-        <span className="num w-28 text-right text-2xs text-ink-2">{week === WEEKS - 1 ? 'This week' : `${WEEKS - 1 - week} wk ago`} · W{44 - (WEEKS - 1 - week)}</span>
+      <div className="absolute bottom-0 left-0 right-0 z-10 rounded-xl border hairline bg-surface-2/50 px-3 py-2 text-2xs text-ink-3 backdrop-blur">
+        Current position from {projects.length} project records and the supplier registry. Select a market for its projects.
       </div>
 
       <AnimatePresence>

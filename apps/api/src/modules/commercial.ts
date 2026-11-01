@@ -22,7 +22,8 @@ const OppCreate = z.object({
   sampleSize: z.number().int().positive().max(1_000_000),
   incidence: z.number().gt(0).max(1),
   loi: z.number().int().min(1).max(120),
-  owner: z.string().min(2).max(80),
+  /** Defaults to the signed-in user creating the opportunity. */
+  owner: z.string().min(2).max(80).optional(),
   sourceText: z.string().max(20_000).optional(),
 });
 const StageBody = z.object({ stage: z.enum(crmStages as unknown as [CrmStage, ...CrmStage[]]), lossReason: z.string().max(200).optional() });
@@ -53,7 +54,7 @@ export class CommercialService {
     const client = await this.db.client.findFirst({ where: { id: b.clientId, tenantId: ctx.tenantId } });
     if (!client) throw new NotFoundException('Client not found');
     return this.db.$transaction(async (tx) => {
-      const o = await tx.opportunity.create({ data: { ...b, tenantId: ctx.tenantId, stage: 'New RFQ', value: 0, margin: 0, probability: stageProbability['New RFQ'] } });
+      const o = await tx.opportunity.create({ data: { ...b, owner: b.owner ?? ctx.name, tenantId: ctx.tenantId, stage: 'New RFQ', value: 0, margin: 0, probability: stageProbability['New RFQ'] } });
       await this.audit.log(ctx, 'opportunity.create', 'Opportunity', o.id, undefined, o, tx);
       return o;
     });

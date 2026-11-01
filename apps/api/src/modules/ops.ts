@@ -117,21 +117,27 @@ export class ApprovalsService {
         return ok ? 'Message queued for the development adapter (recorded, not sent)' : 'Message cancelled';
       }
       case 'Rejecting respondents': {
-        if (!p.responseId) return ok ? 'Recorded' : 'Rejected';
-        if (!ok) return 'Rejection declined; the interview stays in the results';
-        const r = await tx.response.findUniqueOrThrow({ where: { id: String(p.responseId) }, include: { survey: { select: { projectId: true } } } });
-        if (r.rejectedAt) return 'Already rejected';
-        await tx.response.update({ where: { id: r.id }, data: { rejectedAt: new Date() } });
-        // Give the quota places back so fieldwork can replace the interview.
-        const def = await tx.surveyVersion.findFirst({ where: { surveyId: r.surveyId, version: r.version } });
-        const quotas = ((def?.definition as { quotas?: { id: string; when: unknown }[] } | undefined)?.quotas ?? []);
-        let freed = 0;
-        for (const q of quotas) {
-          if (!evaluate(q.when as never, r.answers as never)) continue;
-          freed += await tx.$executeRaw`UPDATE "QuotaCell" SET "count" = GREATEST("count" - 1, 0) WHERE "surveyId" = ${r.surveyId} AND "key" = ${q.id}`;
+        // One interview (a team member's request) or several (the Respondent Quality Agent's).
+        const ids = Array.isArray(p.responseIds) ? (p.responseIds as unknown as string[]).map(String) : p.responseId ? [String(p.responseId)] : [];
+        if (!ids.length) return ok ? 'Recorded' : 'Rejected';
+        if (!ok) return ids.length === 1 ? 'Rejection declined; the interview stays in the results' : `Rejection declined; the ${ids.length} interviews stay in the results`;
+        let rejected = 0, freed = 0;
+        for (const id of ids) {
+          const r = await tx.response.findFirst({ where: { id, tenantId }, include: { survey: { select: { projectId: true } } } });
+          if (!r || r.rejectedAt) continue;
+          await tx.response.update({ where: { id: r.id }, data: { rejectedAt: new Date() } });
+          rejected++;
+          // Give the quota places back so fieldwork can replace the interview.
+          const def = await tx.surveyVersion.findFirst({ where: { surveyId: r.surveyId, version: r.version } });
+          const quotas = ((def?.definition as { quotas?: { id: string; when: unknown }[] } | undefined)?.quotas ?? []);
+          for (const q of quotas) {
+            if (!evaluate(q.when as never, r.answers as never)) continue;
+            freed += await tx.$executeRaw`UPDATE "QuotaCell" SET "count" = GREATEST("count" - 1, 0) WHERE "surveyId" = ${r.surveyId} AND "key" = ${q.id}`;
+          }
+          if (r.survey.projectId && r.outcome === 'complete') await tx.project.update({ where: { id: r.survey.projectId }, data: { completes: { decrement: 1 } } });
         }
-        if (r.survey.projectId) await tx.project.update({ where: { id: r.survey.projectId }, data: { completes: { decrement: 1 } } });
-        return `Interview rejected and removed from results; ${freed} quota place${freed === 1 ? '' : 's'} released`;
+        if (!rejected) return 'Already rejected';
+        return ids.length === 1 ? `Interview rejected and removed from results; ${freed} quota place${freed === 1 ? '' : 's'} released` : `${rejected} interviews rejected and removed from results; ${freed} quota place${freed === 1 ? '' : 's'} released`;
       }
       case 'Releasing sensitive datasets': {
         if (!p.deliverableId) return ok ? 'Recorded (no dataset linked; demo request)' : 'Rejected';
@@ -207,21 +213,6 @@ export class OpsController {
     if (!n) throw new NotFoundException('Notification not found');
     await this.db.notificationRead.upsert({ where: { notificationId_userId: { notificationId: id, userId: ctx.userId } }, create: { tenantId: ctx.tenantId, notificationId: id, userId: ctx.userId }, update: {} });
     return { id, read: true };
-  }
-
-  @ForModule('automation') @Get('agents')
-  agents(@Caller() ctx: Ctx) {
-    return this.db.agent.findMany({ where: { tenantId: ctx.tenantId }, orderBy: { id: 'asc' } }).then((r) => r.map((a) => ({ ...a, demo: true })));
-  }
-
-  @ForModule('automation') @Write() @RequirePerm('edit:automations') @Patch('agents/:id')
-  async toggleAgent(@Caller() ctx: Ctx, @Param('id') id: string, @Body() b: unknown) {
-    const { enabled } = parse(z.object({ enabled: z.boolean() }), b);
-    const a = await this.db.agent.findFirst({ where: { id, tenantId: ctx.tenantId } });
-    if (!a) throw new NotFoundException('Agent not found');
-    const u = await this.db.agent.update({ where: { id }, data: { enabled } });
-    await this.audit.log(ctx, enabled ? 'agent.enable' : 'agent.disable', 'Agent', id, { enabled: a.enabled }, { enabled });
-    return u;
   }
 
   @ForModule('admin') @Get('audit')
