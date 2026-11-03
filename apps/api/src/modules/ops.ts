@@ -1,4 +1,5 @@
 import { applyRedemption } from './finance-ledgers';
+import { applyLaunchDecision } from './self-serve';
 import { applyApprovedRetention } from './retention';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
@@ -13,6 +14,12 @@ import { Caller, ForModule, RequirePerm, Write, type Ctx } from '../common/conte
 import { PrismaService } from '../common/prisma.service';
 import { panelActions, panelConfig, PANELS, type PanelAction, type PanelId } from '../integrations/panel-backend';
 import { parse } from '../common/zod';
+
+/** The parts of an approval's payload a client may read: what happened, not what it cost. */
+function clientPayload(p: Prisma.JsonValue): Prisma.JsonValue {
+  const o = (p && typeof p === 'object' && !Array.isArray(p) ? p : {}) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(o).filter(([k]) => ['effect', 'note', 'studyId', 'surveyId', 'version', 'priceTotal'].includes(k))) as Prisma.JsonValue;
+}
 
 @Injectable()
 export class ApprovalsService {
@@ -50,6 +57,8 @@ export class ApprovalsService {
       visible = visible.filter((a) => a.projectId && mine.has(a.projectId));
     }
     if (ctx.role === 'vendor') visible = [];
+    // Clients see their own launch requests, but not what the sample costs.
+    if (ctx.role === 'client') visible = visible.map((a) => (a.kind === 'Publishing surveys' ? a : { ...a, amount: null, payload: clientPayload(a.payload) }));
     return visible.map((a) => ({ ...a, canDecide: a.status === 'pending' && this.canDecide(ctx, a.kind) && a.requestedBy !== ctx.userId }));
   }
 
@@ -148,6 +157,8 @@ export class ApprovalsService {
         await emit(tx, tenantId, 'deliverable.released', { deliverableId: d.id, projectId: d.projectId });
         return `Released to the client: ${d.fileName} (SHA-256 ${d.sha256.slice(0, 12)}…)`;
       }
+      case 'Launching client studies':
+        return applyLaunchDecision(tx, tenantId, p as Record<string, unknown>, ok, meta);
       case 'Granting admin access': {
         if (!ok) return 'Request rejected; role unchanged';
         const m = await tx.membership.findFirst({ where: { tenantId, userId: String(p.userId) } });

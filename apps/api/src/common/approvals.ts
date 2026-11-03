@@ -17,6 +17,8 @@ export const approvalKinds = {
   'Deleting records': null,
   'High-volume communications': 'edit:automations',
   'Granting admin access': null,
+  // A client's self-service launch commits sample spend and publishes a survey in one decision.
+  'Launching client studies': 'approve:purchase',
 } as const satisfies Record<string, Permission | null>;
 
 export type ApprovalKind = keyof typeof approvalKinds;

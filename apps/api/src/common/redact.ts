@@ -11,7 +11,9 @@ export function redactMargins<T extends Record<string, unknown>>(ctx: Ctx, row: 
   const out: Record<string, unknown> = { ...row };
   for (const f of MARGIN_FIELDS) if (f in out) delete out[f];
   if (Array.isArray(out.quotes)) out.quotes = (out.quotes as Record<string, unknown>[]).map((q) => redactMargins(ctx, q));
-  if (Array.isArray(out.allocations)) out.allocations = (out.allocations as Record<string, unknown>[]).map((a) => redactAllocation(ctx, a));
+  // Clients never see which suppliers deliver their sample.
+  if (ctx.role === 'client' && Array.isArray(out.allocations)) out.allocations = [];
+  else if (Array.isArray(out.allocations)) out.allocations = (out.allocations as Record<string, unknown>[]).map((a) => redactAllocation(ctx, a));
   return out as T;
 }
 

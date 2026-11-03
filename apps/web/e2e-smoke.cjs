@@ -233,6 +233,7 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await switchTo('client');
   await go('/diy');
   await p.getByText(/per complete/).first().waitFor({ timeout: 15000 });
+  await p.getByRole('radio', { name: 'Ask the team for a quote' }).click();
   await p.getByLabel('Study name').fill('E2E snack tracker');
   await p.getByLabel('Objective').fill('Track awareness of our snack brand each quarter.');
   await p.getByRole('button', { name: 'Send request' }).click();
@@ -242,6 +243,34 @@ const B = process.env.WEB_URL ?? 'http://localhost:3000';
   await q2.getByText(/DIY request from/).first().waitFor({ timeout: 15000 });
   ok('Business Development sees it live, pushed from the server', true);
   await ctx2.close();
+
+  // 10b Client self-service launch: build the questionnaire, accept the price, team approves, live
+  await p.getByRole('radio', { name: 'Build and launch it myself' }).click();
+  await p.getByLabel('Study name').fill('E2E self-serve concept test');
+  await p.getByLabel('Objective').fill('Pick the stronger of two packaging concepts.');
+  await p.getByLabel('Interview length').fill('5');
+  await p.getByRole('button', { name: 'Build it myself' }).click();
+  await p.getByText('Build your questionnaire').waitFor({ timeout: 15000 });
+  await p.getByLabel('Text of Q1', { exact: true }).fill('Which packaging do you prefer?');
+  await p.getByLabel('Q1 option 1', { exact: true }).fill('Green pack');
+  await p.getByLabel('Q1 option 2', { exact: true }).fill('Blue pack');
+  await p.getByRole('button', { name: 'Save', exact: true }).click();
+  await p.getByText('Questionnaire · v2').waitFor({ timeout: 10000 });
+  await p.getByRole('button', { name: 'Run checks' }).click();
+  await p.getByText(/No issues in 300 simulated interviews|critical|major|minor/).first().waitFor({ timeout: 10000 });
+  await p.getByLabel('Accept price').check();
+  await p.getByRole('button', { name: 'Submit for launch' }).click();
+  await p.getByText(/Nothing is published or charged until/).waitFor({ timeout: 10000 });
+  const study = (await apiGet('/diy/studies')).find((x) => x.title === 'E2E self-serve concept test');
+  ok('Client builds a questionnaire and submits it at a firm price', study && study.status === 'submitted' && study.priceTotal > 0 && !('costCpi' in study));
+  await switchTo('project_manager');
+  const launch = await apiSend('POST', `/approvals/${study.approvalId}/decision`, { decision: 'approved' });
+  ok('Project manager approves the launch', launch.status === 200 && /Launched/.test(launch.body.effect));
+  await switchTo('client');
+  await go('/diy');
+  await p.getByText('E2E self-serve concept test').first().click();
+  await p.getByText(/of [\d,]+ completes/).first().waitFor({ timeout: 10000 });
+  ok('Client sees the study in field with per-market progress', (await apiGet(`/diy/studies/${study.id}`)).survey.status === 'Published');
 
   // 11 Data processing (weighting, coding, recodes, tables and exports) on the closed survey's synthetic interviews
   await switchTo('data_processing');

@@ -167,6 +167,17 @@ Each task response is `{ data, provider: 'rules'|'anthropic', model, status: 'ok
 | GET | `/diy/estimate?audience&countries=US,GB&sampleSize&incidence&loi` | `{markets[{country,n,covered,cpiLow,cpiHigh,capacityOk}], totalLow, totalHigh, basis:'rate_card_estimate', disclaimer}`. No vendor names or costs |
 | POST | `/diy/requests` `{...spec, title, objective}` | client users only; creates an opportunity (`channel:'diy'`, stage *New RFQ*) and emits `diy.requested` |
 | GET | `/diy/requests` | client: own requests with client-facing status; internal roles: all DIY requests |
+| POST | `/diy/studies` `{title, objective, audience, countries, sampleSize, incidence, loi, fieldDays=14}` | client users only. Self-service study: creates a project (*Survey Programming*, owner *Self-service*), a survey with a starter questionnaire, the market screener `COUNTRY` and one hard quota `M_<country>` per market (completes split exactly) |
+| GET | `/diy/studies`, `/diy/studies/:id` | client: own studies; internal roles also get `costCpi`. Detail includes the current `definition`, per-market quota progress, approval state and, when live, the respondent link |
+| PATCH | `/diy/studies/:id` | client, while *draft* or *rejected*: change the set-up; market screener and quotas follow in a new version |
+| PUT | `/diy/studies/:id/questionnaire` `{definition, label?, baseVersion?}` | client, while *draft* or *rejected*: saves a new version; client-made quotas are replaced by the market quotas; stale `baseVersion` → 400 |
+| POST | `/diy/studies/:id/qa` | QA issues from 300 simulated interviews, `estimatedMinutes` (4 questions a minute) vs LOI, `launchable` |
+| GET | `/diy/studies/:id/price` | firm price `{priceCpi, priceTotal, markets[{country,n,capacityOk}]}`; no supplier names, lines or costs |
+| POST | `/diy/studies/:id/submit` `{acceptedTotal}` | client. Refused with critical QA issues or a questionnaire longer than 1.25× LOI; 409 if the price changed. Drafts allocations (`proposed`) from the rate cards and asks for a **Launching client studies** approval (`approve:purchase`); emits `selfserve.submitted` |
+| POST | `/diy/studies/:id/withdraw` | client: withdraws a pending submission; allocations close |
+| POST | `/diy/studies/:id/close` | client or platform admin: closes the live survey and its allocations; project moves to *Data Processing* |
+
+Approving *Launching client studies* publishes exactly the submitted version, approves the allocations (the worker raises POs and payables), moves the project to *Full Launch*, records a *Won* opportunity (`channel:'self_service'`) at the accepted price and messages the client. Rejecting closes the allocations and returns the study to the client with the decision note. Clients see their launch approval without `amount` or allocation ids, and project allocations are hidden from client users.
 
 ## Data Processing (module `data-processing`)
 | Method | Path | Notes |

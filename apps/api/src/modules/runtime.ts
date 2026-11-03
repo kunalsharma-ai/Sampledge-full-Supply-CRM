@@ -58,6 +58,11 @@ export class RuntimeService {
     let source = body.source ?? 'direct';
     if (body.preview || s.status !== 'Published') {
       if (!staff || staff.tenantId !== s.tenantId || access(staff.role, 'survey-studio') === 'none') throw new ForbiddenException('This survey is not live');
+      // Client users preview only surveys on their own projects.
+      if (staff.role === 'client') {
+        const p = s.projectId ? await this.db.project.findUnique({ where: { id: s.projectId }, select: { clientId: true } }) : null;
+        if (!p || p.clientId !== staff.clientId) throw new ForbiddenException('This survey is not live');
+      }
       source = 'preview';
     }
     // Supplier entry: the allocation must belong to this survey's project and be approved or live.
