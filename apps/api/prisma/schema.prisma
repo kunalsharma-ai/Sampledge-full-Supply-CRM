@@ -817,3 +817,39 @@ model PanelRewardPolicy {
 
   @@unique([tenantId, version])
 }
+
+/// A study a client builds and launches without the research team writing the questionnaire.
+/// It owns one project and one survey; launch spend waits for a 'Launching client studies'
+/// approval, which publishes the survey and approves the planned supplier allocations together.
+model SelfServeStudy {
+  id           String    @id @default(cuid())
+  tenantId     String
+  clientId     String
+  projectId    String    @unique
+  surveyId     String    @unique
+  title        String
+  objective    String
+  audience     Audience
+  countries    String[]
+  sampleSize   Int
+  incidence    Float
+  loi          Int
+  fieldDays    Int
+  status       String    // draft | submitted | live | rejected | closed
+  /// Price the client accepted when submitting (base currency); costCpi is internal.
+  priceCpi     Float?
+  priceTotal   Int?
+  costCpi      Float?
+  /// Survey version the client submitted; the approval launches exactly this version.
+  version      Int?
+  approvalId   String?
+  decisionNote String?
+  createdBy    String
+  createdById  String
+  createdAt    DateTime  @default(now())
+  submittedAt  DateTime?
+  launchedAt   DateTime?
+  closedAt     DateTime?
+
+  @@index([tenantId, clientId])
+}

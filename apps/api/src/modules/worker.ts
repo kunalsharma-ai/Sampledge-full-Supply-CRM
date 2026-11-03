@@ -242,6 +242,29 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
         });
         return;
       }
+      case 'selfserve.submitted': {
+        const st = await tx.selfServeStudy.findUnique({ where: { id: String(p.studyId) } });
+        const c = st ? await tx.client.findUnique({ where: { id: st.clientId } }) : null;
+        if (st) await this.notify(tx, t, ['project_manager', 'executive', 'platform_admin'], `Self-service launch from ${c?.name ?? 'a client'}`, `${st.title}: n=${st.sampleSize} ${st.audience} · ${st.countries.join(', ')} · waiting for launch approval`, 'diy');
+        return;
+      }
+      case 'selfserve.decided': {
+        const st = await tx.selfServeStudy.findUnique({ where: { id: String(p.studyId) } });
+        const ap = await tx.approval.findUnique({ where: { id: String(p.approvalId) } });
+        if (!st || !ap) return;
+        const note = (ap.payload as { note?: string | null } | null)?.note;
+        const launched = p.decision === 'approved';
+        // The note is part of the decision record; keep it on the study so the client sees why.
+        if (!launched && note && st.approvalId === ap.id) await tx.selfServeStudy.update({ where: { id: st.id }, data: { decisionNote: note } });
+        await this.queueMessage(tx, t, {
+          channel: 'email', audience: 'client', toRef: `client:${st.clientId}`, relatedType: 'SelfServeDecision', relatedId: ap.id,
+          subject: launched ? `${st.title} is live` : `${st.title} was not launched`,
+          body: launched
+            ? `Fieldwork has started: ${st.sampleSize} completes across ${st.countries.join(', ')} at $${(st.priceCpi ?? 0).toFixed(2)} per complete. Track progress in DIY Research.`
+            : `The research team did not launch this study.${note ? ` Reason: ${note}` : ''} You can revise it and submit again in DIY Research.`,
+        });
+        return;
+      }
       case 'diy.requested': {
         const o = await tx.opportunity.findUnique({ where: { id: String(p.opportunityId) }, include: { client: true } });
         if (o) await this.notify(tx, t, ['bizdev', 'executive'], `DIY request from ${o.client.name}`, `${o.title}: ${o.audience} · ${o.countries.join(', ')} · n=${o.sampleSize}`, 'crm');

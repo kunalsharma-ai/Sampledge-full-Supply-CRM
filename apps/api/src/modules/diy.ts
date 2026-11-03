@@ -19,7 +19,7 @@ const Spec = z.object({
   loi: z.number().int().min(3).max(60),
 });
 /** Margin applied to rate-card cost for the indicative client price, and the ± band shown. */
-const DIY_MARGIN = 0.4;
+export const DIY_MARGIN = 0.4;
 const BAND = 0.15;
 
 /**

@@ -13,8 +13,8 @@ import { Badge, Button, EmptyState, Field, inputCls, PageHeader, Panel, PanelHea
 import { EChart, axis } from '@/components/charts/echart';
 import { AiEvalPanel, AiGatewayPanel, AiProviderBadge } from '@/components/ai/panels';
 
-const policies = ['Sending binding quotations', 'Purchasing sample', 'Issuing payments', 'Rejecting respondents in consequential cases', 'Publishing surveys', 'Releasing sensitive datasets', 'Deleting records', 'Sending high-volume communications', 'Granting admin access'];
-const approverFor: Record<string, Parameters<typeof can>[1]> = { 'Purchasing sample': 'approve:purchase', 'Sending binding quotations': 'approve:quotes', 'Issuing payments': 'approve:payments', 'Publishing surveys': 'approve:publish' };
+const policies = ['Sending binding quotations', 'Purchasing sample', 'Issuing payments', 'Rejecting respondents in consequential cases', 'Publishing surveys', 'Releasing sensitive datasets', 'Deleting records', 'Sending high-volume communications', 'Granting admin access', 'Launching client studies'];
+const approverFor: Record<string, Parameters<typeof can>[1]> = { 'Purchasing sample': 'approve:purchase', 'Launching client studies': 'approve:purchase', 'Sending binding quotations': 'approve:quotes', 'Issuing payments': 'approve:payments', 'Publishing surveys': 'approve:publish' };
 
 type Run = { id: string; agentId: string; agent: { name: string }; trigger: 'schedule' | 'manual'; triggeredBy: string | null; status: 'succeeded' | 'failed'; startedAt: string; ms: number; summary: string; examined: number; notifications: number; approvals: number; messages: number; error: string | null };
 type Daily = { day: string; succeeded: number; failed: number }[];

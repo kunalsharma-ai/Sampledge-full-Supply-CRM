@@ -19,6 +19,7 @@
 | **SAML sign-in** ✅ | SAML 2.0 single sign-on next to OpenID Connect: service metadata, signed-assertion checks, replay and cross-browser protection, login button, Integrations row | 8 tests against a stand-in identity provider; not yet run against a real provider |
 | **Retention and workspaces** ✅ | Per-workspace retention policies behind an approval, daily worker run, workspace settings, operator tenant command | 6 tests |
 | **Finance ledgers** ✅ | Multi-currency with recorded rates, PO reconciliation, incentives ledger behind payment approvals, forecast vs actuals | 6 tests |
+| **Client self-service launch** ✅ | Clients build a questionnaire, accept a firm price and submit; one *Launching client studies* approval publishes it and buys the sample; per-market fieldwork, withdraw and close | 12 API tests; 3 new browser e2e steps |
 | Next | Panel sync verification on staging (needs app tokens and the panel routes deployed), invite and soft-launch bodies; real-provider SSO checks; AI evaluation scores on Claude (needs an API key); external pen test | |
 
 ## Decisions in Phase 4

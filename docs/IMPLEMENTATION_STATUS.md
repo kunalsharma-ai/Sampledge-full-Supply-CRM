@@ -192,7 +192,9 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Configure audience, markets, completes, incidence and LOI; indicative per-market and total range from rate cards (±15%), no supplier names or costs | Functional, tested. Labelled "Indicative pricing, not a quote" |
 | Submit (client users only) → CRM opportunity in *New RFQ* with channel `diy`; Business Development and executives notified | Functional, tested |
 | Client-facing request status (Received, Being reviewed, Quote sent, …) without margins or owners | Functional |
-| Self-service questionnaire building and launch | Planned (Phase 6): fielding stays with the research team and its approvals |
+| **Self-service launch**: the client creates a study (its own project and survey), builds the questionnaire (single/multi choice with screen-out answers, rating, 0–10, number, open text, information screens; reorder, preview), runs QA, accepts a firm price per complete and submits | Functional, tested. The platform keeps a market screener and one hard quota per market in line with the study; the questionnaire must fit the paid interview length |
+| Launch approval: one *Launching client studies* approval (people with purchase approval; never the client) publishes the submitted version, approves the planned supplier allocations (POs and payables follow), starts fieldwork and records a won self-service opportunity. A rejection returns the study with the reason; the client can withdraw while it waits | Functional, tested. Allocations are planned from rate cards and vendor capacity; suppliers still receive entry links through the vendor portal |
+| Fieldwork per market for the client, own respondent link, results in Insight Studio, close fieldwork | Functional, tested. Clients never see suppliers, allocations, costs or the approval amount |
 
 ## Data Processing (new)
 | Feature | Status |
