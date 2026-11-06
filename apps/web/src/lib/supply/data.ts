@@ -69,7 +69,7 @@ export const endpoints = {
   notificationRead: { method: 'POST', path: '/notifications/:id/read', status: 'available' },
   weeklyProgramme: { method: 'GET', path: '/panels/weekly-programme', status: 'planned' },
   surveyDraft: { method: 'POST', path: '/ai/survey-draft', status: 'planned' },
-  ledger: { method: 'GET', path: '/panels/ledger', status: 'planned' },
+  ledger: { method: 'GET', path: '/panels/ledger', status: 'available' },
   tickets: { method: 'GET', path: '/support/tickets', status: 'planned' },
   ticketMessage: { method: 'POST', path: '/support/tickets/:id/messages', status: 'planned' },
   qualityCases: { method: 'GET', path: '/quality/cases', status: 'planned' },
@@ -83,14 +83,15 @@ export const endpoints = {
   reportSchedule: { method: 'PUT', path: '/reports/:id/schedule', status: 'planned' },
   integrationsConfig: { method: 'GET', path: '/integrations', status: 'available' },
   connections: { method: 'GET', path: '/integrations/connections', status: 'planned' },
-  deliveries: { method: 'GET', path: '/integrations/deliveries', status: 'planned' },
-  deliveryRetry: { method: 'POST', path: '/integrations/deliveries/:id/retry', status: 'planned' },
+  deliveries: { method: 'GET', path: '/integrations/deliveries', status: 'available' },
+  deliveryRetry: { method: 'POST', path: '/integrations/deliveries/:id/retry', status: 'available' },
   apiKeys: { method: 'POST', path: '/integrations/keys', status: 'planned' },
   members: { method: 'GET', path: '/admin/users', status: 'available' },
   memberRole: { method: 'PATCH', path: '/admin/users/:id/role', status: 'available' },
   roleCapabilities: { method: 'PUT', path: '/admin/roles/:id/capabilities', status: 'planned' },
   overrides: { method: 'POST', path: '/admin/overrides', status: 'planned' },
-  settings: { method: 'PATCH', path: '/admin/settings', status: 'planned' },
+  settings: { method: 'PATCH', path: '/admin/settings', status: 'available' },
+  settingsRead: { method: 'GET', path: '/admin/settings', status: 'available' },
 } as const;
 
 export type PanelStat = (typeof panelStats)[number] & { id: PanelId };

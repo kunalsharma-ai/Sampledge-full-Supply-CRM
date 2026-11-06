@@ -5,7 +5,8 @@
  * row's hash, and "Verify chain" re-checks the links), then reconciliation of payouts against
  * provider statements. Nothing on this screen edits a balance: corrections are new ledger rows,
  * made from the panellist's 360° page.
- * Integration: `GET /panels/ledger` (planned), `GET /panels/reward-policy` (available).
+ * Live: the ledger lists `GET /panels/ledger` (real incentive entries, newest first). The hash chain
+ * and "Verify chain" are demo-only until the ledger stores hashes. `GET /panels/reward-policy` (available).
  */
 import Link from 'next/link';
 import { motion } from 'motion/react';
@@ -16,6 +17,8 @@ import { StatusPill, type Status } from '@/components/ui/status';
 import { DataTable, type Column } from '@/components/ui/table';
 import { KpiTile, PanelChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadLedger, type LiveLedgerEntry } from '@/lib/supply/live';
 import { ledger, liability, POINT_USD, reconciliation, type Tx, type TxType } from '@/lib/supply/operations';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtMoney, fmtNum } from '@/lib/utils';
@@ -31,6 +34,8 @@ export default function Rewards() {
   const [verify, setVerify] = useState<'idle' | 'running' | 'ok'>('idle');
   const [investigated, setInvestigated] = useState<Set<string>>(new Set());
   const [limit, setLimit] = useState(25);
+  const live = useSupplyData<LiveLedgerEntry[] | null>('rewards:ledger', () => null, loadLedger);
+  const isLive = live.source === 'live' && !!live.data;
   const rows = useMemo(() => ledger.filter((t) => (type === 'all' || t.type === type) && (!q || `${t.id} ${t.panellist.handle} ${t.ref}`.toLowerCase().includes(q.toLowerCase()))), [type, q]);
   const totalPts = liability.reduce((a, l) => a + l.points, 0);
   const expiring = liability.reduce((a, l) => a + l.expiring90d, 0);
@@ -58,8 +63,8 @@ export default function Rewards() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Rewards & wallet" subtitle="What we owe members, every points movement in order, and whether payouts match what providers say they paid."
-        actions={<Button size="sm" variant="ghost" onClick={runVerify} disabled={verify === 'running'}>{verify === 'ok' ? <ShieldCheck size={13} className="text-emerald" /> : <Link2 size={13} />} {verify === 'running' ? 'Verifying…' : verify === 'ok' ? 'Chain verified' : 'Verify chain'}</Button>} />
+      <SupplyHeader screen={screen} source={isLive ? 'mixed' : 'demo'} title="Rewards & wallet" subtitle="What we owe members, every points movement in order, and whether payouts match what providers say they paid."
+        actions={!isLive && <Button size="sm" variant="ghost" onClick={runVerify} disabled={verify === 'running'}>{verify === 'ok' ? <ShieldCheck size={13} className="text-emerald" /> : <Link2 size={13} />} {verify === 'running' ? 'Verifying…' : verify === 'ok' ? 'Chain verified' : 'Verify chain'}</Button>} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Outstanding liability" value={totalPts * POINT_USD} format="money" delta={0.022} good="down" spark={liability[0].trend.map((x, i) => x + liability[1].trend[i] + liability[2].trend[i])} hint="Unredeemed points across all panels, at 100 points = $1" />
@@ -83,6 +88,7 @@ export default function Rewards() {
         })}
       </div>
 
+      {isLive ? <LiveLedger rows={live.data!} /> : (
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
           <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Lock size={13} className="text-ink-3" /> Points ledger</span>
@@ -94,6 +100,7 @@ export default function Rewards() {
         {rows.length > limit && <div className="border-t hairline p-2 text-center"><Button size="xs" variant="ghost" onClick={() => setLimit((l) => l + 25)}>Show 25 more ({rows.length - limit} left)</Button></div>}
         <p className="px-4 py-2.5 text-2xs text-ink-3">Rows cannot be edited or deleted. To correct a balance, add an adjustment from the panellist’s 360° page; it appears here as a new row.</p>
       </Panel>
+      )}
 
       <Panel className="p-4">
         <SectionTitle eyebrow="This month" title="Payout reconciliation" actions={<Badge tone={recDiff ? 'warn' : 'emerald'}>{recDiff ? `${fmt.money(recDiff)} to explain` : 'Balanced'}</Badge>} />
@@ -117,5 +124,45 @@ export default function Rewards() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+const liveKind: Record<LiveLedgerEntry['kind'], { label: string; cls: string }> = {
+  earn: { label: 'Earn', cls: 'text-emerald' }, redeem: { label: 'Redeem', cls: 'text-primary' }, adjust: { label: 'Adjust', cls: 'text-warn' }, expire: { label: 'Expire', cls: 'text-ink-3' },
+};
+const liveStatus: Record<LiveLedgerEntry['status'], { pill: Status; label: string }> = {
+  posted: { pill: 'completed', label: 'posted' }, pending_approval: { pill: 'pending', label: 'awaiting approval' }, rejected: { pill: 'rejected', label: 'rejected' },
+};
+const brandId = (b: string) => (b === 'turn2opinion' ? 't2o' : b === 'myfrequentrewards' ? 'mfr' : b === 'myhealthopinions' ? 'mho' : null);
+
+/** The real incentive ledger from SUPPLY360. Entries are posted in Finance; this view only reads. */
+function LiveLedger({ rows }: { rows: LiveLedgerEntry[] }) {
+  const [kind, setKind] = useState<'all' | LiveLedgerEntry['kind']>('all');
+  const [q, setQ] = useState('');
+  const [limit, setLimit] = useState(25);
+  const shown = rows.filter((e) => (kind === 'all' || e.kind === kind) && (!q || `${e.id} ${e.panelist?.handle ?? ''} ${e.note ?? ''} ${e.projectId ?? ''}`.toLowerCase().includes(q.toLowerCase())));
+  const cols: Column<LiveLedgerEntry>[] = [
+    { key: 'at', label: 'When', sort: (e) => -Date.parse(e.createdAt), render: (e) => <span className="text-ink-3">{new Date(e.createdAt).toLocaleString()}</span> },
+    { key: 'who', label: 'Panellist', render: (e) => e.panelist ? <Link href={`/supply/panellists/${e.panelist.id}`} className="inline-flex items-center gap-1.5 hover:underline">{brandId(e.panelist.brand) && <PanelChip panel={brandId(e.panelist.brand)!} short />}<span>{e.panelist.handle}</span></Link> : <span className="text-ink-3">Removed</span> },
+    { key: 'kind', label: 'Type', sort: (e) => e.kind, render: (e) => <span className={cn('font-semibold', liveKind[e.kind].cls)}>{liveKind[e.kind].label}</span> },
+    { key: 'points', label: 'Points', align: 'right', sort: (e) => e.points, render: (e) => <span className="num font-semibold">{e.points > 0 ? '+' : ''}{fmtNum(e.points)}</span> },
+    { key: 'value', label: 'Value', align: 'right', sort: (e) => e.valueBase, render: (e) => <span className="num text-ink-3">{fmt.money(Math.abs(e.valueBase))}</span> },
+    { key: 'status', label: 'Status', sort: (e) => e.status, render: (e) => <StatusPill status={liveStatus[e.status].pill} label={liveStatus[e.status].label} /> },
+    { key: 'ref', label: 'Reference', render: (e) => <span className="text-ink-2">{[e.projectId, e.note].filter(Boolean).join(' · ') || '—'}</span> },
+    { key: 'by', label: 'Posted by', render: (e) => <span className="text-ink-3">{e.createdBy}</span> },
+  ];
+  return (
+    <Panel className="p-0">
+      <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Lock size={13} className="text-ink-3" /> Points ledger</span>
+        <Badge tone="emerald">Live</Badge>
+        <SearchInput value={q} onChange={setQ} placeholder="Handle, project or note…" className="ml-auto w-64" />
+        <Segmented label="Entry type" size="sm" value={kind} onChange={setKind} options={[{ value: 'all', label: 'All' }, ...(['earn', 'redeem', 'adjust', 'expire'] as const).map((k) => ({ value: k, label: liveKind[k].label }))]} />
+      </div>
+      <DataTable caption="Points ledger from SUPPLY360, newest first" rows={shown.slice(0, limit)} columns={cols} getId={(e) => e.id} prefKey="ledger-live" />
+      {shown.length === 0 && <p className="p-8 text-center text-[13px] text-ink-3">{rows.length ? 'No entries match.' : 'No points have been posted yet.'}</p>}
+      {shown.length > limit && <div className="border-t hairline p-2 text-center"><Button size="xs" variant="ghost" onClick={() => setLimit((l) => l + 25)}>Show 25 more ({shown.length - limit} left)</Button></div>}
+      <p className="px-4 py-2.5 text-2xs text-ink-3">The newest 200 entries. Entries are posted in Finance and can’t be edited; a correction is a new adjustment. Redemptions wait for a payment approval before they leave the balance.</p>
+    </Panel>
   );
 }

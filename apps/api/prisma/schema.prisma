@@ -23,6 +23,8 @@ model Tenant {
   baseCurrency   String    @default("USD")
   /// Cash value of one panel incentive point, in the base currency
   pointValue     Float     @default(0.01)
+  /// SUPPLY360 workspace settings (rules in @sampledge/core settings.ts); missing keys use the default
+  supplySettings Json      @default("{}")
   memberships Membership[]
 }
 

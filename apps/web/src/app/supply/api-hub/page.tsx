@@ -6,7 +6,8 @@
  * API key management. A new key's secret is shown once; revoking asks you to type the key name.
  * Integration: `GET /integrations/connections`, `GET /integrations/deliveries`, `POST /integrations/deliveries/:id/retry`,
  * `POST /integrations/keys`, `DELETE /integrations/keys/:id` (all planned); SAMPLEON signing per the S2S contract.
- * Live: "Configured on the API server" lists `GET /integrations` (real state; secrets are reported
+ * Live: the delivery log reads `GET /integrations/deliveries` and retries with `POST /integrations/deliveries/:id/retry`.
+ * "Configured on the API server" lists `GET /integrations` (real state; secrets are reported
  * only as set or missing) when signed in. The map, delivery log and keys stay demo until their endpoints exist.
  */
 import { Copy, KeyRound, Plus, RefreshCw, RotateCcw } from 'lucide-react';
@@ -17,7 +18,9 @@ import { StatusPill } from '@/components/ui/status';
 import { KpiTile, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { useSupplyData } from '@/lib/supply/data';
-import { loadIntegrations, type LiveIntegration } from '@/lib/supply/live';
+import { loadDeliveries, loadIntegrations, retryDelivery, type LiveDelivery, type LiveIntegration } from '@/lib/supply/live';
+import type { SupplyQuery } from '@/lib/supply/data';
+import { ApiError } from '@/lib/api';
 import { apiKeys as seedKeys, connections, deliveries as seedDel, scopes, type ApiKey, type Connection, type Delivery } from '@/lib/supply/platform';
 import { brandColors, screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtNum } from '@/lib/utils';
@@ -42,6 +45,7 @@ export default function ApiHub() {
   const [revoke, setRevoke] = useState<ApiKey | null>(null);
 
   const live = useSupplyData<LiveIntegration[] | null>('hub:integrations', () => null, loadIntegrations);
+  const liveDl = useSupplyData<LiveDelivery[] | null>('hub:deliveries', () => null, () => loadDeliveries());
   const c = connections.find((x) => x.id === sel)!;
   const shownDl = useMemo(() => dl.filter((d) => dlFilter === 'all' || d.status === dlFilter), [dl, dlFilter]);
   const failed = dl.filter((d) => d.status === 'failed');
@@ -96,6 +100,7 @@ export default function ApiHub() {
         </Panel>
       </div>
 
+      {liveDl.source === 'live' && liveDl.data ? <LiveDeliveries q={liveDl} /> : (
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
           <span className="text-[13px] font-semibold">Event deliveries</span>
@@ -119,6 +124,7 @@ export default function ApiHub() {
           {shownDl.length === 0 && <p className="p-8 text-center text-[13px] text-ink-3">No deliveries with this status.</p>}
         </div>
       </Panel>
+      )}
 
       {live.source === 'live' && live.data && <ServerConfig rows={live.data} />}
 
@@ -219,6 +225,57 @@ function ServerConfig({ rows }: { rows: LiveIntegration[] }) {
         ))}
       </div>
       <p className="mt-2 text-2xs text-ink-3">Settings are environment variables on the API server. Values are never sent to the browser, only whether each one is set.</p>
+    </Panel>
+  );
+}
+
+const dlPill: Record<LiveDelivery['status'], 'completed' | 'pending' | 'failed' | 'paused'> = { delivered: 'completed', queued: 'paused', retrying: 'pending', failed: 'failed' };
+
+/** The real outbox: what SUPPLY360 has sent or is trying to send, and a retry for events the worker gave up on. */
+function LiveDeliveries({ q }: { q: SupplyQuery<LiveDelivery[] | null> }) {
+  const toast = useOS((s) => s.toast);
+  const [filter, setFilter] = useState<'all' | LiveDelivery['status']>('all');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const rows = q.data ?? [];
+  const failed = rows.filter((d) => d.status === 'failed');
+  const shown = rows.filter((d) => filter === 'all' || d.status === filter);
+  const retry = async (ids: string[]) => {
+    setBusy(ids.length > 1 ? 'all' : ids[0]);
+    let ok = 0;
+    for (const id of ids) { try { await retryDelivery(id); ok++; } catch (e) { toast(e instanceof ApiError ? e.message : 'Retry failed', 'warn'); } }
+    setBusy(null);
+    if (ok) toast(`${ok} event${ok > 1 ? 's' : ''} back in the queue; the worker sends ${ok > 1 ? 'them' : 'it'} on its next pass`, 'ok');
+    q.reload();
+  };
+  return (
+    <Panel className="p-0">
+      <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
+        <span className="text-[13px] font-semibold">Event deliveries</span><Badge tone="emerald">Live</Badge>
+        <Segmented label="Delivery status" size="sm" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'All' }, { value: 'failed', label: `Failed (${failed.length})` }, { value: 'retrying', label: 'Retrying' }, { value: 'queued', label: 'Queued' }, { value: 'delivered', label: 'Delivered' }]} />
+        <Button size="sm" variant="ghost" onClick={q.reload}><RefreshCw size={13} /> Refresh</Button>
+        <Button size="sm" variant="ghost" className="ml-auto" disabled={!failed.length || !!busy} onClick={() => setAll(true)}><RotateCcw size={13} /> Retry all failed</Button>
+      </div>
+      <div className="max-h-[360px] overflow-auto">
+        <table className="w-full min-w-[720px] text-[12.5px]">
+          <caption className="sr-only">Outbound event deliveries from the API server</caption>
+          <thead className="sticky top-0 bg-surface"><tr className="text-left text-2xs text-ink-3">{['When', 'Event', 'Status', 'Attempts', 'Last error', ''].map((h, i) => <th key={i} scope="col" className={cn('px-3 py-2 font-semibold', i === 3 && 'text-right')}>{h}</th>)}</tr></thead>
+          <tbody>{shown.map((d) => (
+            <tr key={d.id} className="border-t hairline">
+              <td className="px-3 py-1.5 text-ink-3">{new Date(d.createdAt).toLocaleString()}</td>
+              <td className="px-3 py-1.5"><code className="text-[11px]">{d.type}</code></td>
+              <td className="px-3 py-1.5"><StatusPill status={dlPill[d.status]} label={d.status} /></td>
+              <td className="num px-3 py-1.5 text-right">{d.attempts}</td>
+              <td className="max-w-[280px] truncate px-3 py-1.5 text-ink-2" title={d.lastError ?? undefined}>{d.lastError ?? ''}</td>
+              <td className="px-3 py-1.5 text-right">{d.status === 'failed' && <Button size="xs" variant="ghost" disabled={!!busy} onClick={() => retry([d.id])}><RefreshCw size={11} /> {busy === d.id ? 'Retrying…' : 'Retry'}</Button>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        {shown.length === 0 && <p className="p-8 text-center text-[13px] text-ink-3">{rows.length ? 'No deliveries with this status.' : 'Nothing has been sent yet.'}</p>}
+      </div>
+      <p className="border-t hairline px-3 py-2 text-2xs text-ink-3">The newest 100 events. The worker tries each one 5 times; after that it waits here for a retry. Receivers ignore an event id they have already processed, so a retry never applies twice.</p>
+      <ConfirmDialog open={all} onOpenChange={setAll} tone="primary" title={`Retry ${failed.length} failed deliver${failed.length > 1 ? 'ies' : 'y'}?`}
+        body="They go back in the queue and the worker sends them in order. Check that the receiver is healthy first, or they will fail again." confirmLabel="Retry all" onConfirm={() => retry(failed.map((d) => d.id))} />
     </Panel>
   );
 }

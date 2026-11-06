@@ -5,15 +5,21 @@
  * safe-mode preview of their impact before saving: reach for the fatigue cap, liability for the
  * points value, review load for auto-suspend. A setting that would break panellist consent terms
  * cannot be saved at all.
- * Integration: `GET /admin/settings`, `PATCH /admin/settings` (planned); each save writes an audit entry.
+ * Live: values and history come from `GET /admin/settings`; Save sends one `PATCH /admin/settings`
+ * (all changes or none), and the server writes an audit entry per change. Rules are shared with the API
+ * (`settingError` in @sampledge/core). Settings managed elsewhere (Finance, the reward policy) are read-only here.
  */
 import { History, Search, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Panel, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog, Switch } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { access, settingError } from '@/lib/core';
+import { ApiError } from '@/lib/api';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadSettings, saveSettings, type LiveSettings } from '@/lib/supply/live';
 import { totals, funnel } from '@/lib/supply/demo';
 import { liability } from '@/lib/supply/operations';
 import { settingHistory, settings as seed, type ChangeEntry, type Setting } from '@/lib/supply/platform';
@@ -40,22 +46,44 @@ export default function Settings() {
   const [q, setQ] = useState('');
   const [history, setHistory] = useState<ChangeEntry[]>(settingHistory);
   const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const live = useSupplyData<LiveSettings | null>('settings', () => null, loadSettings);
+  const isLive = live.source === 'live' && !!live.data;
+  const managed = isLive ? live.data!.managed : {};
+  const role = useOS((s) => s.session?.role);
+  const canEdit = !isLive || (!!role && access(role, 'admin') === 'full');
+  useEffect(() => {
+    if (!isLive) return;
+    const v = live.data!.values;
+    setSaved(v); setDraft(v);
+    setHistory(live.data!.history.map((h) => {
+      const s = seed.find((x) => x.id === h.setting);
+      return { id: h.id, at: new Date(h.at).toLocaleString(), who: h.who, setting: s?.label ?? h.setting, from: h.from == null ? '—' : s ? show(s, h.from) : String(h.from), to: h.to == null ? '—' : s ? show(s, h.to) : String(h.to) };
+    }));
+  }, [isLive, live.data]);
 
   const shown = useMemo(() => seed.filter((s) => !q || `${s.label} ${s.help} ${s.section}`.toLowerCase().includes(q.toLowerCase())), [q]);
   const sections = [...new Set(seed.map((s) => s.section))];
   const changed = seed.filter((s) => draft[s.id] !== saved[s.id]);
   const errOf = (s: Setting): string | null => {
     const v = draft[s.id];
-    if (s.kind === 'number') { const n = Number(v); if (v === '' || Number.isNaN(n)) return 'Enter a number'; if (s.min != null && n < s.min) return `At least ${s.min}`; if (s.max != null && n > s.max) return `At most ${s.max}`; }
-    if (s.kind === 'text' && !String(v).trim()) return 'Required';
-    if (s.id === 'send.windowEnd' && Number(v) - Number(draft['send.windowStart']) < 6) return 'The window must be at least 6 hours long';
-    if (s.id === 'privacy.healthOnlyMatch' && v === false) return 'This can’t be turned off: MyHealthOpinions consent terms require it.';
-    return null;
+    if (managed[s.id] || v === saved[s.id]) return s.id === 'send.windowEnd' && draft['send.windowStart'] !== saved['send.windowStart'] ? settingError(s.id, v, draft) : null;
+    return settingError(s.id, v, draft);
   };
   const errors = changed.map(errOf).filter(Boolean);
   const risky = changed.filter((s) => s.risky);
   const set = (id: string, v: Val) => setDraft((d) => ({ ...d, [id]: v }));
-  const commit = () => {
+  const commit = async () => {
+    if (isLive) {
+      setSaving(true);
+      try {
+        const r = await saveSettings(Object.fromEntries(changed.map((s) => [s.id, draft[s.id]])));
+        setSaved(r.values); setDraft(r.values); live.reload();
+        toast(`Saved ${r.changed} setting${r.changed === 1 ? '' : 's'}`, 'ok');
+      } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not save the settings', 'warn'); }
+      finally { setSaving(false); }
+      return;
+    }
     const at = '2026-11-06 ' + new Date().toTimeString().slice(0, 5);
     setHistory((h) => [...changed.map((s, i) => ({ id: `n${Date.now()}${i}`, at, who: 'You', setting: s.label, from: show(s, saved[s.id]), to: show(s, draft[s.id]) })), ...h]);
     setSaved(draft); toast(`Saved ${changed.length} setting${changed.length > 1 ? 's' : ''}`, 'ok');
@@ -63,7 +91,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-4 pb-16">
-      <SupplyHeader screen={screen} title="System settings" subtitle={`Workspace-wide rules for ${fmtNum(totals.members)} members across three panels. Settings marked with a shield change behaviour for everyone; you see the impact before saving.`} />
+      <SupplyHeader screen={screen} source={isLive ? 'live' : 'demo'} title="System settings" subtitle={`Workspace-wide rules for ${isLive ? 'every member' : `${fmtNum(totals.members)} members`} across three panels. Settings marked with a shield change behaviour for everyone; you see the impact before saving.${canEdit ? '' : ' You can read these settings; a platform admin changes them.'}`} />
 
       <div className="grid gap-4 lg:grid-cols-[200px_1fr_300px]">
         <nav aria-label="Settings sections" className="lg:sticky lg:top-4 lg:self-start">
@@ -80,17 +108,18 @@ export default function Settings() {
                 <h2 id={`sec-${sec}`} className="mb-2 scroll-mt-4 font-display text-[15px] font-semibold">{sec}</h2>
                 <ul className="divide-y divide-ink-3/15">
                   {items.map((s) => {
-                    const v = draft[s.id], dirty = v !== saved[s.id], err = errOf(s), imp = dirty && s.risky ? impact(s, saved[s.id], v) : null;
+                    const v = draft[s.id], dirty = v !== saved[s.id], err = errOf(s), imp = dirty && s.risky ? (isLive ? null : impact(s, saved[s.id], v)) : null;
                     const id = `set-${s.id}`;
                     return (
                       <li key={s.id} className={cn('grid gap-2 py-3 sm:grid-cols-[1fr_200px] sm:items-start', dirty && 'rounded-lg bg-warn/[.06] px-2')}>
                         <div>
                           <label htmlFor={id} className="text-[13px] font-medium">{s.label}{s.risky && <ShieldAlert size={12} className="ml-1 inline text-warn" aria-label="Changes behaviour for everyone" />}{dirty && <Badge tone="warn" className="ml-2">Unsaved</Badge>}</label>
                           <p className="text-2xs text-ink-3">{s.help}</p>
-                          {imp && <p className="mt-1.5 flex gap-1.5 rounded-lg bg-surface-2/60 px-2 py-1.5 text-[12px]"><TriangleAlert size={13} className="mt-0.5 shrink-0 text-warn" aria-hidden /><span><b>Preview:</b> {imp} {s.risky}</span></p>}
+                          {dirty && s.risky && <p className="mt-1.5 flex gap-1.5 rounded-lg bg-surface-2/60 px-2 py-1.5 text-[12px]"><TriangleAlert size={13} className="mt-0.5 shrink-0 text-warn" aria-hidden /><span><b>{imp ? 'Preview' : 'Impact'}:</b> {imp ? `${imp} ` : ''}{s.risky}</span></p>}
                         </div>
                         <div>
-                          {s.kind === 'toggle' ? <Switch id={id} checked={!!v} label={s.label} onCheckedChange={(x) => set(s.id, x)} />
+                          {managed[s.id] || !canEdit ? <div className="text-[13px]"><span className="num font-semibold">{show(s, v)}</span>{managed[s.id] && <a href={managed[s.id].href} className="mt-0.5 block text-2xs text-primary hover:underline">Managed in {managed[s.id].label}</a>}</div>
+                            : s.kind === 'toggle' ? <Switch id={id} checked={!!v} label={s.label} onCheckedChange={(x) => set(s.id, x)} />
                             : s.kind === 'select' ? <select id={id} className={inputCls} value={String(v)} onChange={(e) => set(s.id, e.target.value)}>{s.options!.map((o) => <option key={o}>{o}</option>)}</select>
                             : <div className="flex items-center gap-1.5"><input id={id} type={s.kind === 'number' ? 'number' : 'text'} step={s.kind === 'number' && Number(s.max) <= 1 ? 0.05 : 1} className={inputCls} aria-invalid={!!err} aria-describedby={err ? `${id}-err` : undefined} value={String(v)} onChange={(e) => set(s.id, s.kind === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />{s.unit && <span className="shrink-0 text-2xs text-ink-3">{s.unit}</span>}</div>}
                           {err && <p id={`${id}-err`} className="mt-1 text-2xs text-danger" role="alert">{err}</p>}
@@ -108,6 +137,7 @@ export default function Settings() {
 
         <Panel className="p-4 lg:sticky lg:top-4 lg:self-start">
           <SectionTitle eyebrow="Audit" title={<span className="flex items-center gap-1.5"><History size={14} aria-hidden /> Change history</span>} />
+          {history.length === 0 && <p className="text-[12px] text-ink-3">No changes yet. Each save is recorded here and in the audit log.</p>}
           <ol className="space-y-2.5">{history.slice(0, 10).map((h) => <li key={h.id} className="text-[12px]"><div className="font-medium">{h.setting}</div><div className="text-ink-2"><span className="line-through opacity-70">{h.from}</span> → {h.to}</div><div className="text-2xs text-ink-3">{h.who} · {h.at}</div></li>)}</ol>
         </Panel>
       </div>
@@ -118,13 +148,13 @@ export default function Settings() {
             className="panel fixed bottom-4 left-1/2 z-30 flex w-[min(640px,calc(100%-2rem))] -translate-x-1/2 items-center gap-3 px-4 py-3 shadow-lift">
             <span className="text-[13px]"><b>{changed.length}</b> unsaved change{changed.length > 1 ? 's' : ''}{risky.length ? <span className="text-warn"> · {risky.length} with wide impact</span> : ''}{errors.length ? <span className="text-danger"> · {errors.length} to fix</span> : ''}</span>
             <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setDraft(saved)}>Discard</Button>
-            <Button size="sm" variant="primary" disabled={errors.length > 0} onClick={() => (risky.length ? setConfirm(true) : commit())}>Save</Button>
+            <Button size="sm" variant="primary" disabled={errors.length > 0 || saving} onClick={() => (risky.length ? setConfirm(true) : commit())}>Save</Button>
           </motion.div>
         )}
       </AnimatePresence>
 
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} tone="primary" title="Save settings with wide impact?"
-        body={<ul className="space-y-2">{risky.map((s) => <li key={s.id}><b>{s.label}</b>: {show(s, saved[s.id])} → {show(s, draft[s.id])}<br /><span className="text-ink-3">{impact(s, saved[s.id], draft[s.id]) ?? s.risky}</span></li>)}</ul>}
+        body={<ul className="space-y-2">{risky.map((s) => <li key={s.id}><b>{s.label}</b>: {show(s, saved[s.id])} → {show(s, draft[s.id])}<br /><span className="text-ink-3">{(isLive ? null : impact(s, saved[s.id], draft[s.id])) ?? s.risky}</span></li>)}</ul>}
         confirmLabel="Save" onConfirm={commit} />
     </div>
   );

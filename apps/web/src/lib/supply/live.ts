@@ -52,3 +52,25 @@ export const moduleHref: Record<string, { href: string; source: string }> = {
   finance: { href: '/supply/rewards', source: 'Rewards' },
   communications: { href: '/supply/email', source: 'Comms' },
 };
+
+/** `GET /integrations/deliveries`: the outbox as a delivery log (no payloads). */
+export type LiveDelivery = { id: string; type: string; createdAt: string; processedAt: string | null; attempts: number; lastError: string | null; status: 'delivered' | 'queued' | 'retrying' | 'failed' };
+export const loadDeliveries = (status?: LiveDelivery['status']) => api<LiveDelivery[]>(`/integrations/deliveries?take=100${status ? `&status=${status}` : ''}`);
+export const retryDelivery = (id: string) => api<{ id: string; status: 'queued' }>(`/integrations/deliveries/${id}/retry`, { method: 'POST' });
+
+/** `GET /panels/ledger`: incentive entries with the member's handle and brand. */
+export type LiveLedgerEntry = {
+  id: string; createdAt: string; kind: 'earn' | 'redeem' | 'adjust' | 'expire'; points: number; valueBase: number;
+  status: 'posted' | 'pending_approval' | 'rejected'; projectId: string | null; note: string | null; createdBy: string;
+  panelist: { id: string; handle: string; brand: string } | null;
+};
+export const loadLedger = () => api<LiveLedgerEntry[]>('/panels/ledger?take=200');
+
+/** `GET /admin/settings` and `PATCH /admin/settings`. */
+export type LiveSettings = {
+  values: Record<string, string | number | boolean>;
+  managed: Record<string, { label: string; href: string }>;
+  history: { id: string; at: string; who: string; setting: string; from: string | number | boolean | null; to: string | number | boolean | null }[];
+};
+export const loadSettings = () => api<LiveSettings>('/admin/settings');
+export const saveSettings = (changes: Record<string, string | number | boolean>) => api<{ values: LiveSettings['values']; changed: number }>('/admin/settings', { method: 'PATCH', body: { changes } });
