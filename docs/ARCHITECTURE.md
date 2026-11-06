@@ -160,3 +160,16 @@ GSAP was listed as optional; Motion covers every animation in Phase 2, so GSAP i
 - 3D scenes: lazy chunk, `dpr ≤ 1.75`, frameloop paused offscreen, auto-rotate off under reduced motion, WebGL detection with 2D fallback.
 - Charts: dynamic import of ECharts; one instance per panel; resize observer.
 - Dense screens (tables, kanban, QA report) have no continuous animation.
+
+## 7. Sampledge ecosystem: SAMPLEON, PROJEXA and ZAPX
+
+SUPPLY360 is the respondent master of the Sampledge ecosystem. SAMPLEON (audience requests,
+targeting, feasibility, approval, invitations, quotas, routing), PROJEXA (projects) and ZAPX
+(survey hosting and verified outcomes) are separate services with their own databases. SAMPLEON
+reaches respondents only through SUPPLY360's signed eligibility and delivery API, so there is one
+respondent database, and SUPPLY360 keeps consent, e-mail, rewards and quality decisions.
+
+The design is SAMPLEON's `docs/ECOSYSTEM_ARCHITECTURE.md` (§1.1 lists how this codebase's
+Sample Exchange and survey runtime relate to SAMPLEON while both exist). SUPPLY360's side is in
+[integrations/SAMPLEON.md](integrations/SAMPLEON.md).
+

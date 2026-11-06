@@ -199,6 +199,28 @@ export async function runSeed(db: PrismaClient, opts: { panelists?: number; cxRe
     ]),
   });
 
+  // Profile attributes SAMPLEON can target (see integrations/sampleon/attributes.ts). Synthetic.
+  const attrs: Prisma.PanelistAttributeCreateManyInput[] = [];
+  const band: Record<string, [number, number]> = { '18-24': [18, 24], '25-34': [25, 34], '35-44': [35, 44], '45-54': [45, 54], '55-64': [55, 64], '65+': [65, 80] };
+  for (const p of rows) {
+    const add = (key: string, v: string | number | boolean) => attrs.push({ tenantId: t, panelistId: p.id!, key, ...(typeof v === 'number' ? { valueNum: v } : typeof v === 'boolean' ? { valueBool: v } : { valueText: v }) });
+    const [lo, hi] = band[p.ageBand as string] ?? [18, 80];
+    add('demo.age', lo + Math.floor(r() * (hi - lo + 1)));
+    if (p.segment === 'hcp') {
+      add('hcp.role', pick(['physician', 'physician', 'physician', 'nurse', 'pharmacist']));
+      add('hcp.specialty', pick(['cardiology', 'oncology', 'general_practice', 'general_practice', 'dermatology', 'neurology', 'endocrinology', 'pediatrics', 'psychiatry']));
+      if (r() < 0.85) add('b2b.years_experience', 1 + Math.floor(r() * 35)); // some profiles are incomplete on purpose
+    } else if (p.segment === 'professional') {
+      add('b2b.role', pick(['it_decision_maker', 'hr', 'finance', 'marketing', 'operations', 'c_suite']));
+      add('b2b.industry', pick(['technology', 'healthcare', 'finance', 'retail', 'manufacturing', 'education', 'public_sector']));
+      add('b2b.company_size', pick([10, 50, 250, 1000, 5000, 20000]));
+      if (r() < 0.8) add('b2b.years_experience', 1 + Math.floor(r() * 30));
+    } else if (p.segment === 'patient' || p.segment === 'caregiver') {
+      add('health.diabetes', r() < 0.3); add('health.hypertension', r() < 0.35); add('health.asthma', r() < 0.15);
+    }
+  }
+  await db.panelistAttribute.createMany({ data: attrs });
+
   // Isolation tenant: a second workspace whose records must never appear in the first.
   const other = await db.tenant.create({ data: { name: 'Isolation Test Co (Demo)', slug: ISOLATION_TENANT } });
   const oa = await db.user.create({ data: { email: 'admin@isolation.sampledge.test', name: 'Isolation Admin (Demo)', passwordHash: hash } });
