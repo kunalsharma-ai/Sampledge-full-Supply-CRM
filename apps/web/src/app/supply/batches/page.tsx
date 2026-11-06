@@ -4,7 +4,9 @@
  * Each row shades that country's quiet hours (21:00 to 08:00 local), so a batch dragged into the
  * night is visibly wrong and is refused. Bars move by drag or, with focus, by ←/→ (1 hour) and
  * Shift+←/→ (1 day). The side panel previews the send curve for the chosen throttle.
- * Integration: batches map to SAMPLEON `PATCH /sampleon/v1/batches/:id` (planned).
+ * Live: this week's SampAudience batches (`GET /sampaudience/requests`), hours from Monday 00:00 UTC.
+ * Rescheduling and throttling are SampAudience decisions, so live the bars are read-only and the
+ * save button opens its console.
  */
 import { Suspense, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -15,6 +17,9 @@ import { Badge, Button, Panel, inputCls } from '@/components/ui/primitives';
 import { Kbd } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadSampFeed, toBatches, type SampFeed } from '@/lib/supply/sampaudience';
+import { DecideInSampAudience } from '@/components/supply/decide-link';
 import { batches as seed, inQuietHours, localHour, NOW_HOUR, surveyById, surveys, type Batch } from '@/lib/supply/fieldwork';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
@@ -45,7 +50,13 @@ export default function BatchesPage() { return <Suspense><Batches /></Suspense>;
 function Batches() {
   const params = useSearchParams();
   const toast = useOS((s) => s.toast);
-  const [list, setList] = useState(seed);
+  const [localList, setList] = useState(seed);
+  const feed = useSupplyData<SampFeed | null>('samp:feed', () => null, () => loadSampFeed());
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
+  const liveB = useMemo(() => (liveFeed ? toBatches(liveFeed.requests) : null), [liveFeed]);
+  const list = liveB ? liveB.batches : localList;
+  const now = liveB ? liveB.nowHour : NOW_HOUR;
+  const titleOf = (id: string) => liveFeed?.requests.find((r) => r.audienceRequestId === id)?.title ?? surveyById(id)?.title ?? id;
   const [history, setHistory] = useState<Batch[][]>([]);
   const filterInit = params.get('s') && seed.some((b) => b.surveyId === params.get('s')) ? params.get('s')! : 'all';
   const [filter, setFilter] = useState(filterInit);
@@ -63,9 +74,10 @@ function Batches() {
   const sel = list.find((b) => b.id === selId) ?? rows.find((b) => b.status === 'scheduled') ?? rows[0];
   const [throttle, setThrottle] = useState<Record<string, number>>({});
   const thr = sel ? throttle[sel.id] ?? sel.throttle : 0;
-  const surveyOptions = surveys.filter((s) => seed.some((b) => b.surveyId === s.id));
+  const surveyOptions = liveFeed ? [...new Set(list.map((b) => b.surveyId))].map((id) => ({ id, title: titleOf(id) })) : surveys.filter((s) => seed.some((b) => b.surveyId === s.id));
 
   const commit = (b: Batch, start: number) => {
+    if (liveB) { toast('Batches are rescheduled in SampAudience', 'info'); return; }
     const s = Math.max(Math.ceil(NOW_HOUR), Math.min(HOURS - b.duration, Math.round(start)));
     if (s === b.start) return;
     if (inQuietHours(s, b.duration, b.country)) { toast(`Not moved: ${fmtHour(s)} UTC is inside ${b.country} quiet hours`, 'warn'); return; }
@@ -75,7 +87,7 @@ function Batches() {
   };
   const pxPerHour = () => (track.current ? track.current.clientWidth / HOURS : 6);
   const onPointerDown = (e: React.PointerEvent, b: Batch) => {
-    if (b.status !== 'scheduled') return;
+    if (b.status !== 'scheduled' || liveB) { setSelId(b.id); return; }
     setSelId(b.id);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const x0 = e.clientX;
@@ -101,7 +113,7 @@ function Batches() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Batch scheduling" subtitle="Plan invitation waves per country. Times are UTC; shaded bands are each country’s quiet hours, when nothing is sent."
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : 'demo'} title="Batch scheduling" subtitle="Plan invitation waves per country. Times are UTC; shaded bands are each country’s quiet hours, when nothing is sent."
         actions={<>
           <Button size="sm" variant="ghost" disabled={!history.length} onClick={() => { setList(history[history.length - 1]); setHistory((h) => h.slice(0, -1)); toast('Move undone', 'info'); }}><Undo2 size={13} /> Undo</Button>
           <label className="flex items-center gap-2 text-2xs text-ink-3">Survey
@@ -126,7 +138,7 @@ function Batches() {
               </div>
               <ul aria-label="Invitation batches">
                 {lanes.map((lane) => {
-                  const sv = surveyById(lane.surveyId)!;
+                  const sv = { title: titleOf(lane.surveyId) };
                   const active = lane.bs.some((b) => b.id === sel?.id);
                   return (
                     <li key={lane.key} className={cn('grid grid-cols-[180px_1fr] border-b hairline', active && 'bg-primary/[.05]')}>
@@ -137,7 +149,7 @@ function Batches() {
                       <div ref={track} className="relative h-11">
                         {quietRanges(lane.country).map(([a, z]) => <span key={a} className="absolute inset-y-0 bg-ink-3/[.07]" style={{ left: `${(a / HOURS) * 100}%`, width: `${((z - a) / HOURS) * 100}%` }} aria-hidden />)}
                         {DAYS.map((_, i) => i > 0 && <span key={i} className="absolute inset-y-0 border-l hairline" style={{ left: `${(i / 7) * 100}%` }} aria-hidden />)}
-                        <span className="absolute inset-y-0 border-l-2 border-danger/60" style={{ left: `${(NOW_HOUR / HOURS) * 100}%` }} aria-hidden />
+                        <span className="absolute inset-y-0 border-l-2 border-danger/60" style={{ left: `${(now / HOURS) * 100}%` }} aria-hidden />
                         {lane.bs.map((b) => {
                           const dx = drag?.id === b.id ? drag.dx : 0;
                           const start = b.start + dx;
@@ -162,13 +174,13 @@ function Batches() {
           <div className="flex flex-wrap gap-3 px-4 py-2.5 text-2xs text-ink-3">
             {(['sent', 'sending', 'scheduled', 'held'] as const).map((s) => <span key={s} className="flex items-center gap-1"><span className={cn('h-2.5 w-4 rounded-sm', statusCls[s])} />{s}</span>)}
             <span className="flex items-center gap-1"><span className="h-2.5 w-4 rounded-sm bg-ink-3/[.15]" /><Moon size={11} /> quiet hours (local)</span>
-            <span className="ml-auto">Now: {fmtHour(NOW_HOUR)} UTC</span>
+            <span className="ml-auto">Now: {fmtHour(Math.floor(now))} UTC{liveB?.otherWeeks ? ` · ${liveB.otherWeeks} batch${liveB.otherWeeks > 1 ? 'es' : ''} in other weeks` : ''}</span>
           </div>
         </Panel>
 
         {sel && (
           <Panel className="p-4">
-            <SectionTitle help="Selected batch" eyebrow={`${sel.country} · ${sel.status}`} title={surveyById(sel.surveyId)!.title} />
+            <SectionTitle help="Selected batch" eyebrow={`${sel.country} · ${sel.status}`} title={titleOf(sel.surveyId)} />
             <dl className="mb-3 grid grid-cols-2 gap-2 text-center text-[12.5px]">
               {[['Starts (UTC)', fmtHour(sel.start)], ['Local start', `${String(Math.floor(localHour(sel.start, sel.country))).padStart(2, '0')}:00`], ['Invites', fmtNum(sel.invites)], ['Window', `${curve.length} h`]].map(([k, v]) => (
                 <div key={k} className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">{k}</dt><dd className="num font-semibold">{v}</dd></div>
@@ -187,6 +199,7 @@ function Batches() {
               ? <Badge tone="warn" className="mt-2">At this throttle the send runs into quiet hours. Raise the throttle or move the batch earlier.</Badge>
               : <p className="mt-2 text-2xs text-ink-3">Finishes by {String(Math.floor(localHour(sel.start + curve.length, sel.country))).padStart(2, '0')}:00 local time.</p>}
             {sel.status === 'scheduled' && (
+              liveB ? <div className="mt-3"><DecideInSampAudience url={liveFeed?.consoleUrl ?? null} label="Change this batch in SampAudience" /></div> :
               <Button size="sm" className="mt-3 w-full" disabled={conflict} onClick={() => { setList((l) => l.map((x) => (x.id === sel.id ? { ...x, throttle: thr, duration: curve.length } : x))); toast('Batch saved', 'ok'); }}><Send size={13} /> Save batch</Button>
             )}
           </Panel>

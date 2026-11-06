@@ -5,7 +5,9 @@
  * Edge width is flow per hour. "Replay a path" walks one respondent through the graph.
  * Switching strategy re-weights the router and the whole graph updates. A table under the graph
  * carries the same numbers for screen readers and for copying.
- * Integration: SAMPLEON router `GET /sampleon/v1/routing/flows?window=1h` (planned).
+ * The graph is a model of the router (strategies and flows per hour), labelled as demo. Live, a panel
+ * below it lists what SampAudience recorded for each request (`GET /sampaudience/requests`): sessions
+ * started, outcomes, and routing decisions made for respondents who screened out or hit a full quota.
  */
 import {
   Background, BackgroundVariant, Controls, Handle, Position, ReactFlow, ReactFlowProvider,
@@ -17,6 +19,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Panel, Segmented } from '@/components/ui/primitives';
 import { fmt, SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadSampFeed, type SampFeed } from '@/lib/supply/sampaudience';
 import { panelBrands } from '@/lib/supply/demo';
 import { pace, paceBand, paceMeta, surveys } from '@/lib/supply/fieldwork';
 import { screenBySlug } from '@/lib/supply/screens';
@@ -130,10 +134,12 @@ function Graph() {
   ];
   const selRow = m.rows.find((r) => `s-${r.s.id}` === sel);
   const selChecks = sel === 'checks';
+  const feed = useSupplyData<SampFeed | null>('samp:feed', () => null, () => loadSampFeed());
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Survey routing" subtitle="How respondents move from each panel, through eligibility checks, into live surveys, and what happens to them there. Line width is people per hour."
+      <SupplyHeader screen={screen} source={liveFeed ? 'mixed' : 'demo'} title="Survey routing" subtitle="How respondents move from each panel, through eligibility checks, into live surveys, and what happens to them there. Line width is people per hour."
         actions={<>
           <Segmented label="Routing strategy" size="sm" value={strategy} onChange={(v) => { setStrategy(v); setPath([]); }} options={[{ value: 'yield', label: 'Highest earnings' }, { value: 'balanced', label: 'Balanced' }, { value: 'fill', label: 'Fill slowest quotas' }]} />
           <Button size="sm" onClick={replay}><Play size={13} /> Replay a path</Button>
@@ -190,7 +196,35 @@ function Graph() {
           </table>
         </div>
       </Panel>
+      {liveFeed && <RecordedRouting feed={liveFeed} />}
     </div>
+  );
+}
+
+/** What SampAudience recorded per request: sessions, outcomes and routing decisions. */
+function RecordedRouting({ feed }: { feed: SampFeed }) {
+  const rows = feed.requests.filter((r) => Object.keys(r.outcomes).length || r.routing.decisions);
+  const n = (o: Record<string, number>, k: string) => o[k] ?? 0;
+  return (
+    <Panel className="p-4">
+      <SectionTitle eyebrow="Live" title="Recorded by SampAudience" />
+      <p className="mb-2 text-2xs text-ink-3">The graph above is a model of the router. These are the real counts per request. A routing decision is made when a respondent screens out or meets a full quota; “routed on” is how many of those were offered another survey.</p>
+      {rows.length === 0 ? <p className="py-6 text-center text-[12.5px] text-ink-2">No sessions recorded yet.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-[12.5px]">
+            <caption className="sr-only">Sessions, outcomes and routing per audience request</caption>
+            <thead><tr className="text-left text-2xs text-ink-3">{['Request', 'Sessions', 'Completes', 'Screen-outs', 'Over quota', 'Quality fails', 'Routing decisions', 'Routed on'].map((h) => <th key={h} scope="col" className="py-1.5 font-semibold">{h}</th>)}</tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.audienceRequestId} className="border-t hairline">
+                <th scope="row" className="py-1.5 text-left font-medium">{r.title ?? r.audienceRequestId}<span className="block font-mono text-[10.5px] font-normal text-ink-3">{r.audienceRequestId}</span></th>
+                <td className="num">{fmtNum(Object.values(r.outcomes).reduce((a, x) => a + x, 0))}</td><td className="num">{fmtNum(n(r.outcomes, 'complete'))}</td><td className="num">{fmtNum(n(r.outcomes, 'terminate'))}</td>
+                <td className="num">{fmtNum(n(r.outcomes, 'quota_full'))}</td><td className="num">{fmtNum(n(r.outcomes, 'quality_fail'))}</td><td className="num">{fmtNum(r.routing.decisions)}</td><td className="num">{fmtNum(r.routing.routed)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
   );
 }
 

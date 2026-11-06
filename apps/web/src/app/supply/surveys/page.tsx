@@ -3,7 +3,8 @@
  * Screen 16 · Survey Inventory. Every survey panellists can be routed to, whatever its source.
  * Board view groups by status (the default, because operators think in launch stages); table view
  * is for sorting by CPI, IR or pace. Each card shows quota health as a strip of cell dots.
- * Integration: SAMPLEON `GET /sampleon/v1/surveys` (planned) merges PROJEXA and ZAPX inventory.
+ * Live: every SampAudience audience request as a survey (`GET /sampaudience/requests`), from SampTrek
+ * and SampCode. Status changes are SampAudience decisions, so live the moves open its console.
  */
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
@@ -15,6 +16,9 @@ import { DataTable, type Column } from '@/components/ui/table';
 import { StatusDot, StatusPill, type Status } from '@/components/ui/status';
 import { CountryChips, fmt, PanelChip, SectionTitle, SupplyHeader, SurveySourceChip } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadSampFeed, toSurvey, type SampFeed } from '@/lib/supply/sampaudience';
+import { DecideInSampAudience } from '@/components/supply/decide-link';
 import { paceBand, paceMeta, surveys as seed, type Survey, type SurveyStatus } from '@/lib/supply/fieldwork';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtMoney, fmtNum } from '@/lib/utils';
@@ -64,7 +68,7 @@ function SurveyCard({ s, onOpen, onMove }: { s: Survey; onOpen: () => void; onMo
         <div className="mt-0.5 text-2xs text-ink-3">{s.client} · {s.audience}</div>
         <div className="mt-2 flex items-center justify-between gap-2"><CountryChips codes={s.countries} /><span className="flex gap-1.5">{s.panels.map((p) => <PanelChip key={p} panel={p} short />)}</span></div>
         <dl className="mt-2 grid grid-cols-3 gap-1 text-center">
-          {[['CPI', fmt.money(s.cpi)], ['IR', `${Math.round(s.ir * 100)}%`], ['LOI', `${s.loi}m`]].map(([k, v]) => (
+          {[['CPI', s.cpi ? fmt.money(s.cpi) : '—'], ['IR', `${Math.round(s.ir * 100)}%`], ['LOI', `${s.loi}m`]].map(([k, v]) => (
             <div key={k} className="rounded-md bg-surface-2/50 py-1"><dt className="text-[9.5px] uppercase tracking-wider text-ink-3">{k}</dt><dd className="num text-[12px] font-semibold">{v}</dd></div>
           ))}
         </dl>
@@ -81,7 +85,10 @@ export default function SurveyInventory() {
   const toast = useOS((s) => s.toast);
   const view = (useOS((s) => s.prefs['view:surveys']) as 'board' | 'table' | undefined) ?? 'board';
   const setPref = useOS((s) => s.setPref);
-  const [list, setList] = useState(seed);
+  const [localList, setList] = useState(seed);
+  const feed = useSupplyData<SampFeed | null>('samp:feed', () => null, () => loadSampFeed());
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
+  const list = useMemo(() => (liveFeed ? liveFeed.requests.map(toSurvey) : localList), [liveFeed, localList]);
   const [q, setQ] = useState('');
   const [src, setSrc] = useState<'all' | Survey['source']>('all');
   const [open, setOpen] = useState<Survey | null>(null);
@@ -92,6 +99,7 @@ export default function SurveyInventory() {
     return list.filter((s) => (src === 'all' || s.source === src) && (!t || `${s.title} ${s.client} ${s.ref}`.toLowerCase().includes(t)));
   }, [list, q, src]);
   const move = (s: Survey, to: SurveyStatus) => {
+    if (liveFeed) { toast('Status changes are SampAudience decisions; open the SampAudience console to make them', 'info'); return; }
     if (to === 'closed') { setClosing(s); return; }
     setList((l) => l.map((x) => (x.id === s.id ? { ...x, status: to } : x)));
     toast(`${s.title} moved to ${to}`, 'ok');
@@ -104,7 +112,7 @@ export default function SurveyInventory() {
     { key: 'source', label: 'Source', sort: (s) => s.source, render: (s) => <SurveySourceChip source={s.source} partner={s.partner} /> },
     { key: 'status', label: 'Status', sort: (s) => s.status, render: (s) => <StatusPill status={pill[s.status]} /> },
     { key: 'countries', label: 'Countries', render: (s) => <CountryChips codes={s.countries} /> },
-    { key: 'cpi', label: 'CPI', align: 'right', sort: (s) => s.cpi, render: (s) => <span className="num">{fmt.money(s.cpi)}</span> },
+    { key: 'cpi', label: 'CPI', align: 'right', sort: (s) => s.cpi, render: (s) => <span className="num">{s.cpi ? fmt.money(s.cpi) : '—'}</span> },
     { key: 'ir', label: 'IR', align: 'right', sort: (s) => s.ir, render: (s) => <span className="num">{Math.round(s.ir * 100)}%</span> },
     { key: 'loi', label: 'LOI', align: 'right', sort: (s) => s.loi, render: (s) => <span className="num">{s.loi}m</span> },
     { key: 'progress', label: 'Completes', align: 'right', sort: (s) => s.completes / s.target, render: (s) => <span className="num">{fmtNum(s.completes)} / {fmtNum(s.target)}</span> },
@@ -114,7 +122,7 @@ export default function SurveyInventory() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Survey inventory" subtitle="Every survey panellists can be routed to, from SampTrek, SampCode and partner exchanges."
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : 'demo'} title="Survey inventory" subtitle="Every survey panellists can be routed to, from SampTrek, SampCode and partner exchanges."
         actions={<Segmented label="Inventory view" size="sm" value={view} onChange={(v) => setPref('view:surveys', v)} options={[{ value: 'board', label: <span className="flex items-center gap-1"><LayoutGrid size={12} /> Board</span> }, { value: 'table', label: <span className="flex items-center gap-1"><Rows3 size={12} /> Table</span> }]} />} />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -147,7 +155,7 @@ export default function SurveyInventory() {
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2"><StatusPill status={pill[open.status]} /><SurveySourceChip source={open.source} partner={open.partner} /><CountryChips codes={open.countries} max={6} /></div>
             <dl className="grid grid-cols-3 gap-2 text-center">
-              {[['CPI', fmt.money(open.cpi)], ['IR', `${Math.round(open.ir * 100)}%`], ['LOI', `${open.loi} min`], ['Target', fmtNum(open.target)], ['Completes', fmtNum(open.completes)], ['Drop-off', `${Math.round(open.dropoff * 100)}%`]].map(([k, v]) => (
+              {[['CPI', open.cpi ? fmt.money(open.cpi) : '—'], ['IR', `${Math.round(open.ir * 100)}%`], ['LOI', `${open.loi} min`], ['Target', fmtNum(open.target)], ['Completes', fmtNum(open.completes)], ['Drop-off', `${Math.round(open.dropoff * 100)}%`]].map(([k, v]) => (
                 <div key={k} className="rounded-xl bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">{k}</dt><dd className="num text-[15px] font-semibold">{v}</dd></div>
               ))}
             </dl>
@@ -164,8 +172,9 @@ export default function SurveyInventory() {
               <Link href={`/supply/quotas?s=${open.id}`} className={buttonVariants({ size: 'sm', variant: 'ghost' })}><Target size={13} /> Quotas</Link>
               <Link href={`/supply/batches?s=${open.id}`} className={buttonVariants({ size: 'sm', variant: 'ghost' })}><CalendarClock size={13} /> Batches</Link>
               <Link href="/supply/routing" className={buttonVariants({ size: 'sm', variant: 'ghost' })}><Route size={13} /> Routing</Link>
-              {open.status === 'live' && <Button size="sm" variant="ghost" onClick={() => { move(open, 'paused'); setOpen(null); }}><Pause size={13} /> Pause</Button>}
-              {open.status === 'paused' && <Button size="sm" variant="ghost" onClick={() => { move(open, 'live'); setOpen(null); }}><Play size={13} /> Resume</Button>}
+              {liveFeed && <DecideInSampAudience url={liveFeed.consoleUrl} label="Pause, resume or close in SampAudience" />}
+              {!liveFeed && open.status === 'live' && <Button size="sm" variant="ghost" onClick={() => { move(open, 'paused'); setOpen(null); }}><Pause size={13} /> Pause</Button>}
+              {!liveFeed && open.status === 'paused' && <Button size="sm" variant="ghost" onClick={() => { move(open, 'live'); setOpen(null); }}><Play size={13} /> Resume</Button>}
             </div>
           </div>
         )}

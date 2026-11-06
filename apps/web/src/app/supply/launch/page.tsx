@@ -4,7 +4,10 @@
  * themselves; manual ones need a person). Centre: the soft-launch read-out, plan against what the
  * first completes show, with drop-off per question. Right: the full-launch gate, which stays shut
  * until the checklist is done and any off-plan metric has a written reason.
- * Integration: launch goes to SAMPLEON `POST /sampleon/v1/surveys/:id/launch` (planned).
+ * Live: requests that are approved, in soft launch or live in SampAudience (`GET /sampaudience/requests`),
+ * with the read-out from their session outcomes (incidence, drop-off, quality pass; length and per-question
+ * drop-off stay in SampCode). Starting a soft launch and full launch are SampAudience decisions, so live
+ * those buttons open its console. The checklist is the operator's own and is not saved.
  */
 import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -16,44 +19,60 @@ import { ConfirmDialog } from '@/components/ui/overlay';
 import { StatusPill } from '@/components/ui/status';
 import { CountryChips, SectionTitle, SupplyHeader, SurveySourceChip } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { liveReadout, loadSampFeed, toSurvey, type SampFeed } from '@/lib/supply/sampaudience';
+import { DecideInSampAudience } from '@/components/supply/decide-link';
 import { launchChecklist, softLaunchReadout, surveys, type SurveyStatus } from '@/lib/supply/fieldwork';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
 
 const screen = screenBySlug('launch')!;
-const candidates = surveys.filter((s) => s.status === 'soft-launch' || s.status === 'scheduled' || s.status === 'draft');
+const demoCandidates = surveys.filter((s) => s.status === 'soft-launch' || s.status === 'scheduled' || s.status === 'draft');
 
 export default function LaunchPage() { return <Suspense><Launch /></Suspense>; }
 
 function Launch() {
   const params = useSearchParams();
   const toast = useOS((s) => s.toast);
-  const first = candidates.find((s) => s.id === params.get('s')) ?? candidates.find((s) => s.status === 'soft-launch') ?? candidates[0];
-  const [sid, setSid] = useState(first.id);
+  const feed = useSupplyData<SampFeed | null>('samp:feed', () => null, () => loadSampFeed());
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
+  const liveReqs = useMemo(() => (liveFeed ? liveFeed.requests.filter((r) => ['approved', 'soft_launch', 'live'].includes(r.status)) : []), [liveFeed]);
+  const candidates = useMemo(() => (liveFeed ? liveReqs.map(toSurvey) : demoCandidates), [liveFeed, liveReqs]);
+  const [sid, setSid] = useState<string | null>(params.get('s'));
   const [stage, setStage] = useState<Record<string, SurveyStatus>>({});
-  const s = candidates.find((x) => x.id === sid)!;
-  const status = stage[s.id] ?? s.status;
+  const s = candidates.find((x) => x.id === sid) ?? candidates.find((x) => x.status === 'soft-launch') ?? candidates[0];
+  const status = s ? stage[s.id] ?? s.status : 'draft';
   const [checks, setChecks] = useState<Record<string, Set<string>>>({});
-  const done = checks[s.id] ?? new Set(launchChecklist.filter((c) => c.auto).map((c) => c.id));
+  const done = (s && checks[s.id]) || new Set(launchChecklist.filter((c) => c.auto).map((c) => c.id));
   const [reason, setReason] = useState('');
   const [confirm, setConfirm] = useState<'soft' | 'full' | null>(null);
-  const ro = useMemo(() => softLaunchReadout(s), [s]);
+  const ro = useMemo(() => {
+    const v = s && liveReqs.find((r) => r.audienceRequestId === s.id);
+    return v ? liveReadout(v) : s ? softLaunchReadout(s) : { sample: 0, done: 0, metrics: [], openEndsFlagged: 0, dropoffByQuestion: [] };
+  }, [s, liveReqs]);
   const offPlan = ro.metrics.filter((m) => !m.ok);
   const checklistDone = launchChecklist.every((c) => done.has(c.id));
   const hasData = status === 'soft-launch' || status === 'live';
   const gateOpen = status === 'soft-launch' && checklistDone && (offPlan.length === 0 || reason.trim().length >= 12);
-  const toggle = (id: string) => setChecks((c) => { const n = new Set(done); n.has(id) ? n.delete(id) : n.add(id); return { ...c, [s.id]: n }; });
+  const toggle = (id: string) => s && setChecks((c) => { const n = new Set(done); n.has(id) ? n.delete(id) : n.add(id); return { ...c, [s.id]: n }; });
   const fmtM = (v: number, unit: '%' | 'min') => (unit === '%' ? `${(v * 100).toFixed(0)}%` : `${v.toFixed(1)} min`);
 
   const steps: { id: SurveyStatus; label: string }[] = [{ id: 'draft', label: 'Draft' }, { id: 'scheduled', label: 'Scheduled' }, { id: 'soft-launch', label: `Soft launch (${ro.sample})` }, { id: 'live', label: 'Full launch' }];
   const stepIdx = steps.findIndex((x) => x.id === status);
 
+  if (!s) return (
+    <div className="space-y-4">
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : 'demo'} title="Soft launch & full launch" subtitle="Field a small sample first, check it against the plan, then open the survey to everyone." />
+      <Panel className="p-10 text-center text-[13px] text-ink-2">No audience request is approved or launching in SampAudience right now.</Panel>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Soft launch & full launch" subtitle="Field a small sample first, check it against the plan, then open the survey to everyone."
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : 'demo'} title="Soft launch & full launch" subtitle="Field a small sample first, check it against the plan, then open the survey to everyone."
         actions={
           <label className="flex items-center gap-2 text-2xs text-ink-3">Survey
-            <select className={cn(inputCls, 'h-8 w-72')} value={sid} onChange={(e) => { setSid(e.target.value); setReason(''); }}>
+            <select className={cn(inputCls, 'h-8 w-72')} value={s.id} onChange={(e) => { setSid(e.target.value); setReason(''); }}>
               {candidates.map((x) => <option key={x.id} value={x.id}>{x.title} · {stage[x.id] ?? x.status}</option>)}
             </select>
           </label>} />
@@ -105,6 +124,7 @@ function Launch() {
                   </div>
                 ))}
               </div>
+              {ro.dropoffByQuestion.length > 0 && <>
               <h3 className="eyebrow mb-1 mt-4">Drop-off by question</h3>
               <EChart ariaLabel="Share of respondents who left at each question" height={180} deps={[s.id]} option={(t) => ({
                 grid: { left: 8, right: 8, top: 14, bottom: 4, containLabel: true }, tooltip: { trigger: 'axis', valueFormatter: (v) => `${v}%` },
@@ -112,11 +132,13 @@ function Launch() {
                 series: [{ type: 'bar', name: 'Drop-off', barWidth: 14, data: ro.dropoffByQuestion.map((d) => ({ value: d.drop, itemStyle: { color: d.drop > 3 ? 'rgb(var(--danger))' : 'rgb(var(--chart-2))', borderRadius: [3, 3, 0, 0] } })) }],
               })} />
               <p className="mt-2 text-2xs text-ink-3">{ro.openEndsFlagged} open-ended answers flagged for review. {ro.dropoffByQuestion.some((d) => d.drop > 3) && <>Most people leave at <b className="text-ink">{ro.dropoffByQuestion.reduce((a, b) => (b.drop > a.drop ? b : a)).q}</b>; check its length and wording with the client.</>}</p>
+              </>}
+              {liveFeed && <p className="mt-3 text-2xs text-ink-3">Length of interview and drop-off by question are measured in SampCode.</p>}
             </>
           ) : (
             <div className="grid place-items-center gap-3 py-12 text-center">
               <p className="max-w-sm text-[13px] text-ink-2">A soft launch sends the survey to about 10% of the target ({ro.sample} completes) so incidence, length and drop-off can be checked before the full send.</p>
-              <Button size="sm" onClick={() => setConfirm('soft')}><Rocket size={13} /> Start soft launch</Button>
+              {liveFeed ? <DecideInSampAudience url={liveFeed.consoleUrl} label="Start the soft launch in SampAudience" /> : <Button size="sm" onClick={() => setConfirm('soft')}><Rocket size={13} /> Start soft launch</Button>}
             </div>
           )}
         </Panel>
@@ -138,6 +160,7 @@ function Launch() {
           )}
           {status === 'live'
             ? <StatusPill status="live" label={`Live · ${fmtNum(s.target)} target`} />
+            : liveFeed ? (gateOpen ? <DecideInSampAudience url={liveFeed.consoleUrl} label="Full launch in SampAudience" /> : <Button className="w-full" disabled><Rocket size={14} /> Full launch</Button>)
             : <Button className="w-full" disabled={!gateOpen} onClick={() => setConfirm('full')}><Rocket size={14} /> Full launch</Button>}
         </Panel>
       </div>
