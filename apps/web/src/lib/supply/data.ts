@@ -62,6 +62,12 @@ export const endpoints = {
   batch: { method: 'PATCH', path: '/sampleon/v1/batches/:id', status: 'planned' },
   routingFlows: { method: 'GET', path: '/sampleon/v1/routing/flows', status: 'planned' },
   quotaAction: { method: 'POST', path: '/panel-backend/:panel/projects/:id/actions', status: 'available' },
+  workflows: { method: 'PUT', path: '/automation/workflows/:id', status: 'planned' },
+  campaignSend: { method: 'POST', path: '/communications/campaigns/:id/send', status: 'planned' },
+  newsletters: { method: 'GET', path: '/communications/newsletters', status: 'planned' },
+  notifications: { method: 'GET', path: '/notifications', status: 'planned' },
+  weeklyProgramme: { method: 'GET', path: '/panels/weekly-programme', status: 'planned' },
+  surveyDraft: { method: 'POST', path: '/ai/survey-draft', status: 'planned' },
 } as const;
 
 export type PanelStat = (typeof panelStats)[number] & { id: PanelId };

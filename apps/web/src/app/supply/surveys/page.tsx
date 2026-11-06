@@ -13,7 +13,7 @@ import { Badge, Bar, Button, Drawer, Panel, SearchInput, Segmented, buttonVarian
 import { ConfirmDialog, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/overlay';
 import { DataTable, type Column } from '@/components/ui/table';
 import { StatusDot, StatusPill, type Status } from '@/components/ui/status';
-import { CountryChips, PanelChip, SectionTitle, SupplyHeader, SurveySourceChip } from '@/components/supply/kit';
+import { CountryChips, fmt, PanelChip, SectionTitle, SupplyHeader, SurveySourceChip } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { paceBand, paceMeta, surveys as seed, type Survey, type SurveyStatus } from '@/lib/supply/fieldwork';
 import { screenBySlug } from '@/lib/supply/screens';
@@ -64,7 +64,7 @@ function SurveyCard({ s, onOpen, onMove }: { s: Survey; onOpen: () => void; onMo
         <div className="mt-0.5 text-2xs text-ink-3">{s.client} · {s.audience}</div>
         <div className="mt-2 flex items-center justify-between gap-2"><CountryChips codes={s.countries} /><span className="flex gap-1.5">{s.panels.map((p) => <PanelChip key={p} panel={p} short />)}</span></div>
         <dl className="mt-2 grid grid-cols-3 gap-1 text-center">
-          {[['CPI', fmtMoney(s.cpi, false)], ['IR', `${Math.round(s.ir * 100)}%`], ['LOI', `${s.loi}m`]].map(([k, v]) => (
+          {[['CPI', fmt.money(s.cpi)], ['IR', `${Math.round(s.ir * 100)}%`], ['LOI', `${s.loi}m`]].map(([k, v]) => (
             <div key={k} className="rounded-md bg-surface-2/50 py-1"><dt className="text-[9.5px] uppercase tracking-wider text-ink-3">{k}</dt><dd className="num text-[12px] font-semibold">{v}</dd></div>
           ))}
         </dl>
@@ -104,7 +104,7 @@ export default function SurveyInventory() {
     { key: 'source', label: 'Source', sort: (s) => s.source, render: (s) => <SurveySourceChip source={s.source} partner={s.partner} /> },
     { key: 'status', label: 'Status', sort: (s) => s.status, render: (s) => <StatusPill status={pill[s.status]} /> },
     { key: 'countries', label: 'Countries', render: (s) => <CountryChips codes={s.countries} /> },
-    { key: 'cpi', label: 'CPI', align: 'right', sort: (s) => s.cpi, render: (s) => <span className="num">{fmtMoney(s.cpi, false)}</span> },
+    { key: 'cpi', label: 'CPI', align: 'right', sort: (s) => s.cpi, render: (s) => <span className="num">{fmt.money(s.cpi)}</span> },
     { key: 'ir', label: 'IR', align: 'right', sort: (s) => s.ir, render: (s) => <span className="num">{Math.round(s.ir * 100)}%</span> },
     { key: 'loi', label: 'LOI', align: 'right', sort: (s) => s.loi, render: (s) => <span className="num">{s.loi}m</span> },
     { key: 'progress', label: 'Completes', align: 'right', sort: (s) => s.completes / s.target, render: (s) => <span className="num">{fmtNum(s.completes)} / {fmtNum(s.target)}</span> },
@@ -147,7 +147,7 @@ export default function SurveyInventory() {
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2"><StatusPill status={pill[open.status]} /><SurveySourceChip source={open.source} partner={open.partner} /><CountryChips codes={open.countries} max={6} /></div>
             <dl className="grid grid-cols-3 gap-2 text-center">
-              {[['CPI', fmtMoney(open.cpi, false)], ['IR', `${Math.round(open.ir * 100)}%`], ['LOI', `${open.loi} min`], ['Target', fmtNum(open.target)], ['Completes', fmtNum(open.completes)], ['Drop-off', `${Math.round(open.dropoff * 100)}%`]].map(([k, v]) => (
+              {[['CPI', fmt.money(open.cpi)], ['IR', `${Math.round(open.ir * 100)}%`], ['LOI', `${open.loi} min`], ['Target', fmtNum(open.target)], ['Completes', fmtNum(open.completes)], ['Drop-off', `${Math.round(open.dropoff * 100)}%`]].map(([k, v]) => (
                 <div key={k} className="rounded-xl bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">{k}</dt><dd className="num text-[15px] font-semibold">{v}</dd></div>
               ))}
             </dl>

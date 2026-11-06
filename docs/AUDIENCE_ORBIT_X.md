@@ -222,6 +222,9 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
    - Batch times are UTC; quiet hours are 21:00–08:00 local, and moves into them are refused.
    - Full launch is gated: soft-launch data, a complete checklist, and a written reason for any metric off plan.
    - Planned SAMPLEON endpoints: `GET /sampleon/v1/surveys`, `POST /sampleon/v1/surveys/:id/launch`, `PATCH /sampleon/v1/batches/:id`, `GET /sampleon/v1/routing/flows`. Quota actions use the existing `POST /panel-backend/:panel/projects/:id/actions`.
-4. Engagement — automation node editor, email, newsletters, journeys, notifications, AI survey generation, weekly rewards.
+4. **Engagement** (built) — automation node editor, email, newsletters, journeys, notifications, AI survey generation, weekly rewards.
+   - Anything that messages members (activating a workflow, sending an email, scheduling a newsletter) asks for confirmation first. Test runs send nothing.
+   - The AI drafter is local and deterministic in demo mode. Live mode will call `POST /ai/survey-draft` (planned) through the AI gateway, and drafts open unpublished in Survey Studio.
+   - Notification delivery rules persist per user (`prefs['notify:rules']`).
 5. Rewards, support & quality — ledger, redemptions, three-pane support, AI support, quality & risk, activity timeline.
 6. Global, connected products & platform — globe, distribution, copilot, analytics, SAMPLEON / PROJEXA / ZAPX workspaces, API hub, roles, settings.
