@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { modules } from '@/lib/modules';
+import { screenHref, visibleScreens } from '@/lib/supply/screens';
+import { themes } from '@/lib/themes';
 import { access } from '@/lib/core';
 import { useOS } from '@/lib/store';
 import { vendors, clients } from '@/lib/core';
@@ -34,21 +36,21 @@ export function CommandPalette() {
     const go = (href: string) => () => { router.push(href); setOpen(false); };
     const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? '';
     const all: Item[] = [
-      ...modules.filter((m) => access(s.role, m.id) !== 'none').map((m) => ({ id: m.id, group: 'Modules', label: m.label, hint: m.blurb, run: go(m.href) })),
+      ...visibleScreens.filter((x) => access(s.role, x.module) !== 'none').map((x) => ({ id: `sc-${x.slug}`, group: 'SUPPLY360', label: x.label, hint: x.summary, run: go(screenHref(x)) })),
+      ...modules.filter((m) => access(s.role, m.id) !== 'none').map((m) => ({ id: m.id, group: 'Research OS', label: m.label, hint: m.blurb, run: go(m.href) })),
       ...s.projects.map((p) => ({ id: p.id, group: 'Projects', label: `${p.code} · ${p.name}`, hint: `${clientName(p.clientId)} · ${p.stage}`, run: go(`/projects?open=${p.id}`) })),
       ...s.opportunities.map((o) => ({ id: o.id, group: 'Opportunities', label: o.title, hint: `${clientName(o.clientId)} · ${o.stage}`, run: go(`/crm?open=${o.id}`) })),
       ...s.surveys.map((v) => ({ id: v.id, group: 'Surveys', label: v.name, hint: v.status, run: go(`/survey-studio${v.id === 'sv-cloud' ? '?tab=logic' : ''}`) })),
       ...vendors.map((v) => ({ id: v.id, group: 'Vendors', label: v.name, hint: `${v.coverage.length} markets · quality ${(v.quality * 100).toFixed(0)}`, run: go(`/marketplace?vendor=${v.id}`) })),
-      { id: 'a-theme-d', group: 'Actions', label: 'Switch to Premium Dark', run: () => { s.setTheme('dark'); setOpen(false); } },
-      { id: 'a-theme-l', group: 'Actions', label: 'Switch to Executive Light', run: () => { s.setTheme('light'); setOpen(false); } },
-      { id: 'a-theme-s', group: 'Actions', label: 'Use Adaptive System theme', run: () => { s.setTheme('system'); setOpen(false); } },
+      ...themes.map((t) => ({ id: `a-theme-${t.id}`, group: 'Actions', label: `Theme: ${t.name}`, hint: t.tagline, run: () => { s.setTheme(t.id); setOpen(false); } })),
+      { id: 'a-theme-s', group: 'Actions', label: 'Theme: follow system', run: () => { s.setTheme('system'); setOpen(false); } },
       { id: 'a-motion', group: 'Actions', label: s.motion === 'full' ? 'Reduce motion' : 'Enable full motion', run: () => { s.setMotion(s.motion === 'full' ? 'reduced' : 'full'); setOpen(false); } },
       { id: 'a-ai', group: 'Actions', label: 'Ask Sampledge AI', run: () => { setOpen(false); s.setAssistant(true); } },
       { id: 'a-rfq', group: 'Actions', label: 'New RFQ', hint: 'Bidding CRM', run: go('/crm?new=1') },
       { id: 'a-reset', group: 'Actions', label: 'Reset demo data', run: () => { s.resetDemo(); setOpen(false); } },
     ];
     const t = q.trim().toLowerCase();
-    if (!t) return all.filter((i) => i.group === 'Modules' || i.group === 'Actions');
+    if (!t) return all.filter((i) => i.group === 'SUPPLY360').slice(0, 12).concat(all.filter((i) => i.group === 'Actions').slice(0, 4));
     return all.filter((i) => (i.label + ' ' + (i.hint ?? '')).toLowerCase().includes(t)).slice(0, 40);
   }, [q, s, router, setOpen]);
 

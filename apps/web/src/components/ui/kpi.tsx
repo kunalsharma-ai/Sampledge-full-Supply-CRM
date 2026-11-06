@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { useOS } from '@/lib/store';
 
 /** Counts up to `value` once in view. Respects reduced motion. */
-export function AnimatedNumber({ value, format, className }: { value: number; format: (n: number) => string; className?: string }) {
+export function AnimatedNumber({ value, format, className, duration = 1.4 }: { value: number; format: (n: number) => string; className?: string; duration?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   const inView = useInView(ref, { once: true });
   const reduced = useOS((s) => s.motion === 'reduced');
@@ -16,9 +16,9 @@ export function AnimatedNumber({ value, format, className }: { value: number; fo
   useEffect(() => {
     if (!inView) return;
     if (reduced) { mv.set(value); return; }
-    const c = animate(mv, value, { duration: 1.4, ease: [0.2, 0.8, 0.2, 1] });
+    const c = animate(mv, value, { duration, ease: [0.2, 0.8, 0.2, 1] });
     return () => c.stop();
-  }, [inView, value, reduced, mv]);
+  }, [inView, value, reduced, mv, duration]);
   return <motion.span ref={ref} className={cn('num', className)}>{text}</motion.span>;
 }
 

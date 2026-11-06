@@ -3,36 +3,120 @@
 @tailwind utilities;
 
 /*
- * Sampledge design tokens. Values are RGB channels so Tailwind can apply alpha.
- * Source of truth for JS (charts, 3D) lives in src/lib/tokens.ts and mirrors these.
+ * Audience Orbit X design tokens. Values are RGB channels so Tailwind can apply alpha (bg-primary/15).
+ * Six themes, chosen with <html data-theme>. 'dark' and 'light' are kept as aliases of Cosmic and
+ * Enterprise so older saved preferences keep working. The theme registry (names, modes, swatches)
+ * lives in src/lib/themes.ts; charts and 3D read these variables at runtime.
+ *
+ * Hue tokens (blue, purple, cyan…) keep their hue in every theme. Semantic tokens (primary, ai, live)
+ * are what new components use, so a theme can change the brand colour without renaming classes.
  */
 :root,
-:root[data-theme='dark'] {
+[data-theme='cosmic'],
+[data-theme='dark'] {
   color-scheme: dark;
-  --bg: 8 13 31;            /* Midnight Navy #080D1F */
-  --bg-2: 16 25 54;         /* Deep Space Blue #101936 */
-  --surface: 17 26 56;
-  --surface-2: 24 36 74;
-  --line: 255 255 255;      /* used with low alpha */
+  --bg: 7 11 28;            /* Cosmic void #070B1C */
+  --bg-2: 14 21 48;
+  --surface: 15 23 50;
+  --surface-2: 22 33 68;
+  --line: 255 255 255;
   --line-alpha: 0.08;
   --ink: 236 241 255;
-  --ink-2: 168 180 214;
-  --ink-3: 112 126 168;
-  --blue: 36 107 253;       /* Electric Blue #246BFD */
-  --purple: 113 59 255;     /* Royal Purple #713BFF */
-  --cyan: 24 215 242;       /* Neon Cyan #18D7F2 */
-  --emerald: 19 201 150;    /* #13C996 */
-  --orange: 255 145 77;     /* #FF914D */
-  --magenta: 218 78 255;    /* #DA4EFF */
-  --danger: 255 92 122;
-  --warn: 255 196 77;
-  --glass: 20 30 64;
-  --glass-alpha: 0.55;
+  --ink-2: 172 184 216;
+  --ink-3: 122 136 176;
+  --blue: 77 134 255;       /* Orbit blue */
+  --purple: 128 86 255;     /* AI violet */
+  --cyan: 34 214 240;       /* Live signal */
+  --emerald: 30 205 155;
+  --orange: 255 150 84;
+  --magenta: 222 92 255;
+  --danger: 255 98 126;
+  --warn: 255 199 84;
+  --primary: 77 134 255;
+  --primary-2: 118 76 245;
+  --primary-strong: 52 104 235; /* button fills: meets 4.5:1 with --on-primary */
+  --on-primary: 255 255 255;
+  --glass: 18 27 60;
+  --glass-alpha: 0.6;
+  --blur: 14px;
+  --ambient: 0.14;
+  --focus: 34 214 240;
+  --chart-1: 77 134 255; --chart-2: 34 214 240; --chart-3: 128 86 255; --chart-4: 30 205 155; --chart-5: 255 150 84; --chart-6: 222 92 255;
   --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 20px 40px -24px rgb(0 0 0 / 0.8);
   --shadow-lift: 0 1px 0 0 rgb(255 255 255 / 0.06) inset, 0 30px 60px -20px rgb(4 8 24 / 0.9);
 }
 
-:root[data-theme='light'] {
+/* Midnight Blue: the cosmic layout with the light show turned down, for long sessions in the dark. */
+[data-theme='midnight'] {
+  color-scheme: dark;
+  --bg: 10 18 32;
+  --bg-2: 15 26 44;
+  --surface: 18 30 50;
+  --surface-2: 26 40 64;
+  --line: 200 220 255;
+  --line-alpha: 0.09;
+  --ink: 226 234 245;
+  --ink-2: 164 179 201;
+  --ink-3: 124 141 168;
+  --blue: 98 156 255;
+  --purple: 150 132 255;
+  --cyan: 86 202 230;
+  --emerald: 62 200 145;
+  --orange: 245 164 96;
+  --magenta: 218 120 222;
+  --danger: 255 116 126;
+  --warn: 238 192 88;
+  --primary: 98 156 255;
+  --primary-2: 86 202 230;
+  --primary-strong: 98 156 255; /* button fills: meets 4.5:1 with --on-primary */
+  --on-primary: 6 14 28;
+  --glass: 18 30 50;
+  --glass-alpha: 0.92;
+  --blur: 0px;
+  --ambient: 0.05;
+  --focus: 120 180 255;
+  --chart-1: 98 156 255; --chart-2: 86 202 230; --chart-3: 150 132 255; --chart-4: 62 200 145; --chart-5: 245 164 96; --chart-6: 218 120 222;
+  --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 8px 20px -16px rgb(0 0 0 / 0.7);
+  --shadow-lift: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 18px 36px -18px rgb(0 0 0 / 0.75);
+}
+
+/* High Contrast: WCAG AAA text, solid surfaces, strong borders, yellow focus. No blur or glow. */
+[data-theme='contrast'] {
+  color-scheme: dark;
+  --bg: 0 0 0;
+  --bg-2: 8 8 8;
+  --surface: 12 12 12;
+  --surface-2: 24 24 24;
+  --line: 255 255 255;
+  --line-alpha: 0.5;
+  --ink: 255 255 255;
+  --ink-2: 240 240 240;
+  --ink-3: 210 210 210;
+  --blue: 110 182 255;
+  --purple: 200 168 255;
+  --cyan: 0 232 255;
+  --emerald: 72 242 166;
+  --orange: 255 184 90;
+  --magenta: 255 140 255;
+  --danger: 255 128 128;
+  --warn: 255 232 0;
+  --primary: 110 182 255;
+  --primary-2: 110 182 255;
+  --primary-strong: 110 182 255; /* button fills: meets 4.5:1 with --on-primary */
+  --on-primary: 0 0 0;
+  --glass: 12 12 12;
+  --glass-alpha: 1;
+  --blur: 0px;
+  --ambient: 0;
+  --focus: 255 232 0;
+  --chart-1: 110 182 255; --chart-2: 255 232 0; --chart-3: 255 140 255; --chart-4: 72 242 166; --chart-5: 255 184 90; --chart-6: 0 232 255;
+  --shadow-panel: none;
+  --shadow-lift: 0 0 0 2px rgb(255 255 255 / 0.6);
+}
+
+/* Bright Enterprise: the daytime workhorse. */
+[data-theme='enterprise'],
+[data-theme='light'] {
   color-scheme: light;
   --bg: 244 246 252;
   --bg-2: 233 237 248;
@@ -41,21 +125,104 @@
   --line: 16 25 54;
   --line-alpha: 0.1;
   --ink: 12 20 46;
-  --ink-2: 66 80 120;
-  --ink-3: 108 120 156;
+  --ink-2: 62 76 116;
+  --ink-3: 92 104 140;
   --blue: 28 92 230;
   --purple: 98 48 230;
-  --cyan: 8 150 180;
-  --emerald: 10 150 112;
-  --orange: 220 110 40;
-  --magenta: 170 50 210;
-  --danger: 214 48 80;
-  --warn: 196 132 10;
+  --cyan: 6 134 164;
+  --emerald: 8 134 100;
+  --orange: 196 96 28;
+  --magenta: 160 44 200;
+  --danger: 206 40 72;
+  --warn: 160 108 0;
+  --primary: 28 92 230;
+  --primary-2: 98 48 230;
+  --primary-strong: 28 92 230; /* button fills: meets 4.5:1 with --on-primary */
+  --on-primary: 255 255 255;
   --glass: 255 255 255;
-  --glass-alpha: 0.78;
+  --glass-alpha: 0.82;
+  --blur: 12px;
+  --ambient: 0.06;
+  --focus: 28 92 230;
+  --chart-1: 28 92 230; --chart-2: 6 150 180; --chart-3: 98 48 230; --chart-4: 8 150 110; --chart-5: 220 110 40; --chart-6: 170 50 210;
   --shadow-panel: 0 1px 2px rgb(16 25 54 / 0.06), 0 12px 32px -16px rgb(16 25 54 / 0.18);
   --shadow-lift: 0 2px 4px rgb(16 25 54 / 0.06), 0 24px 48px -20px rgb(16 25 54 / 0.25);
 }
+
+/* Emerald: a calm green-led light theme. */
+[data-theme='emerald'] {
+  color-scheme: light;
+  --bg: 241 247 244;
+  --bg-2: 228 239 233;
+  --surface: 255 255 255;
+  --surface-2: 245 250 247;
+  --line: 10 48 34;
+  --line-alpha: 0.11;
+  --ink: 8 32 24;
+  --ink-2: 46 82 68;
+  --ink-3: 78 110 96;
+  --blue: 30 96 200;
+  --purple: 92 70 196;
+  --cyan: 6 122 140;
+  --emerald: 8 128 84;
+  --orange: 184 96 20;
+  --magenta: 160 50 140;
+  --danger: 196 40 64;
+  --warn: 148 104 0;
+  --primary: 8 120 88;
+  --primary-2: 6 122 140;
+  --primary-strong: 8 120 88; /* button fills: meets 4.5:1 with --on-primary */
+  --on-primary: 255 255 255;
+  --glass: 255 255 255;
+  --glass-alpha: 0.85;
+  --blur: 12px;
+  --ambient: 0.07;
+  --focus: 8 120 88;
+  --chart-1: 8 128 84; --chart-2: 6 130 150; --chart-3: 92 70 196; --chart-4: 120 160 40; --chart-5: 200 110 30; --chart-6: 30 96 200;
+  --shadow-panel: 0 1px 2px rgb(10 48 34 / 0.06), 0 12px 32px -16px rgb(10 48 34 / 0.16);
+  --shadow-lift: 0 2px 4px rgb(10 48 34 / 0.06), 0 24px 48px -20px rgb(10 48 34 / 0.22);
+}
+
+/* Warm Neutral: paper tones and a terracotta accent, easy on the eyes in daylight. */
+[data-theme='warm'] {
+  color-scheme: light;
+  --bg: 247 244 239;
+  --bg-2: 238 233 224;
+  --surface: 255 253 249;
+  --surface-2: 250 246 240;
+  --line: 64 46 28;
+  --line-alpha: 0.12;
+  --ink: 36 28 20;
+  --ink-2: 88 76 62;
+  --ink-3: 112 99 84;
+  --blue: 40 94 180;
+  --purple: 110 72 168;
+  --cyan: 18 116 134;
+  --emerald: 36 122 74;
+  --orange: 176 88 24;
+  --magenta: 150 56 116;
+  --danger: 182 44 44;
+  --warn: 146 100 6;
+  --primary: 168 84 36;
+  --primary-2: 140 64 48;
+  --primary-strong: 168 84 36; /* button fills: meets 4.5:1 with --on-primary */
+  --on-primary: 255 255 255;
+  --glass: 255 253 249;
+  --glass-alpha: 0.9;
+  --blur: 8px;
+  --ambient: 0.05;
+  --focus: 168 84 36;
+  --chart-1: 168 84 36; --chart-2: 18 116 134; --chart-3: 110 72 168; --chart-4: 36 122 74; --chart-5: 196 150 40; --chart-6: 40 94 180;
+  --shadow-panel: 0 1px 2px rgb(64 46 28 / 0.06), 0 12px 28px -16px rgb(64 46 28 / 0.16);
+  --shadow-lift: 0 2px 4px rgb(64 46 28 / 0.06), 0 22px 44px -20px rgb(64 46 28 / 0.22);
+}
+
+/* Density and text size (Theme Studio). Row heights are used by DataTable and nav items. */
+:root { --row-h: 36px; --nav-h: 32px; }
+:root[data-density='compact'] { --row-h: 30px; --nav-h: 28px; }
+:root[data-density='comfortable'] { --row-h: 44px; --nav-h: 36px; }
+:root[data-text='sm'] { font-size: 15px; }
+:root[data-text='lg'] { font-size: 17.5px; }
 
 @layer base {
   html { -webkit-font-smoothing: antialiased; }
@@ -64,8 +231,8 @@
     background-color: rgb(var(--bg));
     font-feature-settings: 'cv11', 'ss01';
   }
-  ::selection { background: rgb(var(--blue) / 0.35); }
-  *:focus-visible { outline: 2px solid rgb(var(--cyan)); outline-offset: 2px; border-radius: 6px; }
+  ::selection { background: rgb(var(--primary) / 0.3); }
+  *:focus-visible { outline: 2px solid rgb(var(--focus)); outline-offset: 2px; border-radius: 6px; }
   * { scrollbar-width: thin; scrollbar-color: rgb(var(--ink-3) / 0.35) transparent; }
 }
 
@@ -77,7 +244,7 @@
     background: linear-gradient(180deg, rgb(var(--glass) / var(--glass-alpha)), rgb(var(--glass) / calc(var(--glass-alpha) - 0.15)));
     border: 1px solid rgb(var(--line) / var(--line-alpha));
     box-shadow: var(--shadow-panel);
-    backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(var(--blur)) saturate(140%);
   }
   .panel-solid {
     border-radius: 1rem;
@@ -96,18 +263,15 @@
     background: linear-gradient(90deg, transparent, rgb(var(--line) / 0.08), transparent); animation: shimmer 1.6s infinite; }
 }
 
-/* Ambient brand lighting behind everything */
+/* Ambient brand lighting behind everything. Strength is per theme (--ambient), zero in High Contrast. */
 .ambient {
   background:
-    radial-gradient(60rem 40rem at 85% -10%, rgb(var(--purple) / 0.16), transparent 60%),
-    radial-gradient(50rem 30rem at -10% 10%, rgb(var(--blue) / 0.14), transparent 60%),
-    radial-gradient(40rem 30rem at 50% 120%, rgb(var(--cyan) / 0.08), transparent 60%);
+    radial-gradient(60rem 40rem at 85% -10%, rgb(var(--primary-2) / var(--ambient)), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 10%, rgb(var(--primary) / var(--ambient)), transparent 60%),
+    radial-gradient(40rem 30rem at 50% 120%, rgb(var(--cyan) / calc(var(--ambient) * 0.5)), transparent 60%);
 }
-:root[data-theme='light'] .ambient {
-  background:
-    radial-gradient(60rem 40rem at 85% -10%, rgb(var(--purple) / 0.07), transparent 60%),
-    radial-gradient(50rem 30rem at -10% 10%, rgb(var(--blue) / 0.07), transparent 60%);
-}
+[data-theme='contrast'] .panel { border-width: 1.5px; }
+[data-theme='contrast'] .text-gradient { background: none; color: rgb(var(--ink)); }
 
 /* React Flow theming */
 .react-flow { --xy-background-color: transparent; }

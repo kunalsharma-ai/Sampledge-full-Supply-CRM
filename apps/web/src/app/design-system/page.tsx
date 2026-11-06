@@ -23,7 +23,7 @@ export default function DesignSystem() {
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Phase 1 deliverable" title="Sampledge design system" subtitle="Tokens, themes and the component library every module is built from. Tokens live in globals.css (CSS variables) and lib/tokens.ts (JS mirror for charts and 3D)."
-        actions={<Segmented label="ds-theme" value={theme} onChange={setTheme} options={[{ value: 'dark', label: 'Premium Dark' }, { value: 'light', label: 'Executive Light' }, { value: 'system', label: 'Adaptive' }]} />} />
+        actions={<Segmented label="ds-theme" value={theme} onChange={setTheme} options={[{ value: 'cosmic', label: 'Cosmic' }, { value: 'enterprise', label: 'Enterprise' }, { value: 'system', label: 'Adaptive' }]} />} />
 
       <Panel>
         <PanelHeader eyebrow="Colour" title="Brand palette and semantic roles" />

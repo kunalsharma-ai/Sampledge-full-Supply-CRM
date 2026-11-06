@@ -2,42 +2,48 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EChartsOption, ECharts } from 'echarts';
 import { useOS } from '@/lib/store';
-import { series as seriesColors, themeInk } from '@/lib/tokens';
+import { readTokens, resolveTheme, themeById, type ThemeId } from '@/lib/themes';
 import { ErrorState, Skeleton } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
-export function useResolvedTheme(): 'dark' | 'light' {
+/** The active Audience Orbit X theme id, following the OS when the preference is 'system'. */
+export function useThemeId(): ThemeId {
   const pref = useOS((s) => s.theme);
-  const [sys, setSys] = useState<'dark' | 'light'>('dark');
+  const [osLight, setOsLight] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const f = () => setSys(mq.matches ? 'light' : 'dark');
+    const f = () => setOsLight(mq.matches);
     f();
     mq.addEventListener('change', f);
     return () => mq.removeEventListener('change', f);
   }, []);
-  return pref === 'system' ? sys : pref;
+  return resolveTheme(pref, osLight);
+}
+
+/** Whether the active theme is dark or light (charts, 3D scenes). */
+export function useResolvedTheme(): 'dark' | 'light' {
+  return themeById(useThemeId()).mode;
 }
 
 export function chartBase(theme: 'dark' | 'light'): EChartsOption {
-  const t = themeInk[theme];
+  const t = readTokens();
   return {
-    color: seriesColors,
+    color: t.series,
     backgroundColor: 'transparent',
     textStyle: { fontFamily: 'Inter, system-ui, sans-serif', color: t.ink2, fontSize: 11 },
     grid: { left: 8, right: 12, top: 28, bottom: 8, containLabel: true },
     tooltip: {
-      backgroundColor: theme === 'dark' ? 'rgba(16,25,54,0.96)' : 'rgba(255,255,255,0.98)',
+      backgroundColor: t.surface,
       borderColor: t.line, borderWidth: 1, padding: [8, 10],
       textStyle: { color: t.ink, fontSize: 12 },
-      extraCssText: 'border-radius:12px;box-shadow:0 12px 32px -12px rgba(0,0,0,.5);backdrop-filter:blur(8px)',
+      extraCssText: `border-radius:12px;box-shadow:0 12px 32px -12px rgba(0,0,0,${theme === 'dark' ? 0.5 : 0.18})`,
     },
     legend: { textStyle: { color: t.ink2, fontSize: 11 }, icon: 'roundRect', itemWidth: 10, itemHeight: 10, top: 0 },
   };
 }
 /** Axis styling helper so every chart reads as one system. */
-export function axis(theme: 'dark' | 'light', extra: Record<string, unknown> = {}) {
-  const t = themeInk[theme];
+export function axis(_theme: 'dark' | 'light', extra: Record<string, unknown> = {}) {
+  const t = readTokens();
   return {
     axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false },
     axisLabel: { color: t.ink3, fontSize: 10.5 },
@@ -61,6 +67,7 @@ export function EChart({ option, height = 260, className, onClick, ariaLabel, de
   const chart = useRef<ECharts | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const theme = useResolvedTheme();
+  const themeId = useThemeId();
   const reduced = useOS((s) => s.motion === 'reduced');
   const clickRef = useRef(onClick);
   clickRef.current = onClick;
@@ -87,7 +94,7 @@ export function EChart({ option, height = 260, className, onClick, ariaLabel, de
     const o = option(theme);
     chart.current.setOption({ ...base, animation: !reduced, animationDuration: 900, animationEasing: 'cubicOut', ...o, tooltip: o.tooltip === undefined ? base.tooltip : { ...(base.tooltip as object), ...(o.tooltip as object) }, legend: o.legend === undefined ? undefined : Array.isArray(o.legend) ? o.legend : { ...(base.legend as object), ...(o.legend as object) } }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, theme, reduced, ...deps]);
+  }, [state, theme, themeId, reduced, ...deps]);
 
   if (state === 'error') return <ErrorState title="Chart failed to load" body="The visualisation library could not be loaded." />;
   return (

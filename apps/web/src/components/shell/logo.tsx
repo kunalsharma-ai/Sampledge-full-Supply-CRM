@@ -10,13 +10,13 @@ import Link from 'next/link';
 export function Logo({ compact }: { compact?: boolean }) {
   const gid = `lg-${useId().replace(/:/g, '')}`;
   return (
-    <Link href="/command-center" className="flex items-center gap-2.5" aria-label="Sampledge AI Research OS home">
+    <Link href="/supply/executive" className="flex items-center gap-2.5" aria-label="SUPPLY360 home">
       <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#18D7F2" />
-            <stop offset=".5" stopColor="#246BFD" />
-            <stop offset="1" stopColor="#713BFF" />
+            <stop offset="0" style={{ stopColor: 'rgb(var(--cyan))' }} />
+            <stop offset=".5" style={{ stopColor: 'rgb(var(--primary))' }} />
+            <stop offset="1" style={{ stopColor: 'rgb(var(--primary-2))' }} />
           </linearGradient>
         </defs>
         <rect x="1" y="1" width="30" height="30" rx="9" fill={`url(#${gid})`} opacity=".18" />
@@ -26,7 +26,7 @@ export function Logo({ compact }: { compact?: boolean }) {
       {!compact && (
         <span className="flex flex-col gap-1">
           <span className="block font-display text-[15px] font-bold leading-[1.15] tracking-tight">Sampledge</span>
-          <span className="block text-[9.5px] leading-none font-semibold uppercase tracking-[0.2em] text-ink-3">AI Research OS</span>
+          <span className="block text-[9.5px] leading-none font-semibold uppercase tracking-[0.2em] text-ink-3">SUPPLY360 · Orbit X</span>
         </span>
       )}
     </Link>
