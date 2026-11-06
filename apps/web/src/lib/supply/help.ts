@@ -162,7 +162,7 @@ export const help: Record<string, ScreenHelp> = {
       'Audience by country and panel': { what: 'How each country’s reachable audience splits across the three panels.' },
     },
   },
-  surveys: { what: 'Every survey members can take, from PROJEXA, ZAPX and our own programmes, with quotas and status.', how: ['Filter by source or status; open a survey for its quota cells.'], where: 'Use it to see what is live and what each member could be offered.', related: ['quotas', 'launch'], sections: { 'Quota cells': { what: 'This survey’s quota cells and how full each one is.' } } },
+  surveys: { what: 'Every survey members can take, from SampTrek, SampCode and our own programmes, with quotas and status.', how: ['Filter by source or status; open a survey for its quota cells.'], where: 'Use it to see what is live and what each member could be offered.', related: ['quotas', 'launch'], sections: { 'Quota cells': { what: 'This survey’s quota cells and how full each one is.' } } },
   'survey-generation': {
     what: 'Draft a profiling or engagement survey with AI. Every question comes with the reason it was included.',
     how: ['Describe the topic, audience, goal and length.', 'Generate, then edit, redraft or remove questions.', 'Send the draft to Survey Studio for review; nothing is published from here.'],
@@ -203,7 +203,7 @@ export const help: Record<string, ScreenHelp> = {
     sections: { 'Burn-up and projection': { what: 'Completes so far and where they are heading by the deadline.' }, 'Watch-list': { what: 'Cells most at risk of missing their target.' }, Rules: { what: 'Automatic actions, such as closing a cell when it fills.' } },
   },
   sampleon: {
-    what: 'SampAudience audience requests from PROJEXA projects and ZAPX surveys, from feasibility to closed, with the panel allocation.',
+    what: 'SampAudience audience requests from SampTrek projects and SampCode surveys, from feasibility to closed, with the panel allocation.',
     how: ['Pick a request in the pipeline.', 'Check feasibility, set the panel split (points of 100) and approve it.', 'Watch quotas, batches and events once it is live.'],
     where: 'Where supply staff approve and run every connected request.',
     related: ['projexa-requests', 'zapx-requests', 'feasibility'],
@@ -215,14 +215,14 @@ export const help: Record<string, ScreenHelp> = {
     },
   },
   'projexa-requests': {
-    what: 'Audience requests raised by PROJEXA projects: what the project manager asks for, the budget and the quotas.',
+    what: 'Audience requests raised by SampTrek projects: what the project manager asks for, the budget and the quotas.',
     how: ['Accept, counter-propose with a reason, or decline.', 'Accepted requests move to SampAudience for allocation.'],
     where: 'Check the inbox daily; project managers are waiting on an answer.',
     related: ['sampleon'],
     sections: {
       'Selected request': { what: 'The project’s ask: milestones, terms, budget and quotas.', how: ['Accept (you can undo for 8 seconds), counter-propose or decline.'] },  'Request terms': { what: 'What the project asks for, and your counter-proposal side by side.' }, Budget: { what: 'The cost at the asked price per complete.' }, 'Quota mapping': { what: 'How the project’s quotas map to SUPPLY360 profile questions.' } },
   },
-  'zapx-requests': { what: 'Audience requests raised directly from ZAPX surveys, with or without a PROJEXA project.', how: ['Check the survey preview and QA results.', 'Test the redirects.', 'Approve the launch once every QA check passes.'], where: 'Launch stays locked until QA passes; the lock says which check failed.', related: ['sampleon'], sections: { 'Request card': { what: 'One ZAPX request: the survey preview, QA checks and redirects.', how: ['Test the redirects, then approve the launch once QA passes.'] }, } },
+  'zapx-requests': { what: 'Audience requests raised directly from SampCode surveys, with or without a SampTrek project.', how: ['Check the survey preview and QA results.', 'Test the redirects.', 'Approve the launch once every QA check passes.'], where: 'Launch stays locked until QA passes; the lock says which check failed.', related: ['sampleon'], sections: { 'Request card': { what: 'One SampCode request: the survey preview, QA checks and redirects.', how: ['Test the redirects, then approve the launch once QA passes.'] }, } },
   automation: {
     what: 'Build engagement workflows from blocks: a trigger, conditions, delays and actions.',
     how: ['Pick a workflow or start a new one.', 'Drag blocks from the palette and connect them.', 'Fix the issues listed under “Before activating”, then activate.'],
