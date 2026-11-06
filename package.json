@@ -7,10 +7,10 @@
     "apps/*"
   ],
   "scripts": {
-    "build:core": "npm run build -w @sampledge/core",
+    "build:core": "npm run build -w @sampledge/contracts && npm run build -w @sampledge/core",
     "dev": "npm run build:core && concurrently -n core,api,web -c cyan,magenta,blue \"npm run dev -w @sampledge/core\" \"npm run dev -w @sampledge/api\" \"npm run dev -w @sampledge/web\"",
     "build": "npm run build:core && npm run build -w @sampledge/api && npm run build -w @sampledge/web",
-    "test": "npm test -w @sampledge/core && npm test -w @sampledge/api",
+    "test": "npm test -w @sampledge/contracts && npm test -w @sampledge/core && npm test -w @sampledge/api",
     "typecheck": "npm run build:core && npm run typecheck -w @sampledge/api && npm run typecheck -w @sampledge/web",
     "db:setup": "npm run build:core && npm run db:setup -w @sampledge/api"
   },
