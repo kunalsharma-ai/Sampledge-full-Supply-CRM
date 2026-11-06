@@ -140,14 +140,14 @@ export const dimensions = [{ id: 'panel', label: 'Panel' }, { id: 'country', lab
 export type DimId = (typeof dimensions)[number]['id'];
 
 const weeksLbl = Array.from({ length: 8 }, (_, i) => `W${38 + i}`);
-const dimValues: Record<DimId, string[]> = { panel: panelBrands.map((b) => b.short), country: markets.slice(0, 8).map((m) => m.code), week: weeksLbl, source: ['PROJEXA', 'ZAPX', 'Partner'] };
+const dimValues: Record<DimId, string[]> = { panel: panelBrands.map((b) => b.short), country: markets.slice(0, 8).map((m) => m.code), week: weeksLbl, source: ['SampTrek', 'SampCode', 'Partner'] };
 /** Fact rows: one per panel × country × week × source, seeded. */
 export const facts = (() => {
   const out: { panel: string; country: string; week: string; source: string; completes: number; starts: number; invites: number; signups: number; points: number }[] = [];
   for (const p of dimValues.panel) for (const c of dimValues.country) for (const w of dimValues.week) for (const s of dimValues.source) {
     const m = markets.find((x) => x.code === c)!;
     const pid = panelBrands.find((b) => b.short === p)!.id;
-    const base = (m.completesToday * 7 * (m.members[pid] / totalMembers(m))) / 3 * (s === 'PROJEXA' ? 1.4 : s === 'ZAPX' ? 1 : 0.6) * (0.85 + r() * 0.3) * (1 + weeksLbl.indexOf(w) * 0.015);
+    const base = (m.completesToday * 7 * (m.members[pid] / totalMembers(m))) / 3 * (s === 'SampTrek' ? 1.4 : s === 'SampCode' ? 1 : 0.6) * (0.85 + r() * 0.3) * (1 + weeksLbl.indexOf(w) * 0.015);
     const completes = Math.round(base);
     const starts = Math.round(completes / (0.36 + r() * 0.12));
     out.push({ panel: p, country: c, week: w, source: s, completes, starts, invites: Math.round(starts / (0.12 + r() * 0.05)), signups: Math.round(completes * (0.05 + r() * 0.04)), points: Math.round(completes * between(90, 260)) });
@@ -179,8 +179,8 @@ export const starterReports: SavedReport[] = [
 export type Connection = { id: string; name: string; kind: 'product' | 'panel' | 'service'; direction: 'in' | 'out' | 'both'; status: 'healthy' | 'degraded' | 'down'; latencyMs: number; events24h: number; errorRate: number; auth: string; lastSeen: string; endpoint: string };
 export const connections: Connection[] = [
   { id: 'sampleon', name: 'SampAudience', kind: 'product', direction: 'both', status: 'healthy', latencyMs: 84, events24h: 48_210, errorRate: 0.0006, auth: 'HMAC-SHA256 (v1), client “sampleon”', lastSeen: '12s ago', endpoint: '/api/v1/s2s/supply' },
-  { id: 'projexa', name: 'PROJEXA', kind: 'product', direction: 'out', status: 'healthy', latencyMs: 132, events24h: 1_904, errorRate: 0.001, auth: 'via SampAudience events', lastSeen: '3m ago', endpoint: 'project.quota_updated → PROJEXA' },
-  { id: 'zapx', name: 'ZAPX', kind: 'product', direction: 'both', status: 'degraded', latencyMs: 640, events24h: 22_480, errorRate: 0.021, auth: 'via SampAudience survey-host adapter', lastSeen: '40s ago', endpoint: 'survey.* events' },
+  { id: 'projexa', name: 'SampTrek', kind: 'product', direction: 'out', status: 'healthy', latencyMs: 132, events24h: 1_904, errorRate: 0.001, auth: 'via SampAudience events', lastSeen: '3m ago', endpoint: 'project.quota_updated → SampTrek' },
+  { id: 'zapx', name: 'SampCode', kind: 'product', direction: 'both', status: 'degraded', latencyMs: 640, events24h: 22_480, errorRate: 0.021, auth: 'via SampAudience survey-host adapter', lastSeen: '40s ago', endpoint: 'survey.* events' },
   { id: 't2o', name: 'Turn2Opinion site', kind: 'panel', direction: 'in', status: 'healthy', latencyMs: 61, events24h: 96_300, errorRate: 0.0004, auth: 'PANEL_CARDS_SECRET_T2O', lastSeen: '2s ago', endpoint: '/panel/t2o/cards' },
   { id: 'mfr', name: 'MyFrequentRewards site', kind: 'panel', direction: 'in', status: 'healthy', latencyMs: 58, events24h: 71_820, errorRate: 0.0003, auth: 'PANEL_CARDS_SECRET_MFR', lastSeen: '4s ago', endpoint: '/panel/mfr/cards' },
   { id: 'mho', name: 'MyHealthOpinions site', kind: 'panel', direction: 'in', status: 'healthy', latencyMs: 66, events24h: 14_950, errorRate: 0.0005, auth: 'PANEL_CARDS_SECRET_MHO', lastSeen: '9s ago', endpoint: '/panel/mho/cards' },

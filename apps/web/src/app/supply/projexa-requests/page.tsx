@@ -51,7 +51,7 @@ export default function ProjexaRequests() {
   return (
     <div className="space-y-4">
       <SupplyHeader screen={screen} title={<span className="flex items-center gap-2.5"><ProductChip product="projexa" /> Audience requests</span>}
-        subtitle="Requests raised by PROJEXA projects. Read each one with its project, then accept it into allocation, counter-propose terms, or decline." />
+        subtitle="Requests raised by SampTrek projects. Read each one with its project, then accept it into allocation, counter-propose terms, or decline." />
 
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <Panel className="flex max-h-[720px] flex-col p-0">
@@ -59,7 +59,7 @@ export default function ProjexaRequests() {
             <span className="text-[13px] font-semibold">Inbox</span>
             <Segmented label="Show" size="sm" className="ml-auto" value={filter} onChange={setFilter} options={[{ value: 'open', label: `Open (${items.filter((p) => p.state === 'new' || p.state === 'countered').length})` }, { value: 'all', label: 'All' }]} />
           </div>
-          <ul className="flex-1 overflow-y-auto" aria-label="PROJEXA requests">
+          <ul className="flex-1 overflow-y-auto" aria-label="SampTrek requests">
             {shown.map((p) => (
               <li key={p.id}>
                 <button onClick={() => setSelId(p.id)} aria-current={p.id === sel.id ? 'true' : undefined}
@@ -70,7 +70,7 @@ export default function ProjexaRequests() {
                 </button>
               </li>
             ))}
-            {shown.length === 0 && <li className="p-8 text-center text-[13px] text-ink-3">Inbox clear. New requests arrive as PROJEXA projects reach questionnaire sign-off.</li>}
+            {shown.length === 0 && <li className="p-8 text-center text-[13px] text-ink-3">Inbox clear. New requests arrive as SampTrek projects reach questionnaire sign-off.</li>}
           </ul>
         </Panel>
 
@@ -80,9 +80,9 @@ export default function ProjexaRequests() {
       </div>
 
       <CounterDialog open={dialog === 'counter'} onOpenChange={(v) => !v && setDialog(null)} p={sel}
-        onSend={(ask, reason) => { setCounters((c) => ({ ...c, [sel.id]: { ask, reason } })); setState(sel.id, 'countered'); setDialog(null); toast(`Counter-proposal sent to ${sel.manager} in PROJEXA`, 'ok'); }} />
+        onSend={(ask, reason) => { setCounters((c) => ({ ...c, [sel.id]: { ask, reason } })); setState(sel.id, 'countered'); setDialog(null); toast(`Counter-proposal sent to ${sel.manager} in SampTrek`, 'ok'); }} />
       <DeclineDialog open={dialog === 'decline'} onOpenChange={(v) => !v && setDialog(null)} p={sel}
-        onDecline={() => { setState(sel.id, 'declined'); setDialog(null); toast(`${sel.projectId} declined; PROJEXA notified`, 'info'); }} />
+        onDecline={() => { setState(sel.id, 'declined'); setDialog(null); toast(`${sel.projectId} declined; SampTrek notified`, 'info'); }} />
     </div>
   );
 }
@@ -154,7 +154,7 @@ function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }
       </div>
 
       <section className="mt-4">
-        <SectionTitle eyebrow="From the PROJEXA questionnaire" title="Quota mapping" />
+        <SectionTitle eyebrow="From the SampTrek questionnaire" title="Quota mapping" />
         <ul className="grid gap-1.5 sm:grid-cols-2">
           {p.quotas.map((q) => (
             <li key={q.id} className="flex items-center gap-2 rounded-lg border hairline px-2.5 py-1.5 text-[12px]">
@@ -197,7 +197,7 @@ function CounterDialog({ open, onOpenChange, p, onSend }: { open: boolean; onOpe
   );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={`Counter-propose on ${p.projectId}`} description={`Sent to ${p.manager} in PROJEXA. The request waits until they accept or change it.`}>
+      <DialogContent title={`Counter-propose on ${p.projectId}`} description={`Sent to ${p.manager} in SampTrek. The request waits until they accept or change it.`}>
         <div className="grid grid-cols-2 gap-3">
           {field('completes', 'Completes', <input type="number" className={cn(inputCls, 'mt-1')} aria-invalid={!!errs.completes} value={ask.completes} onChange={(e) => setAsk({ ...ask, completes: Number(e.target.value) })} />)}
           {field('ir', 'Incidence (%)', <input type="number" step={1} className={cn(inputCls, 'mt-1')} aria-invalid={!!errs.ir} value={Math.round(ask.ir * 100)} onChange={(e) => setAsk({ ...ask, ir: Number(e.target.value) / 100 })} />)}
@@ -224,7 +224,7 @@ function DeclineDialog({ open, onOpenChange, p, onDecline }: { open: boolean; on
   const [reason, setReason] = useState('');
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setReason(''); onOpenChange(v); }}>
-      <DialogContent title={`Decline ${p.projectId}?`} description="PROJEXA marks the request as rejected and the project manager sees your reason. They can raise a new request.">
+      <DialogContent title={`Decline ${p.projectId}?`} description="SampTrek marks the request as rejected and the project manager sees your reason. They can raise a new request.">
         <fieldset className="space-y-1.5"><legend className="mb-1 text-2xs text-ink-3">Reason</legend>
           {declineReasons.map((r) => <label key={r} className="flex items-center gap-2 text-[12.5px]"><input type="radio" name="decline" checked={reason === r} onChange={() => setReason(r)} className="accent-[rgb(var(--primary))]" />{r}</label>)}
         </fieldset>

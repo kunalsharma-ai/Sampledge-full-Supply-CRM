@@ -112,7 +112,7 @@ export const screens: Screen[] = [
   // ── Surveys & fieldwork
   { n: 16, slug: 'surveys', label: 'Survey Inventory', group: 'Surveys & fieldwork', icon: 'ListChecks', module: 'panels', wave: 3,
     summary: 'Every survey available to panellists, from every source.',
-    layout: 'Kanban-by-status with a table toggle, source chips (PROJEXA, ZAPX, partner), CPI, IR, LOI and quota health.' },
+    layout: 'Kanban-by-status with a table toggle, source chips (SampTrek, SampCode, partner), CPI, IR, LOI and quota health.' },
   { n: 17, slug: 'survey-generation', label: 'AI Survey Generation', group: 'Surveys & fieldwork', icon: 'FileStack', module: 'panels', wave: 4,
     summary: 'Draft profiling and engagement surveys with AI.',
     layout: 'Brief on the left, generated questionnaire in the centre with per-question rationale, quality checks on the right.' },
@@ -135,12 +135,12 @@ export const screens: Screen[] = [
   // ── Connected products
   { n: 19, slug: 'sampleon', label: 'SampAudience Allocation', group: 'Connected products', icon: 'Waypoints', module: 'marketplace', wave: 6, brand: 'sampleon', key: 's',
     summary: 'Cross-platform supply operations.',
-    layout: 'Request pipeline from PROJEXA and ZAPX: feasibility, allocation, quotas, batches and fieldwork progress in one workspace.' },
-  { n: 20, slug: 'projexa-requests', label: 'PROJEXA Audience Requests', group: 'Connected products', icon: 'FolderKanban', module: 'marketplace', wave: 6, brand: 'projexa',
-    summary: 'Audience requests raised by PROJEXA projects.',
+    layout: 'Request pipeline from SampTrek and SampCode: feasibility, allocation, quotas, batches and fieldwork progress in one workspace.' },
+  { n: 20, slug: 'projexa-requests', label: 'SampTrek Audience Requests', group: 'Connected products', icon: 'FolderKanban', module: 'marketplace', wave: 6, brand: 'projexa',
+    summary: 'Audience requests raised by SampTrek projects.',
     layout: 'Request inbox with project context (client, milestones, budget) and accept / counter-propose actions.' },
-  { n: 21, slug: 'zapx-requests', label: 'ZAPX Audience Requests', group: 'Connected products', icon: 'Zap', module: 'marketplace', wave: 6, brand: 'zapx',
-    summary: 'Audience requests raised directly from ZAPX surveys.',
+  { n: 21, slug: 'zapx-requests', label: 'SampCode Audience Requests', group: 'Connected products', icon: 'Zap', module: 'marketplace', wave: 6, brand: 'zapx',
+    summary: 'Audience requests raised directly from SampCode surveys.',
     layout: 'Survey-first request cards (survey preview, redirects, QA status) with feasibility and launch approval.' },
 
   // ── Engagement
@@ -174,7 +174,7 @@ export const screens: Screen[] = [
   // ── Platform
   { n: 39, slug: 'api-hub', label: 'API Integration Hub', group: 'Platform', icon: 'Plug', module: 'integrations', wave: 6,
     summary: 'Keys, webhooks and connected systems.',
-    layout: 'Connection map (SUPPLY360 ↔ SampAudience, PROJEXA, ZAPX, panels), event delivery log with retry and API key management.' },
+    layout: 'Connection map (SUPPLY360 ↔ SampAudience, SampTrek, SampCode, panels), event delivery log with retry and API key management.' },
   { n: 40, slug: 'roles', label: 'User Roles & Permissions', group: 'Platform', icon: 'KeyRound', module: 'admin', wave: 6,
     summary: 'Who can see and do what.',
     layout: 'Role × capability matrix with diff preview before saving, and per-user overrides with expiry.' },
@@ -197,11 +197,14 @@ export const BUILT_WAVES = [1, 2, 3, 4, 5, 6] as const;
 export const BUILT_EARLY = new Set(['global-intelligence', 'distribution', 'sampleon', 'projexa-requests', 'zapx-requests']);
 export const isScreenBuilt = (s: Screen) => (BUILT_WAVES as readonly number[]).includes(s.wave) || BUILT_EARLY.has(s.slug);
 
+/** Display name of a connected product from its contract value (PROJEXA is SampTrek, ZAPX is SampCode). */
+export const productName = (p: string) => (p === 'PROJEXA' ? 'SampTrek' : p === 'ZAPX' ? 'SampCode' : p === 'SAMPLEON' ? 'SampAudience' : p);
+
 /** Display names and colours. Keys are stable ids (the SampAudience key stays 'sampleon'). */
 export const brandColors: Record<NonNullable<Screen['brand']>, { name: string; color: string; ink: string; icon?: string }> = {
   sampleon: { name: 'SampAudience', color: '#14B8A6', ink: '#ffffff', icon: '/brand/sampaudience/sampaudience-icon.svg' },
-  projexa: { name: 'PROJEXA', color: '#F59E0B', ink: '#1a1203' },
-  zapx: { name: 'ZAPX', color: '#EC4899', ink: '#ffffff' },
+  projexa: { name: 'SampTrek', color: '#F59E0B', ink: '#1a1203', icon: '/brand/samptrek/samptrek-icon.svg' },
+  zapx: { name: 'SampCode', color: '#EC4899', ink: '#ffffff', icon: '/brand/sampcode/sampcode-icon.svg' },
   t2o: { name: 'Turn2Opinion', color: '#4D86FF', ink: '#ffffff' },
   mfr: { name: 'MyFrequentRewards', color: '#A855F7', ink: '#ffffff' },
   mho: { name: 'MyHealthOpinions', color: '#10B981', ink: '#ffffff' },
