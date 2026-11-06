@@ -74,7 +74,7 @@ export function ProductChip({ product, children }: { product: 'sampleon' | 'proj
   const b = brandColors[product];
   return (
     <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold tracking-wide ring-1 ring-inset"
-      style={{ color: b.color, background: `color-mix(in srgb, ${b.color} 12%, transparent)`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${b.color} 35%, transparent)` }}>
+      style={{ color: `color-mix(in srgb, ${b.color} 55%, rgb(var(--ink)))`, background: `color-mix(in srgb, ${b.color} 12%, transparent)`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${b.color} 35%, transparent)` }}>
       <span className="h-1.5 w-1.5 rounded-sm" style={{ background: b.color }} aria-hidden />
       {children ?? b.name}
     </span>
@@ -110,4 +110,11 @@ export function SectionTitle({ title, eyebrow, actions, id }: { title: ReactNode
       {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
     </div>
   );
+}
+
+/** Where a survey came from: PROJEXA and ZAPX keep their product colours, partner exchanges are neutral. */
+export function SurveySourceChip({ source, partner }: { source: 'PROJEXA' | 'ZAPX' | 'Partner'; partner?: string }) {
+  if (source === 'PROJEXA') return <ProductChip product="projexa" />;
+  if (source === 'ZAPX') return <ProductChip product="zapx" />;
+  return <span className="inline-flex items-center rounded-md bg-ink-3/12 px-1.5 py-0.5 text-[10.5px] font-bold tracking-wide text-ink-2 ring-1 ring-inset ring-ink-3/25">{partner ?? 'Partner'}</span>;
 }
