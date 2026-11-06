@@ -245,3 +245,11 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
      - New API keys show their secret once. Revoking needs the key name typed. Retrying deliveries is safe because receivers de-duplicate by event id.
      - Role changes are a draft with a reviewed diff. Platform admin keeps settings and API access. Panellist identity is never available. Overrides need a reason, must grant more than the role, and expire within 30 days.
      - Risky settings preview their impact before saving. Turning off "health attributes leave only as match / no match" is blocked.
+7. **Live wiring (built)**: screens read API endpoints that already exist, and fall back to the labelled demo set offline.
+   - **Notification Center**: the caller's unread notifications from `GET /notifications`, sorted into the Act, Review and FYI lanes by their wording. Done calls `POST /notifications/:id/read`, which can't be undone, so the Undo button only appears offline.
+   - **SampAudience allocation**: the "Recorded in SUPPLY360" strip shows the real survey card, participation and reward totals from `GET /panels/sampleon/overview`. The pipeline is still demo data and is labelled as such.
+   - **API hub**: "Configured on the API server" lists `GET /integrations`. Secrets are reported only as set or missing. The connection map, delivery log and keys are still demo data.
+   - **Roles**: "People in this workspace" lists `GET /admin/users` (admins only) and changes a sign-in role with `PATCH /admin/users/:id/role` after a confirmation.
+     - Your own role, and vendor and client accounts, can't be edited.
+     - Granting Platform Admin opens a "Granting admin access" approval instead of applying.
+   - Headers say "Partly demo data" when a screen mixes both. In `lib/supply/data.ts`, the `endpoints` entries for these paths are now `available`.

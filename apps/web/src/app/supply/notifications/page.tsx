@@ -4,7 +4,9 @@
  * each item has its own action, Done, and Snooze. Done items can be undone from the toast bar.
  * Below, delivery rules decide which sources reach which channel, and which go to the daily
  * digest instead; the rules persist per user.
- * Integration: `GET /notifications` and `PATCH /notifications/:id` (planned); rules in user prefs.
+ * Live: when signed in to the API, the lanes hold the caller's unread notifications from
+ * `GET /notifications` (sorted into lanes by wording) and Done calls `POST /notifications/:id/read`,
+ * which cannot be undone. Offline, the labelled demo set is used. Rules are saved in user prefs.
  */
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
@@ -15,6 +17,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger, Switch } from '@/components/u
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { channels, deliveryRules, notices, type Lane, type Notice } from '@/lib/supply/engagement';
+import { laneOf, moduleHref } from '@/lib/supply/live';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn } from '@/lib/utils';
 
@@ -31,18 +34,24 @@ export default function Notifications() {
   const saved = useOS((s) => s.prefs['notify:rules'] as Rules | undefined);
   const setPref = useOS((s) => s.setPref);
   const rules = saved ?? deliveryRules;
+  const live = useOS((s) => s.mode === 'live' && !!s.session);
+  const stored = useOS((s) => s.notifications);
+  const markRead = useOS((s) => s.markRead);
+  const source: Notice[] = useMemo(() => (live
+    ? stored.filter((n) => !n.read).map((n) => ({ id: n.id, lane: laneOf(n.title), title: n.title, detail: n.body, source: moduleHref[n.module]?.source ?? n.module, at: n.time, href: moduleHref[n.module]?.href, action: 'Open' }))
+    : notices), [live, stored]);
   const [done, setDone] = useState<string[]>([]);
   const [snoozed, setSnoozed] = useState<Record<string, string>>({});
-  const open = useMemo(() => notices.filter((n) => !done.includes(n.id) && !snoozed[n.id]), [done, snoozed]);
-  const lastDone = done[done.length - 1];
+  const open = useMemo(() => source.filter((n) => !done.includes(n.id) && !snoozed[n.id]), [source, done, snoozed]);
+  const lastDone = live ? undefined : done[done.length - 1];
 
-  const markDone = (n: Notice) => { setDone((d) => [...d, n.id]); };
+  const markDone = (n: Notice) => { if (live) { markRead(n.id); toast('Marked as read', 'ok'); } else setDone((d) => [...d, n.id]); };
   const snooze = (n: Notice, until: string) => { setSnoozed((s) => ({ ...s, [n.id]: until })); toast(`Snoozed until ${until}`, 'info'); };
   const setRule = (i: number, patch: Partial<Rules[number]>) => setPref('notify:rules', rules.map((r, k) => (k === i ? { ...r, ...patch } : r)));
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Notifications" subtitle="Everything that needs you, sorted by what it asks of you. Clear the Act lane first."
+      <SupplyHeader screen={screen} source={live ? 'live' : 'demo'} title="Notifications" subtitle="Everything that needs you, sorted by what it asks of you. Clear the Act lane first."
         actions={<>
           {lastDone && <Button size="sm" variant="ghost" onClick={() => setDone((d) => d.slice(0, -1))}><Undo2 size={13} /> Undo done</Button>}
           <Badge tone={open.length ? 'blue' : 'emerald'}>{open.length} open</Badge>

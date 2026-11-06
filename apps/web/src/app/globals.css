@@ -134,7 +134,7 @@
   --orange: 176 84 20;
   --magenta: 160 44 200;
   --danger: 206 40 72;
-  --warn: 160 108 0;
+  --warn: 138 92 0;
   --primary: 28 92 230;
   --primary-2: 98 48 230;
   --primary-strong: 28 92 230; /* button fills: meets 4.5:1 with --on-primary */
@@ -202,7 +202,7 @@
   --orange: 160 78 18;
   --magenta: 150 56 116;
   --danger: 182 44 44;
-  --warn: 146 100 6;
+  --warn: 128 86 4;
   --primary: 168 84 36;
   --primary-2: 140 64 48;
   --primary-strong: 168 84 36; /* button fills: meets 4.5:1 with --on-primary */
