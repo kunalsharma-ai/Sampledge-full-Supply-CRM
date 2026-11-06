@@ -273,6 +273,15 @@ describe('survey lifecycle and respondent runtime', () => {
     assert.equal(after.qt1, before.qt1);
     assert.equal((await as('platform_admin').get('/projects/pr-002')).body.completes, proj + 1);
   });
+  it('sends respondents who match a cell closed early to the over-quota end, until it reopens', async () => {
+    const cell = await db.quotaCell.findUniqueOrThrow({ where: { surveyId_key: { surveyId: 'sv-cloud', key: 'qt3' } } });
+    assert.equal((await as('project_manager').post(`/supply/quotas/${cell.id}/close`, { reason: 'Client paused this cell' })).status, 200);
+    const s = await call('POST', '/r/sv-cloud/start', {});
+    const { last } = await walk(s.body.responseId, 'S1');
+    assert.equal(last!.body.outcome, 'overquota');
+    assert.equal((await db.quotaCell.findUniqueOrThrow({ where: { id: cell.id } })).count, cell.count, 'nothing counted into the closed cell');
+    assert.equal((await as('project_manager').post(`/supply/quotas/${cell.id}/reopen`)).status, 200);
+  });
   it('lets exactly one of several racing respondents take the last slot', async () => {
     const cell = await db.quotaCell.findUniqueOrThrow({ where: { surveyId_key: { surveyId: 'sv-cloud', key: 'qt3' } } });
     await db.quotaCell.update({ where: { id: cell.id }, data: { target: cell.count + 1 } });

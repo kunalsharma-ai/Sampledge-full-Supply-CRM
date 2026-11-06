@@ -74,3 +74,32 @@ export type LiveSettings = {
 };
 export const loadSettings = () => api<LiveSettings>('/admin/settings');
 export const saveSettings = (changes: Record<string, string | number | boolean>) => api<{ values: LiveSettings['values']; changed: number }>('/admin/settings', { method: 'PATCH', body: { changes } });
+
+/** `/supply/records/:kind`: SUPPLY360 working records (weekly weeks, saved reports, tickets ...). */
+export type Rec<T> = { id: string; ref: string; kind: string; status: string; title: string; data: T; version: number; createdBy: string; createdAt: string; updatedAt: string };
+export const records = {
+  list: <T>(kind: string, q = '') => api<Rec<T>[]>(`/supply/records/${kind}${q ? `?${q}` : ''}`),
+  get: <T>(kind: string, id: string) => api<Rec<T>>(`/supply/records/${kind}/${id}`),
+  create: <T>(kind: string, data: Partial<T>) => api<Rec<T>>(`/supply/records/${kind}`, { method: 'POST', body: { data } }),
+  update: <T>(kind: string, r: Pick<Rec<T>, 'id' | 'version'>, data: Partial<T>) => api<Rec<T>>(`/supply/records/${kind}/${r.id}`, { method: 'PATCH', body: { data, version: r.version } }),
+  act: <T>(kind: string, r: Pick<Rec<T>, 'id' | 'version'>, action: string, extra: Record<string, unknown> = {}) => api<Rec<T>>(`/supply/records/${kind}/${r.id}/${action}`, { method: 'POST', body: { version: r.version, ...extra } }),
+};
+
+/** `GET /supply/facts`: analytics fact rows counted from recorded activity. */
+export type LiveFacts = { asOf: string; weeks: string[]; pointValue: number; currency: string; facts: { panel: string; country: string; week: string; source: string; completes: number; starts: number; invites: number; signups: number; points: number }[] };
+export const loadFacts = (weeks = 8) => api<LiveFacts>(`/supply/facts?weeks=${weeks}`);
+
+/** `GET /supply/weekly-programme`. */
+export type WeeklyData = { week: string; template: string; topics: string[]; brands: string[]; audienceRequestId?: string; note?: string };
+export type LiveWeek = Rec<WeeklyData> & { invites: number; completes: number; cost: number };
+export const loadWeeklyProgramme = () => api<LiveWeek[]>('/supply/weekly-programme');
+
+/** `GET /projects` (fieldwork projects with quota cells) and closing a cell early. */
+export type LiveProject = {
+  id: string; code: string; name: string; stage: string; start: string; deadline: string; countries: string[]; completes: number; target: number; loi: number; ir: number; cpiSell?: number; audience: string;
+  quotas: { id: string; key: string; label: string; target: number; count: number; hard: boolean; closedAt: string | null }[];
+  surveys: { id: string; name: string; status: string }[];
+};
+export const loadProjects = () => api<LiveProject[]>('/projects');
+export const closeQuota = (id: string, reason: string) => api<{ id: string; closedAt: string }>(`/supply/quotas/${id}/close`, { method: 'POST', body: { reason } });
+export const reopenQuota = (id: string) => api<{ id: string; closedAt: null }>(`/supply/quotas/${id}/reopen`, { method: 'POST' });

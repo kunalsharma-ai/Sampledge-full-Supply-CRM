@@ -155,13 +155,22 @@ export const facts = (() => {
   return out;
 })();
 export const dimOrder = dimValues;
-export function pivot(metric: MetricId, rowsDim: DimId, colsDim: DimId | null, panelFilter: string[]) {
-  const f = facts.filter((x) => !panelFilter.length || panelFilter.includes(x.panel));
-  const rowsV = dimValues[rowsDim], colsV = colsDim ? dimValues[colsDim] : ['Total'];
-  const val = (sub: typeof facts) => {
+export type Fact = (typeof facts)[number];
+/** What a pivot runs over: the seeded demo facts, or live facts from `GET /supply/facts`. */
+export type FactSet = { facts: Fact[]; dims: Record<DimId, string[]>; pointValue: number };
+export const demoFactSet: FactSet = { facts, dims: dimValues, pointValue: POINT_USD };
+/** A live fact set: dimension values are the ones that occur, weeks are the requested weeks in order. */
+export function factSet(f: Fact[], weeks: string[], pointValue: number): FactSet {
+  const uniq = (k: DimId) => [...new Set(f.map((x) => x[k]))].sort();
+  return { facts: f, pointValue, dims: { panel: panelBrands.map((b) => b.short), country: uniq('country'), week: weeks, source: uniq('source').length ? uniq('source') : ['SampAudience'] } };
+}
+export function pivot(metric: MetricId, rowsDim: DimId, colsDim: DimId | null, panelFilter: string[], set: FactSet = demoFactSet) {
+  const f = set.facts.filter((x) => !panelFilter.length || panelFilter.includes(x.panel));
+  const rowsV = set.dims[rowsDim], colsV = colsDim ? set.dims[colsDim] : ['Total'];
+  const val = (sub: Fact[]) => {
     const s = (k: 'completes' | 'starts' | 'invites' | 'signups' | 'points') => sub.reduce((a, x) => a + x[k], 0);
     if (metric === 'cr') return s('completes') / (s('starts') || 1);
-    if (metric === 'cpc') return (s('points') * POINT_USD) / (s('completes') || 1);
+    if (metric === 'cpc') return (s('points') * set.pointValue) / (s('completes') || 1);
     return s(metric);
   };
   const cells = rowsV.map((rv) => colsV.map((cv) => val(f.filter((x) => x[rowsDim] === rv && (!colsDim || x[colsDim] === cv)))));

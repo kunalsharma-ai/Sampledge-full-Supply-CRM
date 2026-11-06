@@ -131,7 +131,8 @@ export class RuntimeService {
   }
 
   /**
-   * Atomic quota counting. Each matching cell increments only while count < target (hard cells),
+   * Atomic quota counting. Each matching cell increments only while count < target (hard cells)
+   * and the cell has not been closed early by an operator,
    * so two respondents racing for the last slot cannot both complete. A zero-row update means the
    * cell filled first: the whole completion rolls back and the respondent is overquota.
    */
@@ -142,7 +143,7 @@ export class RuntimeService {
       if (!evaluate(q.when, answers)) continue;
       const cell = byKey.get(q.id);
       if (!cell) continue;
-      const n = await tx.$executeRaw`UPDATE "QuotaCell" SET "count" = "count" + 1 WHERE "id" = ${cell.id} AND ("hard" = false OR "count" < "target")`;
+      const n = await tx.$executeRaw`UPDATE "QuotaCell" SET "count" = "count" + 1 WHERE "id" = ${cell.id} AND "closedAt" IS NULL AND ("hard" = false OR "count" < "target")`;
       if (n === 0) throw new QuotaRace();
       if (cell.count + 1 >= cell.target) {
         const now = await tx.quotaCell.findUniqueOrThrow({ where: { id: cell.id } });

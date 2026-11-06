@@ -25,6 +25,7 @@ export function AnimatedNumber({ value, format, className, duration = 1.4 }: { v
 export function Sparkline({ data, color = 'rgb(var(--cyan))', height = 36, className, fill = true }: { data: number[]; color?: string; height?: number; className?: string; fill?: boolean }) {
   const id = useId().replace(/:/g, '');
   const w = 120;
+  if (data.length < 2) return null;
   const min = Math.min(...data), max = Math.max(...data);
   const pts = data.map((v, i) => [(i / (data.length - 1)) * w, height - 3 - ((v - min) / (max - min || 1)) * (height - 6)] as const);
   const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');

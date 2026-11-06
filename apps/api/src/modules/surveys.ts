@@ -108,14 +108,18 @@ export class SurveysService {
     return { ...s, definition };
   }
 
-  /** Loads a version's definition with live quota counts from QuotaCell rows. */
+  /** Loads a version's definition with live quota counts from QuotaCell rows. A cell closed early reads as full. */
   async definition(surveyId: string, version: number): Promise<SurveyDef> {
     const v = await this.db.surveyVersion.findUnique({ where: { surveyId_version: { surveyId, version } } });
     if (!v) throw new NotFoundException(`Version ${version} not found`);
     const def = v.definition as unknown as SurveyDef;
     const cells = await this.db.quotaCell.findMany({ where: { surveyId } });
     const byKey = new Map(cells.map((c) => [c.key, c]));
-    return { ...def, version, quotas: def.quotas.map((q) => ({ ...q, target: byKey.get(q.id)?.target ?? q.target, count: byKey.get(q.id)?.count ?? 0 })) };
+    return { ...def, version, quotas: def.quotas.map((q) => {
+      const c = byKey.get(q.id);
+      const target = c?.target ?? q.target;
+      return { ...q, target, count: c?.closedAt ? Math.max(c.count, target) : c?.count ?? 0 };
+    }) };
   }
 
   async versions(ctx: Ctx, id: string) {
