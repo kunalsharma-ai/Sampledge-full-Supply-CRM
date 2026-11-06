@@ -192,7 +192,7 @@ export const screenByPath = (path: string | null | undefined) =>
   path ? [...screens].sort((a, b) => b.slug.length - a.slug.length).find((s) => path === screenHref(s) || path.startsWith(`${screenHref(s)}/`)) : undefined;
 export const screenBySlug = (slug: string) => screens.find((s) => s.slug === slug);
 /** Screens with a finished implementation in this build; the rest show their design brief. */
-export const BUILT_WAVES = [1, 2, 3, 4, 5] as const;
+export const BUILT_WAVES = [1, 2, 3, 4, 5, 6] as const;
 /** Screens built ahead of their whole wave (wave 6 ships in two parts). */
 export const BUILT_EARLY = new Set(['global-intelligence', 'distribution', 'sampleon', 'projexa-requests', 'zapx-requests']);
 export const isScreenBuilt = (s: Screen) => (BUILT_WAVES as readonly number[]).includes(s.wave) || BUILT_EARLY.has(s.slug);
