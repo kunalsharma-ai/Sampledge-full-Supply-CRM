@@ -267,3 +267,8 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
      - Settings owned elsewhere are read through and refused here: point value (Finance), weekly invitation cap and minimum redemption (panel reward policy).
      - Turning off "health attributes only as match / no match" is refused by the server too.
      - Roles without admin write access see the settings read-only.
+9. **In-place help (built)**: every screen title and every section title has an "i" button that says what the thing is for, how to use it and where it fits, with links to the screens people usually open next.
+   - All the text lives in `apps/web/src/lib/supply/help.ts`. Screens are keyed by slug, and sections by their title or the small label above it. Edit the words there; no code change is needed.
+   - `SupplyHeader` and `SectionTitle` look the help up from the current path. Custom headers pass `sectionHelp(slug, key)` to `InfoTip`.
+   - `/supply/guide` lists every screen with the same text and has a search. It is linked from the sidebar and from every help panel.
+   - The button is a real 24px button that opens a popover. It works with Enter and Escape, and focus returns to the button when the popover closes.

@@ -70,7 +70,7 @@ export default function WeeklyRewards() {
         </Panel>
 
         <Panel className="p-4">
-          <SectionTitle eyebrow={sel.label} title={sel.template} actions={<StatusPill status={pill[sel.status]} />} />
+          <SectionTitle help="Selected week" eyebrow={sel.label} title={sel.template} actions={<StatusPill status={pill[sel.status]} />} />
           <dl className="grid grid-cols-2 gap-2 text-center text-[12.5px]">
             {[['Invitations', fmtNum(sel.invites)], ['Completes', sel.completes ? fmtNum(sel.completes) : '—'], ['Cost', sel.cost ? fmtMoney(sel.cost, sel.cost >= 10_000) : '—'], ['Topics', sel.topics.join(', ')]].map(([k, v]) => (
               <div key={k} className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">{k}</dt><dd className="num truncate font-semibold">{v}</dd></div>
@@ -82,7 +82,7 @@ export default function WeeklyRewards() {
       </div>
 
       <Panel className="p-4">
-        <SectionTitle eyebrow="Templates" title={editable ? `Choose a template for ${sel.label}` : 'Template library'}
+        <SectionTitle help="Templates" eyebrow="Templates" title={editable ? `Choose a template for ${sel.label}` : 'Template library'}
           actions={<><Button size="icon-sm" variant="ghost" aria-label="Scroll templates left" onClick={() => carousel.current?.scrollBy({ left: -300, behavior: 'smooth' })}><ChevronLeft size={14} /></Button><Button size="icon-sm" variant="ghost" aria-label="Scroll templates right" onClick={() => carousel.current?.scrollBy({ left: 300, behavior: 'smooth' })}><ChevronRight size={14} /></Button></>} />
         <ul ref={carousel} className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2" aria-label="Weekly survey templates">
           {weeklyTemplates.map((tp) => {

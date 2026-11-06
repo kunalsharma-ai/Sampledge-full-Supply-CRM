@@ -16,6 +16,8 @@ import { Badge, Button, Panel, buttonVariants } from '@/components/ui/primitives
 import { Menu, MenuContent, MenuItem, MenuTrigger, Switch } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { channels, deliveryRules, notices, type Lane, type Notice } from '@/lib/supply/engagement';
 import { laneOf, moduleHref } from '@/lib/supply/live';
 import { screenBySlug } from '@/lib/supply/screens';
@@ -64,7 +66,7 @@ export default function Notifications() {
             <Panel key={l.id} className="p-3">
               <header className="mb-2 flex items-center gap-2 px-1">
                 <span className={cn('h-2.5 w-2.5 rounded-full', l.tone)} aria-hidden />
-                <h2 className="font-display text-[15px] font-semibold">{l.label}</h2><span className="num text-2xs text-ink-3">{items.length}</span>
+                <h2 className="font-display text-[15px] font-semibold">{l.label}</h2><InfoTip entry={sectionHelp('notifications', l.label)} label={`${l.label} lane`} /><span className="num text-2xs text-ink-3">{items.length}</span>
                 <span className="ml-auto text-2xs text-ink-3">{l.hint}</span>
               </header>
               <ul className="space-y-2" aria-label={`${l.label} notifications`}>

@@ -74,7 +74,7 @@ export default function QualityRisk() {
           </Panel>
 
           <Panel className="p-4">
-            <SectionTitle eyebrow={`${cur.id} · opened ${cur.opened}`} title={cur.panellist.handle} actions={<Link href={`/supply/panellists/${cur.panellist.id}`} className="text-2xs font-semibold text-primary hover:underline">360° profile</Link>} />
+            <SectionTitle help="Selected case" eyebrow={`${cur.id} · opened ${cur.opened}`} title={cur.panellist.handle} actions={<Link href={`/supply/panellists/${cur.panellist.id}`} className="text-2xs font-semibold text-primary hover:underline">360° profile</Link>} />
             <div className="flex flex-wrap gap-1.5">{cur.signals.map((s) => <Badge key={s} tone="danger">{s}</Badge>)}<Badge tone="neutral">Score {Math.round(cur.score * 100)}</Badge></div>
             <h3 className="eyebrow mb-2 mt-4">Evidence</h3>
             <ol className="relative space-y-3 border-l hairline pl-5" aria-label="Evidence timeline">

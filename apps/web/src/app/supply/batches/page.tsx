@@ -168,7 +168,7 @@ function Batches() {
 
         {sel && (
           <Panel className="p-4">
-            <SectionTitle eyebrow={`${sel.country} · ${sel.status}`} title={surveyById(sel.surveyId)!.title} />
+            <SectionTitle help="Selected batch" eyebrow={`${sel.country} · ${sel.status}`} title={surveyById(sel.surveyId)!.title} />
             <dl className="mb-3 grid grid-cols-2 gap-2 text-center text-[12.5px]">
               {[['Starts (UTC)', fmtHour(sel.start)], ['Local start', `${String(Math.floor(localHour(sel.start, sel.country))).padStart(2, '0')}:00`], ['Invites', fmtNum(sel.invites)], ['Window', `${curve.length} h`]].map(([k, v]) => (
                 <div key={k} className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">{k}</dt><dd className="num font-semibold">{v}</dd></div>

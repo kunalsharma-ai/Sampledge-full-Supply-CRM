@@ -16,6 +16,8 @@ import { Badge, Button, Panel, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog, Switch } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { access, settingError } from '@/lib/core';
 import { ApiError } from '@/lib/api';
 import { useSupplyData } from '@/lib/supply/data';
@@ -105,7 +107,7 @@ export default function Settings() {
             if (!items.length) return null;
             return (
               <Panel key={sec} className="p-4" aria-labelledby={`sec-${sec}`}>
-                <h2 id={`sec-${sec}`} className="mb-2 scroll-mt-4 font-display text-[15px] font-semibold">{sec}</h2>
+                <h2 id={`sec-${sec}`} className="mb-2 flex scroll-mt-4 items-center gap-1 font-display text-[15px] font-semibold">{sec}<InfoTip entry={sectionHelp('settings', sec)} label={`${sec} settings`} /></h2>
                 <ul className="divide-y divide-ink-3/15">
                   {items.map((s) => {
                     const v = draft[s.id], dirty = v !== saved[s.id], err = errOf(s), imp = dirty && s.risky ? (isLive ? null : impact(s, saved[s.id], v)) : null;

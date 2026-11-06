@@ -15,6 +15,8 @@ import { Badge, Button, Panel, Segmented } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/overlay';
 import { CountryChips, KpiTile, ProductChip, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { zapxRequests, type RedirectCheck, type ZapxRequest } from '@/lib/supply/connected';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
@@ -78,7 +80,7 @@ export default function ZapxRequests() {
 
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{z.surveyId}</span>{z.linkedProject ? <ProductChip product="projexa">{z.linkedProject}</ProductChip> : <Badge tone="neutral">Independent survey</Badge>}<Badge tone={sm.tone} className="ml-auto">{sm.label}</Badge></div>
-                <h2 id={`zx-${z.id}`} className="mt-1 font-display text-[15px] font-semibold">{z.title}</h2>
+                <h2 id={`zx-${z.id}`} className="mt-1 flex items-center gap-1 font-display text-[15px] font-semibold">{z.title}<InfoTip entry={sectionHelp('zapx-requests', 'Request card')} label="This request" /></h2>
                 <p className="text-2xs text-ink-3">Owner {z.owner} · <CountryChips codes={z.countries} /> · {fmtNum(z.feasibility.estimatedCompletes)} estimated completes{z.feasibility.shortfall ? <span className="text-warn"> (short by {fmtNum(z.feasibility.shortfall)})</span> : ''}</p>
 
                 <ul className="mt-3 space-y-1">{z.qa.map((c) => (

@@ -123,7 +123,7 @@ export default function Redemptions() {
         <div className="space-y-4">
           {cur && (
             <Panel className="p-4">
-              <SectionTitle eyebrow={`${cur.id} · ${cur.method}`} title={<span className="flex items-center gap-2">{cur.panellist.handle}<Badge tone={bandMeta[band(cur.risk)].tone}>{bandMeta[band(cur.risk)].label}</Badge></span>} />
+              <SectionTitle help="Selected redemption" eyebrow={`${cur.id} · ${cur.method}`} title={<span className="flex items-center gap-2">{cur.panellist.handle}<Badge tone={bandMeta[band(cur.risk)].tone}>{bandMeta[band(cur.risk)].label}</Badge></span>} />
               <div className="num font-jakarta text-3xl font-bold">{fmt.money(cur.usd)}</div>
               <dl className="mt-3 grid grid-cols-2 gap-2 text-center text-[12.5px]">
                 {[['Member for', `${fmtNum(cur.tenureDays)} days`], ['Past redemptions', cur.pastRedemptions], ['Earned, 30 days', `${fmtNum(cur.earnedLast30)} pts`], ['Quality score', Math.round(cur.panellist.qualityScore * 100)]].map(([k, v]) => (

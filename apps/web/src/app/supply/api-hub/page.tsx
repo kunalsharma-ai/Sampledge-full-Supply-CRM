@@ -17,6 +17,8 @@ import { ConfirmDialog, Dialog, DialogClose, DialogContent, DialogFooter } from 
 import { StatusPill } from '@/components/ui/status';
 import { KpiTile, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { useSupplyData } from '@/lib/supply/data';
 import { loadDeliveries, loadIntegrations, retryDelivery, type LiveDelivery, type LiveIntegration } from '@/lib/supply/live';
 import type { SupplyQuery } from '@/lib/supply/data';
@@ -90,7 +92,7 @@ export default function ApiHub() {
         </Panel>
 
         <Panel className="p-4">
-          <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: nodeColor(c) }} aria-hidden /><h2 className="font-display text-[15px] font-semibold">{c.name}</h2><StatusPill status={health[c.status].pill} label={health[c.status].label} className="ml-auto" /></div>
+          <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: nodeColor(c) }} aria-hidden /><h2 className="font-display text-[15px] font-semibold">{c.name}</h2><InfoTip entry={sectionHelp('api-hub', 'Selected connection')} label="This connection" /><StatusPill status={health[c.status].pill} label={health[c.status].label} className="ml-auto" /></div>
           <dl className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
             {[['Direction', c.direction === 'both' ? 'Both ways' : c.direction === 'in' ? 'Calls us' : 'We call it'], ['Latency p50', `${c.latencyMs} ms`], ['Events, 24h', fmtCompact(c.events24h)], ['Error rate', fmt.pct(c.errorRate)], ['Last seen', c.lastSeen]].map(([k, v]) => <div key={k} className="panel-solid p-2"><dt className="text-2xs text-ink-3">{k}</dt><dd className="num font-semibold">{v}</dd></div>)}
           </dl>
@@ -103,7 +105,7 @@ export default function ApiHub() {
       {liveDl.source === 'live' && liveDl.data ? <LiveDeliveries q={liveDl} /> : (
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-          <span className="text-[13px] font-semibold">Event deliveries</span>
+          <span className="text-[13px] font-semibold">Event deliveries</span><InfoTip entry={sectionHelp('api-hub', 'Event deliveries')} label="Event deliveries" />
           <Segmented label="Delivery status" size="sm" value={dlFilter} onChange={setDlFilter} options={[{ value: 'all', label: 'All' }, { value: 'failed', label: `Failed (${failed.length})` }, { value: 'retrying', label: 'Retrying' }, { value: 'delivered', label: 'Delivered' }]} />
           <Button size="sm" variant="ghost" className="ml-auto" disabled={!failed.length} onClick={() => setRetryAll(true)}><RotateCcw size={13} /> Retry all failed</Button>
         </div>
@@ -251,7 +253,7 @@ function LiveDeliveries({ q }: { q: SupplyQuery<LiveDelivery[] | null> }) {
   return (
     <Panel className="p-0">
       <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-        <span className="text-[13px] font-semibold">Event deliveries</span><Badge tone="emerald">Live</Badge>
+        <span className="text-[13px] font-semibold">Event deliveries</span><InfoTip entry={sectionHelp('api-hub', 'Event deliveries')} label="Event deliveries" /><Badge tone="emerald">Live</Badge>
         <Segmented label="Delivery status" size="sm" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'All' }, { value: 'failed', label: `Failed (${failed.length})` }, { value: 'retrying', label: 'Retrying' }, { value: 'queued', label: 'Queued' }, { value: 'delivered', label: 'Delivered' }]} />
         <Button size="sm" variant="ghost" onClick={q.reload}><RefreshCw size={13} /> Refresh</Button>
         <Button size="sm" variant="ghost" className="ml-auto" disabled={!failed.length || !!busy} onClick={() => setAll(true)}><RotateCcw size={13} /> Retry all failed</Button>

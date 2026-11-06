@@ -19,6 +19,8 @@ import { Badge, Bar, Button, Panel, SearchInput, Segmented, inputCls } from '@/c
 import { ConfirmDialog, Tabs, TabsContent, TabsList } from '@/components/ui/overlay';
 import { CountryChips, KpiTile, PanelChip, ProductChip, SampAudienceLogo, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { useSupplyData } from '@/lib/supply/data';
 import { cardStatus, loadSampOverview, participationStatus, type SampOverview } from '@/lib/supply/live';
 import { pipelineStages, sampleonRequests, type FlowEvent, type SampleonRequest, type SampleonStatus } from '@/lib/supply/connected';
@@ -66,7 +68,7 @@ function Sampleon() {
 
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-          <span className="text-[13px] font-semibold">Pipeline</span>{overview.source === 'live' && <Badge tone="neutral">Demo requests</Badge>}
+          <span className="text-[13px] font-semibold">Pipeline</span><InfoTip entry={sectionHelp('sampleon', 'Pipeline')} label="Pipeline" />{overview.source === 'live' && <Badge tone="neutral">Demo requests</Badge>}
           <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'SampTrek' }, { value: 'ZAPX', label: 'SampCode' }]} />
           <SearchInput value={q} onChange={setQ} placeholder="Request, project, survey or client…" className="ml-auto w-full sm:w-64" />
         </div>
@@ -122,7 +124,7 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{r.id}</span><ProductChip product={r.platform === 'PROJEXA' ? 'projexa' : 'zapx'}>{productName(r.platform)} {r.platform === 'PROJEXA' ? r.projectId : r.surveyId}</ProductChip>{r.platform === 'PROJEXA' && <span>survey {r.surveyId} on SampCode</span>}{r.platform === 'ZAPX' && r.projectId && <span>linked to {r.projectId}</span>}<Badge tone={r.status === 'paused' ? 'warn' : r.status === 'live' ? 'emerald' : 'neutral'}>{statusLabel[r.status]}</Badge></div>
-          <h2 className="mt-1 font-display text-lg font-semibold">{r.title}</h2>
+          <h2 className="mt-1 flex items-center gap-1 font-display text-lg font-semibold">{r.title}<InfoTip entry={sectionHelp('sampleon', 'Selected request')} label="This request" /></h2>
           <p className="text-[12.5px] text-ink-2">{r.client} · {fmtNum(r.requiredCompletes)} completes · IR {fmt.pct(r.ir)} · LOI {r.loi} min · {fmtNum(r.rewardPoints)} points · fieldwork {r.fieldwork.start} to {r.fieldwork.end}</p>
           <p className="mt-1 flex items-start gap-1.5 text-2xs text-ink-3"><Sparkles size={12} className="mt-px shrink-0 text-purple" aria-hidden />“{r.naturalLanguage}” → {r.criteria.join(' AND ')}</p>
         </div>

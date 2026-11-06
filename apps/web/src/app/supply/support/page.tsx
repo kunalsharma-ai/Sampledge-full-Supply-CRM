@@ -14,6 +14,8 @@ import { ConfirmDialog, Kbd, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger
 import { StatusPill, type Status } from '@/components/ui/status';
 import { PanelChip, SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { ledger, macros, suggestions, tickets as seed, type Msg, type Ticket, type TicketStatus } from '@/lib/supply/operations';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
@@ -90,7 +92,7 @@ export default function Support() {
               <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{cur.id}</span><span>· {cur.channel}</span><StatusPill status={pill[cur.status]} label={cur.status} />
                 <select aria-label="Ticket status" className={cn(inputCls, 'ml-auto h-7 w-28 py-0 text-2xs')} value={cur.status} onChange={(e) => patch(cur.id, { status: e.target.value as TicketStatus })}>{(['new', 'open', 'waiting', 'solved'] as const).map((s) => <option key={s}>{s}</option>)}</select>
               </div>
-              <h2 className="mt-1 font-display text-[16px] font-semibold">{cur.subject}</h2>
+              <h2 className="mt-1 flex items-center gap-1 font-display text-[16px] font-semibold">{cur.subject}<InfoTip entry={sectionHelp('support', 'Selected ticket')} label="This ticket" /></h2>
             </div>
             <ol className="flex-1 space-y-3 overflow-y-auto p-4" aria-label="Conversation">
               <AnimatePresence initial={false}>

@@ -15,6 +15,8 @@ import { Badge, Bar, Button, Panel, Segmented, inputCls } from '@/components/ui/
 import { Dialog, DialogClose, DialogContent, DialogFooter } from '@/components/ui/overlay';
 import { CountryChips, ProductChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { projexaRequests, sampleonRequests, type ProjexaRequest } from '@/lib/supply/connected';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtMoney, fmtNum } from '@/lib/utils';
@@ -97,7 +99,7 @@ function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{p.projectId}</span><span>·</span><span>PM {p.manager}</span><span>·</span><span>received {p.received}</span><Badge tone={stateTone[p.state]} className="capitalize">{p.state}</Badge></div>
-          <h2 className="mt-1 font-display text-lg font-semibold">{p.project}</h2>
+          <h2 className="mt-1 flex items-center gap-1 font-display text-lg font-semibold">{p.project}<InfoTip entry={sectionHelp('projexa-requests', 'Selected request')} label="This request" /></h2>
           <p className="text-[12.5px] text-ink-2">{p.client}</p>
         </div>
         {open && <div className="flex flex-wrap gap-1.5">
