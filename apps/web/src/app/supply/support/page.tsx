@@ -7,7 +7,8 @@
  * member through the Comms Hub (one recipient, transactional) and moves the ticket to waiting;
  * "From member" logs what the member wrote by e-mail, phone or chat; notes stay internal. Goodwill
  * points are a signed ledger adjustment with the ticket as the reason. The SLA counts from when the
- * ticket was opened (urgent 4 h, high 12 h, normal 24 h, low 72 h). AI drafts arrive with the copilot.
+ * ticket was opened (urgent 4 h, high 12 h, normal 24 h, low 72 h). "AI draft" asks the AI gateway for a reply
+ * draft (`POST /supply/ai/tickets/:id/draft`) and puts it in the reply box; nothing is sent until you send it.
  */
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,7 +21,7 @@ import { PanelChip, SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { ApiError } from '@/lib/api';
 import { useOS } from '@/lib/store';
 import { useSupplyData } from '@/lib/supply/data';
-import { ago, loadMemberLedger, loadPanelistsByIds, records, searchPanelists, slaHours, type ApiPanelist, type LiveLedgerEntry, type Rec, type TicketData } from '@/lib/supply/live';
+import { aiLabel, draftTicketReply, ago, loadMemberLedger, loadPanelistsByIds, records, searchPanelists, slaHours, type ApiPanelist, type LiveLedgerEntry, type Rec, type TicketData } from '@/lib/supply/live';
 import { fromApiPanelist } from '@/lib/supply/panellists';
 import { InfoTip } from '@/components/supply/info-tip';
 import { sectionHelp } from '@/lib/supply/help';
@@ -183,6 +184,15 @@ export default function Support() {
               </AnimatePresence>
             </ol>
             <div className="border-t hairline p-3">
+              {live && cur.status !== 'solved' && mode === 'reply' && (
+                <button disabled={busy} onClick={async () => {
+                  setBusy(true);
+                  try { const d = await draftTicketReply(cur.id); setDraft(d.reply); toast(`${aiLabel(d.ai)}, ${d.confidence} confidence${d.goodwill ? `. It suggests ${d.goodwill} goodwill points` : ''}${d.escalate ? '. Check the facts before sending' : ''}`, d.confidence === 'low' || d.escalate ? 'warn' : 'info'); }
+                  catch (e) { fail(e, 'draft a reply'); } finally { setBusy(false); }
+                }} className="mb-2 flex w-full items-start gap-2 rounded-lg bg-purple/[.08] px-3 py-2 text-left text-2xs ring-1 ring-inset ring-purple/25 hover:bg-purple/[.12] disabled:opacity-60">
+                  <Sparkles size={13} className="mt-px shrink-0 text-purple" /><span><b className="text-ink">AI draft</b>: write a first reply from this ticket and the member’s ledger. It goes in the box below for you to edit and send.</span>
+                </button>
+              )}
               {!live && ai && cur.status !== 'solved' && (
                 <button onClick={() => setDraft(ai.draft)} className="mb-2 flex w-full items-start gap-2 rounded-lg bg-purple/[.08] px-3 py-2 text-left text-2xs ring-1 ring-inset ring-purple/25 hover:bg-purple/[.12]">
                   <Sparkles size={13} className="mt-px shrink-0 text-purple" /><span><b className="text-ink">AI draft ready</b> ({Math.round(ai.confidence * 100)}% confidence). Click to insert, then edit before sending.</span>

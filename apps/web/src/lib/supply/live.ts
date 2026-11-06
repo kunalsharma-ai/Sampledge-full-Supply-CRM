@@ -158,3 +158,30 @@ export type WorkflowRuns = { stats: { runs7d: number; completed7d: number; waiti
 export const loadWorkflowRuns = (id: string) => api<WorkflowRuns>(`/supply/workflows/${id}/runs`);
 /** `POST /supply/workflows/:id/test`: the path one member would take today; sends nothing. */
 export const testWorkflow = (id: string) => api<{ member: { handle: string; country: string; segment: string }; path: { node: string; note: string }[] }>(`/supply/workflows/${id}/test`, { method: 'POST', body: {} });
+
+/** `GET /ai/status`: which provider answers AI tasks, and the month's spend against the cap. */
+export type AiStatus = { provider: 'rules' | 'anthropic'; model: string | null; connected: boolean; note: string | null; monthSpendUsd: number; monthCalls: number; capUsd: number };
+export const loadAiStatus = () => api<AiStatus>('/ai/status');
+export type AiMeta = { provider: 'rules' | 'anthropic'; model: string | null; status: string; note: string };
+/** What to tell people about the AI behind a result; the setup note when no model is connected. */
+export const aiLabel = (m: Pick<AiMeta, 'provider' | 'model'> | null | undefined) => (m?.provider === 'anthropic' ? `Drafted by ${m.model ?? 'Claude'}` : 'Rule-based (no AI model connected)');
+export const AI_SETUP = 'To connect Claude, set AI_PROVIDER=anthropic and ANTHROPIC_API_KEY on the API server (optional: AI_MONTHLY_CAP_USD, default 50). Until then the rules answer, and nothing leaves SUPPLY360.';
+
+export type ApiCopilotCard =
+  | { kind: 'count'; title: string; value: number; unit: string; breakdown: { panel: 't2o' | 'mfr' | 'mho'; value: number }[]; note: string; href: string }
+  | { kind: 'table'; title: string; columns: string[]; rows: (string | number)[][]; note: string; href: string }
+  | { kind: 'bars'; title: string; bars: { label: string; value: number }[]; unit: string; note: string; href: string }
+  | { kind: 'text'; title: string; body: string[]; sources: string[]; href?: string };
+export type ApiCopilotAction = { id: string; title: string; detail: string; impact: string; risk: 'low' | 'medium' | 'high'; href: string; create?: { kind: 'campaign'; data: Record<string, unknown> } };
+export type ApiCopilotAnswer = { text: string; cards: ApiCopilotCard[]; actions: ApiCopilotAction[]; context: { kind: 'country' | 'panel' | 'segment'; value: string; label: string }[]; ai: AiMeta };
+/** `POST /supply/ai/copilot`: numbers counted from the database; the model (if any) only reads the question. */
+export const askCopilot = (question: string, context: Record<string, string>) => api<ApiCopilotAnswer>('/supply/ai/copilot', { method: 'POST', body: { question, context } });
+
+export type ApiDraftQuestion = { id: string; type: 'single' | 'multi' | 'scale' | 'open' | 'grid' | 'numeric'; text: string; options?: string[]; rationale: string; flags: string[] };
+/** `POST /supply/ai/survey-draft`: a first draft; nothing is saved. */
+export const draftSurveyLive = (b: { topic: string; audience: 'consumer' | 'b2b' | 'health'; goal: string; length: number }) => api<{ questions: ApiDraftQuestion[]; ai: AiMeta }>('/supply/ai/survey-draft', { method: 'POST', body: b });
+
+export type TicketDraft = { ticketId: string; ref: string; reply: string; confidence: 'high' | 'medium' | 'low'; sources: string[]; goodwill: number | null; escalate: boolean; ai: AiMeta };
+/** `POST /supply/ai/tickets/:id/draft`: a reply draft from the ticket and the member's ledger; nothing is sent. */
+export const draftTicketReply = (id: string) => api<TicketDraft>(`/supply/ai/tickets/${id}/draft`, { method: 'POST', body: {} });
+export const loadSupportAiStats = () => api<{ drafts7d: number; replies7d: number; solved7d: number; awaitingReply: number }>('/supply/ai/support/stats');

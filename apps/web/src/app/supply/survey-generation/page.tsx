@@ -4,13 +4,18 @@
  * (each question carries the reason it was included, and can be edited, removed or redrafted),
  * quality checks on the right. Nothing is published from here: the draft goes to Survey Studio
  * for review.
- * Demo: questions come from a local, deterministic drafter. Live: `POST /ai/survey-draft`
- * (planned, next to the existing `/ai/questionnaire` structurer) behind the AI gateway.
+ * Demo: questions come from the rule-based drafter in the browser. Live: `POST /supply/ai/survey-draft`
+ * through the AI gateway (a connected Claude model, or the same rules when none is connected); the
+ * server adds the wording checks either way. The draft is copied as questionnaire text for Survey
+ * Studio's import, which structures it again for the programmer to review.
  */
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { ApiError } from '@/lib/api';
+import { useSupplyData } from '@/lib/supply/data';
+import { AI_SETUP, aiLabel, draftSurveyLive, loadAiStatus, type AiMeta } from '@/lib/supply/live';
 import { Badge, Button, Field, Panel, Segmented, buttonVariants, inputCls } from '@/components/ui/primitives';
 import { ValidatedInput } from '@/components/ui/forms';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
@@ -33,12 +38,25 @@ export default function SurveyGeneration() {
   const [qs, setQs] = useState<DraftQuestion[]>([]);
   const [busy, setBusy] = useState(false);
   const [openWhy, setOpenWhy] = useState<string | null>(null);
+  const status = useSupplyData('survey-generation:ai', () => null, loadAiStatus);
+  const live = status.source === 'live' ? status.data : null;
+  const [meta, setMeta] = useState<AiMeta | null>(null);
 
-  const generate = () => {
+  const generate = async () => {
     setBusy(true); setQs([]);
-    const out = draftSurvey({ topic, audience, goal, length });
-    if (reduced) { setQs(out); setBusy(false); return; }
+    let out: DraftQuestion[];
+    if (live) {
+      try { const r = await draftSurveyLive({ topic: topic.trim(), audience, goal: goal.trim(), length }); out = r.questions; setMeta(r.ai); }
+      catch (e) { toast(e instanceof ApiError ? e.message : 'Could not draft the survey', 'warn'); setBusy(false); return; }
+    } else out = draftSurvey({ topic, audience, goal, length });
+    if (reduced || !out.length) { setQs(out); setBusy(false); return; }
     out.forEach((q, i) => setTimeout(() => { setQs((s) => [...s, q]); if (i === out.length - 1) setBusy(false); }, 250 + i * 160));
+  };
+  /** Questionnaire text in the shape Survey Studio's import reads: ids, wording, numbered options. */
+  const asText = () => qs.map((q) => [`${q.id}. ${q.text}${q.type === 'multi' ? ' (select all that apply)' : ''}`, ...(q.options ?? []).map((o, i) => `${i + 1}. ${o}`)].join('\n')).join('\n\n');
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(asText()); toast(`${qs.length} questions copied. Paste them into Survey Studio’s questionnaire import.`, 'ok'); }
+    catch { toast('Copy is blocked in this browser; select the questions and copy them by hand', 'warn'); }
   };
   const redraft = (q: DraftQuestion) => setQs((s) => s.map((x) => (x.id === q.id ? { ...x, text: x.text.replace(/^(How|Which|What)/, (m) => ({ How: 'To what extent', Which: 'Which, if any,', What: 'What would you say is' }[m] ?? m)), flags: x.flags.filter((f) => !f.startsWith('Possibly')) } : x)));
   const loiSec = qs.reduce((a, q) => a + secondsPer[q.type] + (q.options?.length ?? 0) * 1.5, 0);
@@ -52,7 +70,7 @@ export default function SurveyGeneration() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="AI survey drafting" subtitle="Describe the survey; get a first draft with the reason for every question. You review it in Survey Studio before anything reaches members." />
+      <SupplyHeader screen={screen} source={status.source} title="AI survey drafting" subtitle="Describe the survey; get a first draft with the reason for every question. You review it in Survey Studio before anything reaches members." />
 
       <div className="grid gap-4 xl:grid-cols-[300px_1fr_280px]">
         <Panel className="space-y-3 p-4">
@@ -62,8 +80,10 @@ export default function SurveyGeneration() {
           <Field label="Goal"><textarea className={cn(inputCls, 'h-auto py-2')} rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} /></Field>
           <label className="block text-2xs font-semibold uppercase tracking-wider text-ink-3">Target length: <span className="num text-ink">{length} min</span>
             <input type="range" min={2} max={15} value={length} onChange={(e) => setLength(Number(e.target.value))} className="mt-1 w-full accent-[rgb(var(--primary))]" /></label>
-          <Button className="w-full" disabled={busy || topic.trim().length < 3} onClick={generate}>{busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {qs.length ? 'Draft again' : 'Draft survey'}</Button>
-          <Badge tone="neutral">Demo drafter runs in your browser</Badge>
+          <Button className="w-full" disabled={busy || topic.trim().length < 3} onClick={() => void generate()}>{busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {qs.length ? 'Draft again' : 'Draft survey'}</Button>
+          {live
+            ? <div className="space-y-1"><Badge tone={(meta ?? live).provider === 'anthropic' ? 'emerald' : 'neutral'}>{aiLabel(meta ?? live)}</Badge>{meta && meta.status !== 'ok' && <p className="text-2xs text-warn">{meta.note}</p>}{!live.connected && <p className="text-2xs text-ink-3">{AI_SETUP}</p>}</div>
+            : <Badge tone="neutral">Demo drafter runs in your browser</Badge>}
         </Panel>
 
         <Panel className="p-4">
@@ -101,9 +121,10 @@ export default function SurveyGeneration() {
           </Panel>
           <Panel className="p-4">
             <SectionTitle eyebrow="Next step" title="Review in Survey Studio" />
-            <p className="text-2xs text-ink-3">The draft opens as a new, unpublished survey. Logic, translations and quotas are set there.</p>
-            <Link href="/survey-studio" aria-disabled={!qs.length} onClick={(e) => { if (!qs.length) { e.preventDefault(); return; } toast(`${qs.length} questions sent to Survey Studio as a draft`, 'ok'); }}
-              className={cn(buttonVariants({ size: 'sm' }), 'mt-3 w-full', !qs.length && 'pointer-events-none opacity-50')}>Open draft in Survey Studio</Link>
+            <p className="text-2xs text-ink-3">{live ? 'Copy the draft, then paste it into the questionnaire import of a survey in Survey Studio. Logic, translations and quotas are set there.' : 'The draft opens as a new, unpublished survey. Logic, translations and quotas are set there.'}</p>
+            {live && <Button size="sm" variant="ghost" className="mt-3 w-full border hairline" disabled={!qs.length} onClick={() => void copy()}>Copy questionnaire text</Button>}
+            {live ? <Link href="/survey-studio" className={cn(buttonVariants({ size: 'sm' }), 'mt-2 w-full')}>Open Survey Studio</Link> : <Link href="/survey-studio" aria-disabled={!qs.length} onClick={(e) => { if (!qs.length) { e.preventDefault(); return; } toast(`${qs.length} questions sent to Survey Studio as a draft`, 'ok'); }}
+              className={cn(buttonVariants({ size: 'sm' }), 'mt-3 w-full', !qs.length && 'pointer-events-none opacity-50')}>Open draft in Survey Studio</Link>}
           </Panel>
         </div>
       </div>
