@@ -77,6 +77,16 @@ export const endpoints = {
   approveAllocation: { method: 'POST', path: '/sampleon/v1/audience-requests/:id/approve', status: 'planned' },
   counterPropose: { method: 'PATCH', path: '/sampleon/v1/audience-requests/:id', status: 'planned' },
   redirectTest: { method: 'POST', path: '/sampleon/v1/surveys/:id/redirect-test', status: 'planned' },
+  copilot: { method: 'POST', path: '/ai/copilot', status: 'planned' },
+  reports: { method: 'POST', path: '/reports', status: 'planned' },
+  reportSchedule: { method: 'PUT', path: '/reports/:id/schedule', status: 'planned' },
+  connections: { method: 'GET', path: '/integrations/connections', status: 'planned' },
+  deliveries: { method: 'GET', path: '/integrations/deliveries', status: 'planned' },
+  deliveryRetry: { method: 'POST', path: '/integrations/deliveries/:id/retry', status: 'planned' },
+  apiKeys: { method: 'POST', path: '/integrations/keys', status: 'planned' },
+  roleCapabilities: { method: 'PUT', path: '/admin/roles/:id/capabilities', status: 'planned' },
+  overrides: { method: 'POST', path: '/admin/overrides', status: 'planned' },
+  settings: { method: 'PATCH', path: '/admin/settings', status: 'planned' },
 } as const;
 
 export type PanelStat = (typeof panelStats)[number] & { id: PanelId };

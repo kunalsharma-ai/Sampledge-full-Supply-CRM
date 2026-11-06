@@ -239,4 +239,9 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
      - Allocation is points of 100 per panel, checked inline. Health criteria warn when the split goes outside MyHealthOpinions.
      - Approving an allocation or a ZAPX launch asks for confirmation. Accepting a PROJEXA request has an 8-second undo. Counter-proposals need a reason and show a diff.
      - ZAPX launch stays locked until every QA check passes, and the lock names the failing check.
-   - **6b:** copilot, analytics, API hub, roles, settings.
+   - **6b (built):** AI copilot, analytics and reporting, API hub, roles and permissions, system settings.
+     - The copilot answers with cards that link to the screen where each number can be checked. It only proposes actions; medium- and high-risk ones need confirmation. Demo answers come from a local router over the seeded data; live mode will use `POST /ai/copilot`.
+     - Saved reports persist in user preferences (`prefs['reports:saved']`). CSV export downloads the pivot on screen, aggregates only.
+     - New API keys show their secret once. Revoking needs the key name typed. Retrying deliveries is safe because receivers de-duplicate by event id.
+     - Role changes are a draft with a reviewed diff. Platform admin keeps settings and API access. Panellist identity is never available. Overrides need a reason, must grant more than the role, and expire within 30 days.
+     - Risky settings preview their impact before saving. Turning off "health attributes leave only as match / no match" is blocked.
