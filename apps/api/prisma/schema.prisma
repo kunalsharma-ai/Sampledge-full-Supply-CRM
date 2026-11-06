@@ -912,3 +912,22 @@ model SupplyRecord {
   @@unique([tenantId, ref])
   @@index([tenantId, kind, updatedAt])
 }
+
+/// One member's way through an active workflow (a `workflow` SupplyRecord); see modules/workflows.ts.
+model WorkflowRun {
+  id          String    @id @default(cuid())
+  tenantId    String
+  workflowId  String
+  panelistId  String
+  nodeId      String?
+  status      String
+  wakeAt      DateTime?
+  path        Json      @default("[]")
+  note        String?
+  steps       Int       @default(0)
+  startedAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+
+  @@unique([workflowId, panelistId])
+  @@index([tenantId, workflowId, status, wakeAt])
+}

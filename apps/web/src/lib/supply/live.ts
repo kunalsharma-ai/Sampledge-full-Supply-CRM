@@ -4,6 +4,7 @@
  * passed to `useSupplyData` as the live loader; when the API is not connected the screen keeps its
  * labelled demo set (or, where there is no sensible demo, says what connecting would show).
  */
+import type { WfEdge, WfNode } from './engagement';
 import { api } from '../api';
 import type { Role } from '@sampledge/core';
 
@@ -148,3 +149,12 @@ export const ago = (iso: string) => {
   const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 48 * 60 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`;
 };
+
+/** `workflow` record data (see apps/api/src/modules/workflows.ts). */
+export type WorkflowData = { name: string; panel: 'all' | 't2o' | 'mfr' | 'mho'; nodes: WfNode[]; edges: WfEdge[]; activatedAt?: string };
+export type WorkflowRunRow = { id: string; member: string; status: 'running' | 'waiting' | 'completed' | 'failed' | 'stopped'; nodeId: string | null; wakeAt: string | null; path: { node: string; at: string; note?: string }[]; note: string | null; startedAt: string; updatedAt: string };
+export type WorkflowRuns = { stats: { runs7d: number; completed7d: number; waiting: number; failed: number }; runs: WorkflowRunRow[] };
+/** `GET /supply/workflows/:id/runs`: the 50 latest runs and 7-day counts. */
+export const loadWorkflowRuns = (id: string) => api<WorkflowRuns>(`/supply/workflows/${id}/runs`);
+/** `POST /supply/workflows/:id/test`: the path one member would take today; sends nothing. */
+export const testWorkflow = (id: string) => api<{ member: { handle: string; country: string; segment: string }; path: { node: string; note: string }[] }>(`/supply/workflows/${id}/test`, { method: 'POST', body: {} });

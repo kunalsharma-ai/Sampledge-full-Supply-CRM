@@ -321,3 +321,15 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
        - The signal behind each quality fail (device, speeding, straight-lining) stays in SampAudience.
    - Records gained three things used here: actions that keep the status (`to: '='`), a `check` hook on create and update, and a `log` helper so effects can audit what they change outside the record.
    - `GET /panels/panelists` also takes `ids` (comma-separated) and `q` (part of a handle).
+14. **Engagement workflows (built)**.
+   - Workflows are `workflow` records (`WF-…`, automation module) holding the canvas: one trigger, conditions with yes and no paths, delays and actions. They can be edited while draft or paused.
+   - "Activate" is checked on the server: exactly one trigger, every block connected, both condition paths, no loops, at least one action, sensible settings. "Opened last message" needs open tracking from the delivery provider, so a workflow using it cannot be activated, and the block is disabled in live mode.
+   - The worker runs `WorkflowEngine.runDue()` once a minute. Each member's way through a workflow is a `WorkflowRun` row (new table, row-level security like the others), at most one per member and workflow.
+     - Triggers enrol only members who meet them after activation: sign-up, inactive for N days, profile below N%, or points balance reached through an earn.
+     - Conditions: segment (healthcare professionals, B2B decision makers, Gen Z, high quality score) and country (or any EU country).
+     - Delays: wait N hours, or wait for the send window from N:00 in the member's country time (rough standard-time offsets).
+     - Actions: an e-mail from a built-in template, skipped for members who withdrew marketing consent; an in-app message (kept in the delivery log until there is an in-app inbox); bonus points (an audited `adjust` entry, at most 500); a tag (profile attribute `tag:<name>`).
+     - Every message goes through the Comms Hub one member at a time, linked to the workflow. Each workflow sends at most `AUTOMATION_DAILY_CAP` messages a day (default 500), so automation cannot bypass the high-volume approval; runs past the cap retry an hour later.
+     - Suspended or deleted members stop; a run whose next block was removed ends as failed.
+   - "Test run" (`POST /supply/workflows/:id/test`) walks the saved graph for a recent active member and lights up the path with what each block would do. Nothing is sent or changed.
+   - The execution log is `GET /supply/workflows/:id/runs`: the latest 50 runs and the 7-day counts.
