@@ -240,7 +240,7 @@ export const zapxRequests: ZapxRequest[] = sampleonRequests.filter((s) => s.plat
     status, questions: s.healthcare ? qBank.healthcare : qBank.default, redirects,
     qa: [
       { id: 'test', label: 'Test link completes end to end', ok: tested, detail: tested ? 'Last run 2h ago' : 'Not run since the last edit' },
-      { id: 'redirects', label: 'All four redirects return to SAMPLEON', ok: redirects.every((x) => x.state === 'passed'), detail: redirects.every((x) => x.state === 'passed') ? '4 of 4 passed' : `${redirects.filter((x) => x.state === 'passed').length} of 4 passed` },
+      { id: 'redirects', label: 'All four redirects return to SampAudience', ok: redirects.every((x) => x.state === 'passed'), detail: redirects.every((x) => x.state === 'passed') ? '4 of 4 passed' : `${redirects.filter((x) => x.state === 'passed').length} of 4 passed` },
       { id: 'loi', label: 'Tested LOI within 25% of plan', ok: testLoi != null && testLoi <= s.loi * 1.25, detail: testLoi == null ? 'No timed test yet' : `${testLoi} min vs ${s.loi} planned` },
       { id: 'quality', label: 'Attention check and speeder rule present', ok: true, detail: 'Q3 grid has a trap row; speeder at 40% of median' },
       { id: 'translations', label: 'Every country has its language version', ok: s.countries.length === 1 || tested, detail: s.countries.length === 1 ? 'Single language' : tested ? 'All versions reviewed' : `${s.countries[s.countries.length - 1]} version not reviewed` },

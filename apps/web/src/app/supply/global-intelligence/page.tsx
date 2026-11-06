@@ -172,7 +172,7 @@ function CountryDetail({ m, requests }: { m: Market; requests: typeof sampleonRe
               <li key={r.id} className="rounded-xl border hairline p-2.5">
                 <div className="flex items-center gap-2"><ProductChip product={r.platform === 'PROJEXA' ? 'projexa' : 'zapx'} /><span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{r.title}</span><CountryChips codes={r.countries} max={3} /></div>
                 {target > 0 && <div className="mt-2 text-2xs text-ink-3"><div className="flex justify-between"><span>{m.code} quota cells</span><span className="num">{fmtNum(done)} / {fmtNum(target)}</span></div><Bar value={done / target} className="mt-1" /></div>}
-                <Link href={`/supply/sampleon?r=${r.id}`} className="mt-1.5 inline-flex items-center gap-1 text-2xs text-primary hover:underline">Open in SAMPLEON allocation <ExternalLink size={10} aria-hidden /></Link>
+                <Link href={`/supply/sampleon?r=${r.id}`} className="mt-1.5 inline-flex items-center gap-1 text-2xs text-primary hover:underline">Open in SampAudience allocation <ExternalLink size={10} aria-hidden /></Link>
               </li>
             );
           })}

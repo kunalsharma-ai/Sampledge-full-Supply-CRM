@@ -133,7 +133,7 @@ export const screens: Screen[] = [
     layout: 'Quota matrix (cells coloured by pace), burn-down per cell and auto-actions (close, boost, re-batch).' },
 
   // ── Connected products
-  { n: 19, slug: 'sampleon', label: 'SAMPLEON Audience Allocation', group: 'Connected products', icon: 'Waypoints', module: 'marketplace', wave: 6, brand: 'sampleon', key: 's',
+  { n: 19, slug: 'sampleon', label: 'SampAudience Allocation', group: 'Connected products', icon: 'Waypoints', module: 'marketplace', wave: 6, brand: 'sampleon', key: 's',
     summary: 'Cross-platform supply operations.',
     layout: 'Request pipeline from PROJEXA and ZAPX: feasibility, allocation, quotas, batches and fieldwork progress in one workspace.' },
   { n: 20, slug: 'projexa-requests', label: 'PROJEXA Audience Requests', group: 'Connected products', icon: 'FolderKanban', module: 'marketplace', wave: 6, brand: 'projexa',
@@ -174,7 +174,7 @@ export const screens: Screen[] = [
   // ── Platform
   { n: 39, slug: 'api-hub', label: 'API Integration Hub', group: 'Platform', icon: 'Plug', module: 'integrations', wave: 6,
     summary: 'Keys, webhooks and connected systems.',
-    layout: 'Connection map (SUPPLY360 ↔ SAMPLEON, PROJEXA, ZAPX, panels), event delivery log with retry and API key management.' },
+    layout: 'Connection map (SUPPLY360 ↔ SampAudience, PROJEXA, ZAPX, panels), event delivery log with retry and API key management.' },
   { n: 40, slug: 'roles', label: 'User Roles & Permissions', group: 'Platform', icon: 'KeyRound', module: 'admin', wave: 6,
     summary: 'Who can see and do what.',
     layout: 'Role × capability matrix with diff preview before saving, and per-user overrides with expiry.' },
@@ -197,8 +197,9 @@ export const BUILT_WAVES = [1, 2, 3, 4, 5, 6] as const;
 export const BUILT_EARLY = new Set(['global-intelligence', 'distribution', 'sampleon', 'projexa-requests', 'zapx-requests']);
 export const isScreenBuilt = (s: Screen) => (BUILT_WAVES as readonly number[]).includes(s.wave) || BUILT_EARLY.has(s.slug);
 
-export const brandColors: Record<NonNullable<Screen['brand']>, { name: string; color: string; ink: string }> = {
-  sampleon: { name: 'SAMPLEON', color: '#14B8A6', ink: '#ffffff' },
+/** Display names and colours. Keys are stable ids (the SampAudience key stays 'sampleon'). */
+export const brandColors: Record<NonNullable<Screen['brand']>, { name: string; color: string; ink: string; icon?: string }> = {
+  sampleon: { name: 'SampAudience', color: '#14B8A6', ink: '#ffffff', icon: '/brand/sampaudience/sampaudience-icon.svg' },
   projexa: { name: 'PROJEXA', color: '#F59E0B', ink: '#1a1203' },
   zapx: { name: 'ZAPX', color: '#EC4899', ink: '#ffffff' },
   t2o: { name: 'Turn2Opinion', color: '#4D86FF', ink: '#ffffff' },

@@ -178,9 +178,9 @@ export const starterReports: SavedReport[] = [
 // ───────────────────────── API hub
 export type Connection = { id: string; name: string; kind: 'product' | 'panel' | 'service'; direction: 'in' | 'out' | 'both'; status: 'healthy' | 'degraded' | 'down'; latencyMs: number; events24h: number; errorRate: number; auth: string; lastSeen: string; endpoint: string };
 export const connections: Connection[] = [
-  { id: 'sampleon', name: 'SAMPLEON', kind: 'product', direction: 'both', status: 'healthy', latencyMs: 84, events24h: 48_210, errorRate: 0.0006, auth: 'HMAC-SHA256 (v1), client “sampleon”', lastSeen: '12s ago', endpoint: '/api/v1/s2s/supply' },
-  { id: 'projexa', name: 'PROJEXA', kind: 'product', direction: 'out', status: 'healthy', latencyMs: 132, events24h: 1_904, errorRate: 0.001, auth: 'via SAMPLEON events', lastSeen: '3m ago', endpoint: 'project.quota_updated → PROJEXA' },
-  { id: 'zapx', name: 'ZAPX', kind: 'product', direction: 'both', status: 'degraded', latencyMs: 640, events24h: 22_480, errorRate: 0.021, auth: 'via SAMPLEON survey-host adapter', lastSeen: '40s ago', endpoint: 'survey.* events' },
+  { id: 'sampleon', name: 'SampAudience', kind: 'product', direction: 'both', status: 'healthy', latencyMs: 84, events24h: 48_210, errorRate: 0.0006, auth: 'HMAC-SHA256 (v1), client “sampleon”', lastSeen: '12s ago', endpoint: '/api/v1/s2s/supply' },
+  { id: 'projexa', name: 'PROJEXA', kind: 'product', direction: 'out', status: 'healthy', latencyMs: 132, events24h: 1_904, errorRate: 0.001, auth: 'via SampAudience events', lastSeen: '3m ago', endpoint: 'project.quota_updated → PROJEXA' },
+  { id: 'zapx', name: 'ZAPX', kind: 'product', direction: 'both', status: 'degraded', latencyMs: 640, events24h: 22_480, errorRate: 0.021, auth: 'via SampAudience survey-host adapter', lastSeen: '40s ago', endpoint: 'survey.* events' },
   { id: 't2o', name: 'Turn2Opinion site', kind: 'panel', direction: 'in', status: 'healthy', latencyMs: 61, events24h: 96_300, errorRate: 0.0004, auth: 'PANEL_CARDS_SECRET_T2O', lastSeen: '2s ago', endpoint: '/panel/t2o/cards' },
   { id: 'mfr', name: 'MyFrequentRewards site', kind: 'panel', direction: 'in', status: 'healthy', latencyMs: 58, events24h: 71_820, errorRate: 0.0003, auth: 'PANEL_CARDS_SECRET_MFR', lastSeen: '4s ago', endpoint: '/panel/mfr/cards' },
   { id: 'mho', name: 'MyHealthOpinions site', kind: 'panel', direction: 'in', status: 'healthy', latencyMs: 66, events24h: 14_950, errorRate: 0.0005, auth: 'PANEL_CARDS_SECRET_MHO', lastSeen: '9s ago', endpoint: '/panel/mho/cards' },
@@ -210,7 +210,7 @@ export const capabilities = [
   { id: 'panellists', label: 'Panellist records', group: 'Respondents', hint: 'Pseudonymous profiles, activity and consent' },
   { id: 'health', label: 'Health attributes', group: 'Respondents', hint: 'Only match / no match; values need health-data consent' },
   { id: 'quality', label: 'Quality cases and suspensions', group: 'Respondents', hint: 'Suspend, watch, clear' },
-  { id: 'allocation', label: 'SAMPLEON allocation', group: 'Fieldwork', hint: 'Approve panel splits for audience requests' },
+  { id: 'allocation', label: 'SampAudience allocation', group: 'Fieldwork', hint: 'Approve panel splits for audience requests' },
   { id: 'launch', label: 'Soft and full launch', group: 'Fieldwork', hint: 'Start fieldwork and scale to full launch' },
   { id: 'campaigns', label: 'E-mail and newsletters', group: 'Engagement', hint: 'Anything that messages members' },
   { id: 'automation', label: 'Automations', group: 'Engagement', hint: 'Activate and pause workflows' },
@@ -263,7 +263,7 @@ export const settings: Setting[] = [
   { id: 'quality.speeder', section: 'Quality', label: 'Speeder threshold', help: 'Share of median LOI below which a complete is flagged.', kind: 'number', value: 40, unit: '%', min: 20, max: 60 },
   { id: 'quality.autoSuspend', section: 'Quality', label: 'Auto-suspend repeat offenders', help: 'Suspend after 4 flagged surveys in 14 days, without review.', kind: 'toggle', value: false, risky: 'Suspensions would happen without a person reviewing the evidence.' },
   { id: 'privacy.retention', section: 'Privacy', label: 'Delete closed accounts after', help: 'Days between a deletion request and permanent erasure.', kind: 'number', value: 30, unit: 'days', min: 7, max: 30 },
-  { id: 'privacy.healthOnlyMatch', section: 'Privacy', label: 'Health attributes leave SUPPLY360 only as match / no match', help: 'Required for MyHealthOpinions consent terms.', kind: 'toggle', value: true, risky: 'Turning this off would send health values to SAMPLEON and survey hosts. It breaks the consent terms.' },
+  { id: 'privacy.healthOnlyMatch', section: 'Privacy', label: 'Health attributes leave SUPPLY360 only as match / no match', help: 'Required for MyHealthOpinions consent terms.', kind: 'toggle', value: true, risky: 'Turning this off would send health values to SampAudience and survey hosts. It breaks the consent terms.' },
   { id: 'limits.apiRate', section: 'Limits', label: 'API rate limit per key', help: 'Requests per minute.', kind: 'number', value: 600, unit: '/min', min: 60, max: 6000 },
 ];
 export type ChangeEntry = { id: string; at: string; who: string; setting: string; from: string; to: string };

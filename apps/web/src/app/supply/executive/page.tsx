@@ -84,7 +84,7 @@ export default function ExecutiveDashboard() {
       <section className="grid gap-4 xl:grid-cols-12">
         <Panel className="min-w-0 xl:col-span-8">
           <SectionTitle eyebrow="Fieldwork flight deck" title={`${shownRequests.filter((r) => r.status === 'live' || r.status === 'soft-launch').length} audience requests in field`}
-            actions={<Link href="/supply/sampleon" className="inline-flex items-center gap-1 text-2xs font-semibold text-primary hover:underline">Open in SAMPLEON <ArrowRight size={12} /></Link>} />
+            actions={<Link href="/supply/sampleon" className="inline-flex items-center gap-1 text-2xs font-semibold text-primary hover:underline">Open in SampAudience <ArrowRight size={12} /></Link>} />
           <FlightDeck rows={shownRequests} onOpen={setOpen} />
         </Panel>
         <Panel className="xl:col-span-4">
@@ -332,13 +332,13 @@ function RequestDrawer({ r, onClose, onStatus }: { r: AudienceRequest | null; on
             <div className="mt-2"><CountryChips codes={r.countries} max={8} /></div>
           </div>
           <div className="flex flex-wrap gap-2 border-t hairline pt-4">
-            <Link href="/supply/sampleon" className={buttonVariants({ variant: 'primary', size: 'sm' })}><Rocket size={13} /> Open in SAMPLEON</Link>
+            <Link href="/supply/sampleon" className={buttonVariants({ variant: 'primary', size: 'sm' })}><Rocket size={13} /> Open in SampAudience</Link>
             <Link href="/supply/quotas" className={buttonVariants({ size: 'sm' })}>Quota monitor</Link>
             {r.status === 'paused'
               ? <Button size="sm" variant="success" onClick={() => onStatus(r.id, 'live')}><CirclePlay size={13} /> Resume</Button>
               : (r.status === 'live' || r.status === 'soft-launch') && <Button size="sm" variant="danger" onClick={() => setConfirmPause(true)}><CirclePause size={13} /> Pause</Button>}
           </div>
-          <p className="text-2xs text-ink-3">Demo data. When SAMPLEON is connected these figures come from its audience request API and pausing stops invitations there.</p>
+          <p className="text-2xs text-ink-3">Demo data. When SampAudience is connected these figures come from its audience request API and pausing stops invitations there.</p>
           <ConfirmDialog open={confirmPause} onOpenChange={setConfirmPause} title={`Pause ${r.id}?`} confirmLabel="Pause invitations"
             body="No new invitations are sent and survey cards are hidden. Respondents already in the survey can finish. You can resume at any time."
             onConfirm={() => onStatus(r.id, 'paused')} />

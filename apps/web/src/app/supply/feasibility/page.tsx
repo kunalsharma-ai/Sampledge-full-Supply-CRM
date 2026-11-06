@@ -57,7 +57,7 @@ function Feasibility() {
             </select>
           )}
           <Link href="/supply/segmentation" className={buttonVariants({ size: 'sm', variant: 'ghost' })}><Boxes size={13} /> Edit audience</Link>
-          <Button size="sm" variant="primary" disabled={f.feasible === 'no'} onClick={() => toast('Allocation request drafted for SAMPLEON (demo, nothing sent)', 'info')}><Send size={13} /> Request allocation</Button>
+          <Button size="sm" variant="primary" disabled={f.feasible === 'no'} onClick={() => toast('Allocation request drafted for SampAudience (demo, nothing sent)', 'info')}><Send size={13} /> Request allocation</Button>
         </>} />
 
       <div className={cn('grid gap-4', scenarios.length === 3 ? 'xl:grid-cols-3' : 'lg:grid-cols-2')}>
@@ -120,7 +120,7 @@ function Feasibility() {
             { type: 'line', name: 'Expected completes', yAxisIndex: 1, data: f.byCountry.map((c) => c.expected), symbolSize: 7, lineStyle: { width: 2 }, itemStyle: { color: 'rgb(var(--chart-4))' } },
           ],
         })} />
-        <p className="mt-2 flex items-center gap-1 text-2xs text-ink-3">Model: reachable = active, consented, no risk flags; invitable = not invited within the fatigue window; starts = response rate × incentive × LOI factor; completes = starts × IR × 86% completion. <ArrowRight size={11} /> In production SAMPLEON calls SUPPLY360’s eligibility API with this definition.</p>
+        <p className="mt-2 flex items-center gap-1 text-2xs text-ink-3">Model: reachable = active, consented, no risk flags; invitable = not invited within the fatigue window; starts = response rate × incentive × LOI factor; completes = starts × IR × 86% completion. <ArrowRight size={11} /> In production SampAudience calls SUPPLY360’s eligibility API with this definition.</p>
       </Panel>
     </div>
   );

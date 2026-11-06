@@ -46,7 +46,7 @@ export default function ProjexaRequests() {
   const sel = items.find((p) => p.id === selId) ?? items[0];
   const setState = (id: string, state: State) => setItems((l) => l.map((p) => (p.id === id ? { ...p, state } : p)));
 
-  const accept = (p: ProjexaRequest) => { setState(p.id, 'accepted'); setUndo({ id: p.id, left: UNDO_S }); toast(`${p.projectId} accepted; it is now in SAMPLEON allocation`, 'ok'); };
+  const accept = (p: ProjexaRequest) => { setState(p.id, 'accepted'); setUndo({ id: p.id, left: UNDO_S }); toast(`${p.projectId} accepted; it is now in SampAudience allocation`, 'ok'); };
 
   return (
     <div className="space-y-4">
@@ -110,7 +110,7 @@ function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }
       <AnimatePresence>
         {undoLeft != null && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 flex items-center gap-3 rounded-xl bg-emerald/10 px-3 py-2 text-[12.5px]" role="status">
-            <CheckCircle2 size={14} className="text-emerald" /> Accepted and passed to SAMPLEON allocation.
+            <CheckCircle2 size={14} className="text-emerald" /> Accepted and passed to SampAudience allocation.
             <Button size="xs" variant="ghost" className="ml-auto" onClick={onUndo}><Undo2 size={12} /> Undo ({undoLeft}s)</Button>
           </motion.div>
         )}
@@ -149,7 +149,7 @@ function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }
           <p className={cn('mt-2 text-[12px]', overBudget ? 'text-warn' : 'text-ink-2')}>{overBudget ? `This request costs ${fmtMoney(cost - p.budget.total)} more than the project budget.` : `Leaves ${fmtMoney(p.budget.total - cost)} of the project budget.`} CPI cap from the rate card: ${p.budget.cpiCap.toFixed(2)}.</p>
           <h3 className="eyebrow mb-1.5 mt-4">Feasibility from SUPPLY360</h3>
           <p className="text-[12.5px]"><b className="num">{fmtNum(s.feasibility.estimatedCompletes)}</b> estimated completes from <b className="num">{fmtNum(s.feasibility.reachable)}</b> reachable{s.feasibility.shortfall ? <span className="text-warn"> · short by {fmtNum(s.feasibility.shortfall)}</span> : <span className="text-emerald"> · feasible</span>}</p>
-          <Link href={`/supply/sampleon?r=${p.requestId}`} className="mt-2 inline-flex items-center gap-1 text-2xs text-primary hover:underline">Open in SAMPLEON allocation <ArrowRight size={11} /></Link>
+          <Link href={`/supply/sampleon?r=${p.requestId}`} className="mt-2 inline-flex items-center gap-1 text-2xs text-primary hover:underline">Open in SampAudience allocation <ArrowRight size={11} /></Link>
         </section>
       </div>
 

@@ -16,7 +16,7 @@ import { CheckCircle2, CirclePause, CirclePlay, Rocket, Sparkles, TriangleAlert 
 import { Suspense, useMemo, useState } from 'react';
 import { Badge, Bar, Button, Panel, SearchInput, Segmented, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog, Tabs, TabsContent, TabsList } from '@/components/ui/overlay';
-import { CountryChips, KpiTile, PanelChip, ProductChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
+import { CountryChips, KpiTile, PanelChip, ProductChip, SampAudienceLogo, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { pipelineStages, sampleonRequests, type FlowEvent, type SampleonRequest, type SampleonStatus } from '@/lib/supply/connected';
 import { panelBrands, type PanelId } from '@/lib/supply/demo';
@@ -48,7 +48,7 @@ function Sampleon() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title={<span className="flex items-center gap-2.5"><ProductChip product="sampleon" /> Audience allocation</span>}
+      <SupplyHeader screen={screen} title={<span className="flex flex-wrap items-center gap-3"><SampAudienceLogo height={44} /> <span>Audience allocation</span></span>}
         subtitle="Requests from PROJEXA projects and ZAPX surveys, from feasibility to closed. SUPPLY360 does the counting and delivery; names and e-mail addresses never leave SUPPLY360." />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -201,7 +201,7 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
       </Tabs>
 
       <ConfirmDialog open={confirm === 'approve'} onOpenChange={(v) => !v && setConfirm(null)} tone="primary" title="Approve this allocation?"
-        body={<>SAMPLEON will plan batches for {r.id} with T2O {alloc.t2o}, MFR {alloc.mfr} and MHO {alloc.mho}, and {r.platform} will see the request as approved. You can still pause before the first batch goes out.</>}
+        body={<>SampAudience will plan batches for {r.id} with T2O {alloc.t2o}, MFR {alloc.mfr} and MHO {alloc.mho}, and {r.platform} will see the request as approved. You can still pause before the first batch goes out.</>}
         confirmLabel="Approve" onConfirm={() => { update(r.id, { status: 'approved', allocation: alloc }, { type: 'audience.approved', text: `Allocation approved: T2O ${alloc.t2o}, MFR ${alloc.mfr}, MHO ${alloc.mho}` }); toast(`${r.id} approved; ${r.platform} notified`, 'ok'); }} />
       <ConfirmDialog open={confirm === 'soft'} onOpenChange={(v) => !v && setConfirm(null)} tone="primary" title="Schedule the soft launch?"
         body={`The first batch goes to about ${fmtNum(Math.round(r.requiredCompletes * 0.1 / Math.max(0.05, r.ir)))} panellists at the next send window in each country, for a read-out before full launch.`}
