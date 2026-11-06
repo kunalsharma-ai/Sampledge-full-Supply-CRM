@@ -253,3 +253,17 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
      - Your own role, and vendor and client accounts, can't be edited.
      - Granting Platform Admin opens a "Granting admin access" approval instead of applying.
    - Headers say "Partly demo data" when a screen mixes both. In `lib/supply/data.ts`, the `endpoints` entries for these paths are now `available`.
+8. **New endpoints (built)**: the API gains three endpoints, each over existing data except settings, which adds one column.
+   - **Delivery log**: `GET /integrations/deliveries` (with `/summary`) lists the outbox the worker drains.
+     - Statuses are delivered, queued, retrying and failed (5 attempts). Payloads are never returned.
+     - `POST /integrations/deliveries/:id/retry` puts a failed event back in the queue and is audited. It needs integrations write access (platform admin).
+     - The API hub shows the live log, with a confirmation before "Retry all failed".
+   - **Points ledger**: `GET /panels/ledger` lists incentive entries with each member's handle and brand. Panel roles can read it; entries are still posted in Finance.
+     - Rewards & wallet shows the live ledger. The hash chain and "Verify chain" stay demo-only until the ledger stores hashes.
+   - **Workspace settings**: `GET` and `PATCH /admin/settings`.
+     - Rules live in `@sampledge/core` (`settingRules`, `settingError`), so the screen and the API check the same things.
+     - Values are stored in `Tenant.supplySettings` (migration `20261106150000_supply_settings`), and every change is an audit entry.
+     - A PATCH applies all changes or none.
+     - Settings owned elsewhere are read through and refused here: point value (Finance), weekly invitation cap and minimum redemption (panel reward policy).
+     - Turning off "health attributes only as match / no match" is refused by the server too.
+     - Roles without admin write access see the settings read-only.

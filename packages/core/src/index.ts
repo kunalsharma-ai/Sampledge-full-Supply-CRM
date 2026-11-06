@@ -19,3 +19,4 @@ export * from './extract';
 export * from './results';
 export * from './dp';
 export * from './explore';
+export * from './settings';
