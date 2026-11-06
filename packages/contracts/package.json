@@ -1,0 +1,10 @@
+{
+  "name": "@sampledge/contracts",
+  "version": "1.0.0",
+  "description": "Shared contracts between SUPPLY360, SAMPLEON, PROJEXA and ZAPX: Audience Request, event envelope, service signatures.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "node --test dist/*.test.js" },
+  "dependencies": { "zod": "4.6.7" }
+}

@@ -23,6 +23,7 @@
     "@node-saml/node-saml": "5.2.0",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
+    "@sampledge/contracts": "*",
     "@sampledge/core": "*",
     "bcryptjs": "3.0.2",
     "cookie-parser": "1.4.7",

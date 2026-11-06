@@ -32,6 +32,7 @@ async function nextNumber(tx: Tx, tenantId: string, kind: 'PO' | 'INV') {
 
 // Delivery lives in ./delivery; re-exported here because callers import it from the worker.
 import { deliveryAdapter } from './delivery';
+import { sendToSampleon } from '../integrations/sampleon/outbound';
 import { applyRetention, logRun } from './retention';
 export { deliveryAdapter };
 
@@ -289,6 +290,11 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
         await tx.panelCall.update({ where: { id: c.id }, data: { ...result, completedAt: new Date() } });
         const what = `${c.action} on ${name}`;
         await this.notify(tx, t, ['panel_manager', 'platform_admin'], result.status === 'sent' ? `Panel ${what}: sent` : `Panel ${what}: ${result.status.replace('_', ' ')}`, result.status === 'sent' ? `${name} accepted the request.` : result.error ?? 'See the panel call log.', 'panels');
+        return;
+      }
+      case 'sampleon.event': {
+        // At-least-once: SAMPLEON dedupes on the envelope's eventId, so a retry is harmless.
+        await sendToSampleon((p as unknown as { envelope: Record<string, unknown> }).envelope);
         return;
       }
       case 'message.queued': {

@@ -7,6 +7,7 @@ RUN (apt-get update && apt-get install -y --no-install-recommends openssl && rm 
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
+COPY packages/contracts/package.json packages/contracts/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 # Optional corporate/proxy CA: docker build --secret id=ca,src=/path/ca.pem (ignored when absent).
