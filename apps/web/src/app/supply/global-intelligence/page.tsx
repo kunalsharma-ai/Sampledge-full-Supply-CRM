@@ -17,7 +17,9 @@ import { Sparkline } from '@/components/ui/kpi';
 import { GeoMap } from '@/components/supply/geo-map';
 import { CountryChips, KpiTile, PanelChip, ProductChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
-import { arcCoords, inSendWindow, markets, marketByCode, sampleonRequests, totalMembers, trafficArcs, type Market } from '@/lib/supply/connected';
+import { arcCoords, byCode, inSendWindow, markets as demoMarkets, sampleonRequests, totalMembers, trafficArcs, withGeography, type Market } from '@/lib/supply/connected';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadMarkets } from '@/lib/supply/live';
 import { panelBrands } from '@/lib/supply/demo';
 import { screenBySlug } from '@/lib/supply/screens';
 import { palette } from '@/lib/tokens';
@@ -33,7 +35,7 @@ const metricMeta: Record<Metric, { label: string; get: (m: Market) => number; sh
   members: { label: 'Members', get: totalMembers, show: (n) => `${fmtCompact(n)} members` },
 };
 const regionColor = { Americas: palette.blue, EMEA: palette.cyan, APAC: palette.emerald } as const;
-const NOW_UTC = 15; // demo clock: 15:00 UTC
+const DEMO_UTC = 15; // demo clock: 15:00 UTC
 
 function webglOK() {
   try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; }
@@ -50,8 +52,13 @@ export default function GlobalIntelligence() {
 
   useEffect(() => { const ok = webglOK(); setGl(ok); if (ok && !reduced) setMode('3d'); }, [reduced]);
 
+  const q = useSupplyData('markets', () => demoMarkets, async () => { const r = await loadMarkets(); return r?.markets.length ? withGeography(r.markets) : null; });
+  const markets = q.data;
+  const isLive = q.source === 'live';
+  const marketByCode = useMemo(() => byCode(markets), [markets]);
+  const NOW_UTC = isLive ? new Date().getUTCHours() : DEMO_UTC;
   const M = metricMeta[metric];
-  const shown = useMemo(() => markets.filter((m) => region === 'all' || m.region === region).sort((a, b) => M.get(b) - M.get(a)), [region, M]);
+  const shown = useMemo(() => markets.filter((m) => region === 'all' || m.region === region).sort((a, b) => M.get(b) - M.get(a)), [region, M, markets]);
   const maxV = Math.max(...shown.map(M.get), 1);
   const points: GlobePoint[] = shown.map((m) => ({ code: m.code, name: m.name, lat: m.lat, lon: m.lon, value: M.get(m), label: M.show(M.get(m)), color: regionColor[m.region] }));
   const liveArcs = trafficArcs.filter((a) => a.live && (region === 'all' || marketByCode[a.to]?.region === region));
@@ -64,13 +71,13 @@ export default function GlobalIntelligence() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Global panel intelligence" subtitle="Where our respondents are, and where surveys are running right now. Pick a country for its panel mix, reachability and requests in field."
+      <SupplyHeader screen={screen} source={isLive ? 'mixed' : 'demo'} title="Global panel intelligence" subtitle="Where our respondents are, and where surveys are running right now. Pick a country for its panel mix, reachability and requests in field."
         actions={<Segmented label="View" size="sm" value={mode} onChange={(m) => (m === '3d' && !gl ? undefined : setMode(m))}
           options={[{ value: '3d', label: <span className="flex items-center gap-1"><Box size={12} />3D globe</span> }, { value: '2d', label: <span className="flex items-center gap-1"><MapIcon size={12} />2D map</span> }]} />} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Markets with live fieldwork" value={liveMarkets} format="int" hint={`Of ${markets.length} markets where we have panellists`} />
-        <KpiTile label="Reachable today" value={markets.reduce((a, m) => a + m.reachable, 0)} format="compact" delta={0.012} hint="Active, consented, not fatigued, not on cooldown" />
+        <KpiTile label="Reachable today" value={markets.reduce((a, m) => a + m.reachable, 0)} format="compact" delta={isLive ? undefined : 0.012} hint={isLive ? 'Active members who have not withdrawn research consent' : 'Active, consented, not fatigued, not on cooldown'} />
         <KpiTile label="In the send window now" value={awake.reduce((a, m) => a + m.reachable, 0)} format="compact" hint={`Reachable panellists where it is between 08:00 and 21:00 local time at ${NOW_UTC}:00 UTC (${awake.length} markets)`} />
         <KpiTile label={`Fastest growing: ${top.name}`} value={top.delta} format="pct" hint="Change in completes per day over the last 14 days" />
       </div>
@@ -116,13 +123,13 @@ export default function GlobalIntelligence() {
       </div>
 
       <Drawer open={!!sel} onClose={() => setSelected(null)} width={440} title={sel?.name ?? ''} subtitle={sel ? `${sel.region} · UTC${sel.utcOffset >= 0 ? '+' : ''}${sel.utcOffset}` : undefined}>
-        {sel && <CountryDetail m={sel} requests={inMarket} />}
+        {sel && <CountryDetail m={sel} requests={inMarket} nowUtc={NOW_UTC} />}
       </Drawer>
     </div>
   );
 }
 
-function CountryDetail({ m, requests }: { m: Market; requests: typeof sampleonRequests }) {
+function CountryDetail({ m, requests, nowUtc: NOW_UTC }: { m: Market; requests: typeof sampleonRequests; nowUtc: number }) {
   const all = totalMembers(m);
   const local = (((NOW_UTC + m.utcOffset) % 24) + 24) % 24;
   const open = inSendWindow(NOW_UTC, m);

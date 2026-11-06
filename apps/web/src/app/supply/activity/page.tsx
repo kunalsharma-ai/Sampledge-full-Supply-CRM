@@ -14,17 +14,36 @@ import { PanelChip, SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { panelBrands, type PanelId } from '@/lib/supply/demo';
 import { activity as seed, eventTypes, type ActivityEvent, type EventKey } from '@/lib/supply/operations';
-import { panellists } from '@/lib/supply/panellists';
+import { fromApiPanelist, panellists } from '@/lib/supply/panellists';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadEvents, loadPanelistsByIds } from '@/lib/supply/live';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, rng } from '@/lib/utils';
 
 const screen = screenBySlug('activity')!;
 const DAY = 1440;
+/** The last 24 hours from GET /panels/events, placed on the same minute scale as the demo set. */
+async function loadActivity(): Promise<ActivityEvent[] | null> {
+  const r = await loadEvents(24);
+  if (!r) return null;
+  const ids = [...new Set(r.events.map((e) => e.panelistId))].slice(0, 1000);
+  const chunks = Array.from({ length: Math.ceil(ids.length / 200) }, (_, i) => ids.slice(i * 200, i * 200 + 200));
+  const people = new Map((await Promise.all(chunks.map(loadPanelistsByIds))).flat().map((p) => [p.id, fromApiPanelist(p)]));
+  const now = Date.now();
+  return r.events.flatMap((e) => {
+    const p = people.get(e.panelistId);
+    return p ? [{ id: e.id, type: e.type, minute: Math.max(0, DAY - (now - new Date(e.at).getTime()) / 60_000), panellist: p, text: e.text }] : [];
+  });
+}
+
 const liveText: Record<EventKey, string> = { signup: 'Joined from the app', profile: 'Updated profile', survey: 'Completed a survey (+200 pts)', reward: 'Redeemed $10 gift card', support: 'Opened a ticket', risk: 'Speeder flag raised' };
 
 export default function Activity() {
   const reduced = useOS((s) => s.motion === 'reduced');
+  const data = useSupplyData('activity', () => seed, loadActivity);
+  const isLive = data.source === 'live';
   const [events, setEvents] = useState<ActivityEvent[]>(seed);
+  useEffect(() => { setEvents(data.data); }, [data.data]);
   const [types, setTypes] = useState<Set<EventKey>>(new Set(eventTypes.map((t) => t.key)));
   const [panel, setPanel] = useState<'all' | PanelId>('all');
   const [q, setQ] = useState('');
@@ -33,7 +52,13 @@ export default function Activity() {
   const n = useRef(0);
 
   useEffect(() => {
-    if (!live) return;
+    if (!live || !isLive) return;
+    const t = setInterval(data.reload, 30_000);
+    return () => clearInterval(t);
+  }, [live, isLive, data.reload]);
+
+  useEffect(() => {
+    if (!live || isLive) return;
     const r = rng(99 + n.current);
     const t = setInterval(() => {
       n.current++;
@@ -42,7 +67,7 @@ export default function Activity() {
       setEvents((e) => [...e, { id: `live-${n.current}`, type, minute: DAY - 0.01, panellist: p, text: liveText[type] }].map((x) => (x.id.startsWith('live') ? x : { ...x, minute: x.minute - 0.03 })));
     }, reduced ? 4000 : 1800);
     return () => clearInterval(t);
-  }, [live, reduced]);
+  }, [live, reduced, isLive]);
 
   const filtered = useMemo(() => events.filter((e) => types.has(e.type) && (panel === 'all' || e.panellist.brand === panel) && (!q || `${e.panellist.handle} ${e.text}`.toLowerCase().includes(q.toLowerCase()))), [events, types, panel, q]);
   const inWin = useMemo(() => filtered.filter((e) => e.minute >= win[0] && e.minute <= win[1]).sort((a, b) => b.minute - a.minute), [filtered, win]);
@@ -51,7 +76,7 @@ export default function Activity() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Activity timeline" subtitle="Every panellist event in the last 24 hours, by type. Drag the window to read a stretch of time; follow live to watch events arrive."
+      <SupplyHeader screen={screen} source={data.source} title="Activity timeline" subtitle="Every panellist event in the last 24 hours, by type. Drag the window to read a stretch of time; follow live to watch events arrive."
         actions={<Button size="sm" variant={live ? 'primary' : 'ghost'} onClick={() => setLive((v) => !v)}>{live ? <><Pause size={13} /> Following live</> : <><Play size={13} /> Follow live</>}</Button>} />
 
       <div className="flex flex-wrap items-center gap-2">

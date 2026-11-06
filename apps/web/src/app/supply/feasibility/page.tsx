@@ -16,6 +16,7 @@ import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { cond, decodeRoot, describe, feasibility, filterSample, group, type Group, type SavedSegment, type Scenario } from '@/lib/supply/audience';
 import { panellists } from '@/lib/supply/panellists';
+import { feasibilityFromCounts, useAudienceCount } from '@/lib/supply/audience-live';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtNum } from '@/lib/utils';
 
@@ -42,14 +43,18 @@ function Feasibility() {
   }, [params]);
 
   const sample = useMemo(() => filterSample(panellists(), root), [root]);
-  const results = scenarios.map((s) => feasibility(sample, s));
+  // One count per scenario slot (at most three), since the fatigue window changes who is invitable.
+  const counts = [useAudienceCount(root, scenarios[0]?.fatigueDays ?? 7), useAudienceCount(root, scenarios[1]?.fatigueDays ?? 7), useAudienceCount(root, scenarios[2]?.fatigueDays ?? 7)];
+  const isLive = scenarios.every((_, i) => counts[i].data);
+  const results = scenarios.map((s, i) => (isLive ? feasibilityFromCounts(counts[i].data!, s) : feasibility(sample, s)));
+  const unsupported = counts[0].data?.unsupported ?? [];
   const f = results[Math.min(focus, results.length - 1)];
   const setS = (i: number, patch: Partial<Scenario>) => setScenarios((ss) => ss.map((s, k) => (k === i ? { ...s, ...patch } : s)));
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} source="demo" title="Feasibility"
-        subtitle={<>Audience: <span className="text-ink">{describe(root) || 'everyone'}</span></>}
+      <SupplyHeader screen={screen} source={isLive ? 'live' : 'demo'} title="Feasibility"
+        subtitle={<>Audience: <span className="text-ink">{describe(root) || 'everyone'}</span>{isLive && unsupported.length > 0 && <span className="text-warn"> · not recorded yet, left out: {unsupported.join(', ')}</span>}</>}
         actions={<>
           {saved.length > 0 && (
             <select aria-label="Load saved segment" className={cn(inputCls, 'h-8 w-48')} defaultValue="" onChange={(e) => { const s = saved.find((x) => x.id === e.target.value); if (s) setRoot(s.root); }}>
@@ -111,7 +116,7 @@ function Feasibility() {
 
       <Panel className="p-4">
         <SectionTitle eyebrow={scenarios[focus]?.name} title="By country" actions={<span className="text-2xs text-ink-3">Click a scenario to focus it</span>} />
-        <EChart ariaLabel="Eligible panellists and expected completes by country" height={240} deps={[JSON.stringify(scenarios[focus]), describe(root)]} option={(t) => ({
+        <EChart ariaLabel="Eligible panellists and expected completes by country" height={240} deps={[JSON.stringify(scenarios[focus]), describe(root), isLive, f.eligible, f.expected]} option={(t) => ({
           legend: {}, tooltip: { trigger: 'axis' }, grid: { left: 8, right: 8, top: 30, bottom: 4, containLabel: true },
           xAxis: { type: 'category', data: f.byCountry.map((c) => c.code), ...axis(t, { splitLine: { show: false } }) },
           yAxis: [{ type: 'value', name: 'Eligible', ...axis(t) }, { type: 'value', name: 'Completes', ...axis(t, { splitLine: { show: false } }) }],
