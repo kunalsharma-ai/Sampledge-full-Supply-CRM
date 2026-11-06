@@ -76,7 +76,7 @@ export class AuthService {
       this.db.tenant.findUniqueOrThrow({ where: { id: ctx.tenantId } }),
       this.db.user.findUniqueOrThrow({ where: { id: ctx.userId } }),
     ]);
-    const modules = Object.fromEntries((Object.keys(moduleAccess) as ModuleId[]).map((m) => [m, moduleAccess[m][ctx.role]]));
+    const modules = Object.fromEntries((Object.keys(moduleAccess) as ModuleId[]).map((m) => [m, ctx.access?.[m] ?? moduleAccess[m][ctx.role]]));
     return {
       user: { id: user.id, name: user.name, email: user.email, mfaEnabled: user.mfaEnabled },
       tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },

@@ -27,7 +27,9 @@ const screen = screenBySlug('analytics')!;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const blank: SavedReport = { id: '', name: 'Untitled report', metric: 'completes', rows: 'week', cols: 'panel', chart: 'line', panels: [], schedule: 'off', recipients: [], owner: 'You' };
 type ReportData = Omit<SavedReport, 'id' | 'owner'>;
-const fromRec = (x: Rec<ReportData>): SavedReport & { version: number } => ({ ...x.data, id: x.id, owner: x.createdBy, version: x.version });
+type Sent = { nextSendAt?: string; lastSentAt?: string; error?: string; status?: string };
+const fromRec = (x: Rec<ReportData & Sent>): SavedReport & { version: number } & Sent => ({ ...x.data, id: x.id, owner: x.createdBy, version: x.version, status: x.status });
+const when = (iso?: string) => (iso ? new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC' : '—');
 const toData = (r: SavedReport): ReportData => ({ name: r.name, metric: r.metric, rows: r.rows, cols: r.cols, chart: r.chart, panels: r.panels, schedule: r.schedule, recipients: r.recipients });
 
 export default function Analytics() {
@@ -36,8 +38,9 @@ export default function Analytics() {
   const localSaved = useOS((s) => s.prefs['reports:saved'] as SavedReport[] | undefined) ?? starterReports;
   const setPref = useOS((s) => s.setPref);
   const fs = useSupplyData('analytics:facts', () => demoFactSet, async () => { const f = await loadFacts(8); return factSet(f.facts, f.weeks, f.pointValue); });
-  const shared = useSupplyData<(SavedReport & { version: number })[] | null>('analytics:reports', () => null, async () => (await records.list<ReportData>('report', 'status=active')).map(fromRec));
-  const saved: (SavedReport & { version?: number })[] = live && shared.data ? shared.data : localSaved;
+  const shared = useSupplyData<(SavedReport & { version: number } & Sent)[] | null>('analytics:reports', () => null, async () => (await records.list<ReportData & Sent>('report')).filter((x) => x.status !== 'archived').map(fromRec));
+  const saved: (SavedReport & { version?: number } & Sent)[] = live && shared.data ? shared.data : localSaved;
+  const [sending, setSending] = useState(false);
   const [r, setR] = useState<SavedReport>({ ...starterReports[0] });
   const [recipients, setRecipients] = useState(starterReports[0].recipients.join(', '));
   const [del, setDel] = useState<SavedReport | null>(null);
@@ -149,7 +152,28 @@ export default function Analytics() {
             </select></label>
           <label className="block text-2xs text-ink-3">Recipients (comma-separated)
             <textarea rows={2} className={cn(inputCls, 'mt-1 h-auto py-2')} value={recipients} onChange={(e) => setRecipients(e.target.value)} aria-invalid={!!scheduleErr} aria-describedby="rcpt-err" placeholder="name@company.com" /></label>
-          <p id="rcpt-err" className={cn('-mt-2 text-2xs', scheduleErr ? 'text-danger' : 'text-ink-3')}>{scheduleErr ?? 'Recipients get a PDF with the chart and a CSV of the pivot.'}</p>
+          <p id="rcpt-err" className={cn('-mt-2 text-2xs', scheduleErr ? 'text-danger' : 'text-ink-3')}>{scheduleErr ?? (live ? 'Members of this workspace only. They get an e-mail with the pivot as a table, at 07:00 UTC.' : 'Recipients get a PDF with the chart and a CSV of the pivot.')}</p>
+          {live && (() => {
+            const cur = shared.data?.find((x) => x.id === r.id);
+            if (!cur) return null;
+            const act = async (action: 'deliver' | 'restore') => {
+              setSending(true);
+              try { await records.act('report', { id: cur.id, version: cur.version }, action); toast(action === 'deliver' ? `“${cur.name}” sent to ${cur.recipients.length} team member${cur.recipients.length === 1 ? '' : 's'}` : `“${cur.name}” is back on schedule`, 'ok'); shared.reload(); }
+              catch (e) { toast(e instanceof ApiError ? e.message : 'Could not send the report', 'warn'); } finally { setSending(false); }
+            };
+            return (
+              <div className="space-y-1.5 rounded-xl bg-surface-2/40 p-3 text-2xs text-ink-2">
+                {cur.status === 'failed' && <p className="text-danger">Last scheduled send failed: {cur.error ?? 'unknown error'}</p>}
+                <p>Next send: <b className="text-ink">{cur.schedule === 'off' ? 'not scheduled' : cur.status === 'failed' ? 'paused until fixed' : when(cur.nextSendAt)}</b></p>
+                <p>Last sent: <b className="text-ink">{when(cur.lastSentAt)}</b></p>
+                <div className="flex gap-1.5 pt-1">
+                  {cur.status === 'failed'
+                    ? <Button size="xs" disabled={sending} onClick={() => void act('restore')}>Resume schedule</Button>
+                    : <Button size="xs" variant="ghost" className="border hairline" disabled={sending || !cur.recipients.length} onClick={() => void act('deliver')}>Send now</Button>}
+                </div>
+              </div>
+            );
+          })()}
           <Button className="w-full" size="sm" variant="primary" disabled={!!scheduleErr || !r.name.trim()} onClick={save}><Save size={13} /> {saved.some((x) => x.id === r.id) ? 'Save changes' : 'Save report'}</Button>
           <Button className="w-full" size="sm" onClick={exportCsv}><Download size={13} /> Export CSV</Button>
           <p className="text-2xs text-ink-3">Exports contain aggregates only, never panellist identities.</p>

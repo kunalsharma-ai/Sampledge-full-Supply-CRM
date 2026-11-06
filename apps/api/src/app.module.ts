@@ -31,6 +31,8 @@ import './modules/supply-kinds';
 import { SampAudienceRequestsController } from './integrations/sampleon/requests-proxy';
 import { SupplyRecordsController, SupplyRecordsService } from './modules/supply-records';
 import { WorkflowEngine, WorkflowsController } from './modules/workflows';
+import { AccessController } from './modules/access';
+import { ApiKeysController } from './modules/api-keys';
 import { SupplyAiController } from './modules/supply-ai';
 import { SupplyFactsController, SupplyQuotasController, JourneysController, SupplyQualityController, WeeklyProgrammeController } from './modules/supply-views';
 import { AiController } from './ai/ai.controller';
@@ -96,7 +98,7 @@ class HealthController {
     JwtModule.register({ secret: config.jwtSecret, signOptions: { issuer: 'sampledge-api' }, verifyOptions: { issuer: 'sampledge-api' } }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: () => Number(process.env.RATE_LIMIT ?? 600) }]),
   ],
-  controllers: [SupplyController, SupplyOverviewController, HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, FinanceLedgersController, CommsController, AiController, DiyController, AdminController, RetentionController, DpController, SsoController, SamlController, DeliverablesController, ReportSchedulesController, LiveController, PanelBackendController, IntegrationsController, DeliveriesController, PanelLedgerController, SettingsController, SupplyRecordsController, SupplyFactsController, WeeklyProgrammeController, SupplyQuotasController, JourneysController, SupplyQualityController, WorkflowsController, SupplyAiController, SampAudienceRequestsController, InsightsController, CrmInsightsController, PanelAnalyticsController, AgentsController],
+  controllers: [SupplyController, SupplyOverviewController, HealthController, MetricsController, AuthController, ProjectsController, CommercialController, VendorsController, RankingController, SurveysController, RuntimeController, PanelsController, ApprovalsController, OpsController, FeasibilityController, FinanceController, FinanceLedgersController, CommsController, AiController, DiyController, AdminController, RetentionController, DpController, SsoController, SamlController, DeliverablesController, ReportSchedulesController, LiveController, PanelBackendController, IntegrationsController, DeliveriesController, PanelLedgerController, SettingsController, SupplyRecordsController, SupplyFactsController, WeeklyProgrammeController, SupplyQuotasController, JourneysController, SupplyQualityController, WorkflowsController, SupplyAiController, AccessController, ApiKeysController, SampAudienceRequestsController, InsightsController, CrmInsightsController, PanelAnalyticsController, AgentsController],
   providers: [SupplyService, SupplyRecordsService, WorkflowEngine, 
     PrismaService, AuditService, AuthService, ProjectsService, CommercialService, VendorsService, SurveysService, RuntimeService, PanelsService, ApprovalsService, FeasibilityService, FinanceService, CommsService, EventsWorker, AiGateway, DiyService, DpService, SsoService, SamlService, DeliverablesService, ReportSchedulesService, LiveHub, InsightsService, PanelAnalyticsService, AgentsService,
     SharedThrottlerStorage, PanelBackend, PanelBackendService, PanelSyncService, IntegrationsService,

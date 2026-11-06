@@ -17,10 +17,10 @@
  */
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, HttpCode, Injectable, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
 import { Prisma, type SupplyRecord } from '@prisma/client';
-import { access, type ModuleId } from '@sampledge/core';
+import type { ModuleId } from '@sampledge/core';
 import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
-import { Caller, type Ctx } from '../common/context';
+import { Caller, moduleLevel, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { asTenant } from '../common/tenant-scope';
 import { parse } from '../common/zod';
@@ -60,6 +60,8 @@ export type RecordKind = {
    * get `action`, as "Scheduler" with platform admin rights, once a minute (see runDue).
    */
   due?: { status: string; action: string; at: (d: Record<string, unknown>) => unknown };
+  /** server-kept fields, worked out after every create and update from the new data and the previous data */
+  derive?: (d: Record<string, unknown>, prev: Record<string, unknown> | null) => Record<string, unknown>;
 };
 
 const kinds = new Map<string, RecordKind>();
@@ -88,7 +90,7 @@ export class SupplyRecordsService {
   kind(ctx: Ctx, id: string, write: boolean) {
     const k = kinds.get(id);
     if (!k) throw new NotFoundException(`Unknown record kind ${id}`);
-    const a = access(ctx.role, k.module);
+    const a = moduleLevel(ctx, k.module);
     if (a === 'none' || a === 'scoped') throw new ForbiddenException(`Your role has no access to ${k.label.toLowerCase()}`);
     if (write && a !== 'full') throw new ForbiddenException(`Your role has read-only access to ${k.label.toLowerCase()}`);
     return k;
@@ -132,7 +134,8 @@ export class SupplyRecordsService {
 
   async create(ctx: Ctx, kindId: string, b: z.infer<typeof CreateBody>, tx?: Tx) {
     const k = this.kind(ctx, kindId, true);
-    const data = this.check(k, b.data);
+    const checked = this.check(k, b.data);
+    const data = k.derive ? k.derive(checked, null) : checked;
     const status = k.initial;
     const run = async (t: Tx) => {
       await this.unique(t, ctx, kindId, k, data);
@@ -152,7 +155,8 @@ export class SupplyRecordsService {
       if (r.version !== b.version) throw new ConflictException(`${r.ref} was changed by ${r.createdBy === ctx.name ? 'you in another tab' : 'someone else'} since you opened it; reload to see the latest`);
       const editable = k.editableIn ?? k.statuses.slice(0, -1);
       if (!editable.includes(r.status)) throw new BadRequestException(`A ${r.status} ${k.label.toLowerCase()} can no longer be edited`);
-      const data = this.check(k, { ...(r.data as object), ...b.data });
+      const checked = this.check(k, { ...(r.data as object), ...b.data });
+      const data = k.derive ? k.derive(checked, r.data as Record<string, unknown>) : checked;
       await this.unique(tx, ctx, kindId, k, data, r.id);
       await k.check?.(tx, ctx, data);
       const n = await tx.supplyRecord.updateMany({ where: { id: r.id, version: r.version }, data: { data: data as Prisma.InputJsonValue, title: k.title(data).slice(0, 200), version: { increment: 1 } } });
@@ -220,8 +224,8 @@ export class SupplyRecordsController {
   /** The kinds this caller can read, with their statuses and actions. */
   @Get()
   kinds(@Caller() ctx: Ctx) {
-    return recordKinds().filter(([, k]) => !['none', 'scoped'].includes(access(ctx.role, k.module))).map(([id, k]) => ({
-      id, label: k.label, module: k.module, statuses: k.statuses, initial: k.initial, canWrite: access(ctx.role, k.module) === 'full',
+    return recordKinds().filter(([, k]) => !['none', 'scoped'].includes(moduleLevel(ctx, k.module))).map(([id, k]) => ({
+      id, label: k.label, module: k.module, statuses: k.statuses, initial: k.initial, canWrite: moduleLevel(ctx, k.module) === 'full',
       actions: Object.fromEntries(Object.entries(k.actions ?? {}).map(([n, a]) => [n, { from: a.from, to: a.to }])),
     }));
   }

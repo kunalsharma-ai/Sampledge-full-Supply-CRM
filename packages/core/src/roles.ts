@@ -46,7 +46,7 @@ export type Permission =
   | 'edit:projects'
   | 'edit:automations';
 
-type Access = 'full' | 'read' | 'scoped' | 'none';
+export type Access = 'full' | 'read' | 'scoped' | 'none';
 
 /** module access per role. "scoped" = only records the role is party to. */
 export const moduleAccess: Record<ModuleId, Record<Role, Access>> = {

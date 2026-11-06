@@ -75,7 +75,8 @@ export async function recipientContacts(tx: Tx, tenantId: string, toRef: string)
   const where =
     kind === 'client' ? { tenantId, clientId: a } :
     kind === 'vendor' ? { tenantId, vendorId: a } :
-    kind === 'role' ? { tenantId, role: a as never } : null;
+    kind === 'role' ? { tenantId, role: a as never } :
+    kind === 'users' ? { tenantId, userId: { in: (a ?? '').split(',').filter(Boolean).slice(0, 50) } } : null;
   if (!where) return null;
   const ms = await tx.membership.findMany({ where, include: { user: { select: { email: true } } } });
   return ms.map((m) => ({ email: m.user.email, phone: m.phone }));

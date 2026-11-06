@@ -17,9 +17,9 @@
  */
 import { BadGatewayException, Controller, ForbiddenException, Get, NotFoundException, Param, Query } from '@nestjs/common';
 import { signRequest } from '@sampledge/contracts';
-import { access } from '@sampledge/core';
+
 import { z } from 'zod';
-import { Caller, type Ctx } from '../../common/context';
+import { Caller, moduleLevel, type Ctx } from '../../common/context';
 import { PrismaService } from '../../common/prisma.service';
 import { parse } from '../../common/zod';
 import { sampleonConfig } from './s2s';
@@ -66,7 +66,7 @@ export class SampAudienceRequestsController {
 
   /** Panel and marketplace roles read this; vendors and clients never do. */
   private allow(ctx: Ctx) {
-    const ok = (['panels', 'marketplace'] as const).some((m) => ['full', 'read'].includes(access(ctx.role, m)));
+    const ok = (['panels', 'marketplace'] as const).some((m) => ['full', 'read'].includes(moduleLevel(ctx, m)));
     if (!ok) throw new ForbiddenException('Your role has no access to SampAudience requests');
   }
 
