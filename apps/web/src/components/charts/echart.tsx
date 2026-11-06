@@ -52,6 +52,30 @@ export function axis(_theme: 'dark' | 'light', extra: Record<string, unknown> = 
   };
 }
 
+/**
+ * Canvas can't resolve CSS custom properties, so `rgb(var(--chart-3))` or `rgb(var(--danger) / .4)`
+ * strings anywhere in an option are swapped for computed colours before ECharts sees them.
+ */
+const VAR_RE = /rgba?\(\s*var\(--([\w-]+)\)\s*(?:\/\s*([\d.]+%?)\s*)?\)/g;
+export function resolveCssColors<T>(o: T, cs: CSSStyleDeclaration = getComputedStyle(document.documentElement)): T {
+  if (typeof o === 'string') {
+    if (!o.includes('var(--')) return o;
+    return o.replace(VAR_RE, (m, name: string, a?: string) => {
+      const raw = cs.getPropertyValue(`--${name}`).trim();
+      if (!raw) return m;
+      const ch = raw.split(/\s+/).join(',');
+      return a ? `rgba(${ch},${a.endsWith('%') ? Number(a.slice(0, -1)) / 100 : a})` : `rgb(${ch})`;
+    }) as T;
+  }
+  if (Array.isArray(o)) return o.map((x) => resolveCssColors(x, cs)) as T;
+  if (o && typeof o === 'object' && Object.getPrototypeOf(o) === Object.prototype) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(o)) out[k] = resolveCssColors(v, cs);
+    return out as T;
+  }
+  return o;
+}
+
 type Props = {
   option: (theme: 'dark' | 'light') => EChartsOption;
   height?: number | string;
@@ -91,7 +115,7 @@ export function EChart({ option, height = 260, className, onClick, ariaLabel, de
   useEffect(() => {
     if (state !== 'ready' || !chart.current) return;
     const base = chartBase(theme);
-    const o = option(theme);
+    const o = resolveCssColors(option(theme));
     chart.current.setOption({ ...base, animation: !reduced, animationDuration: 900, animationEasing: 'cubicOut', ...o, tooltip: o.tooltip === undefined ? base.tooltip : { ...(base.tooltip as object), ...(o.tooltip as object) }, legend: o.legend === undefined ? undefined : Array.isArray(o.legend) ? o.legend : { ...(base.legend as object), ...(o.legend as object) } }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, theme, themeId, reduced, ...deps]);

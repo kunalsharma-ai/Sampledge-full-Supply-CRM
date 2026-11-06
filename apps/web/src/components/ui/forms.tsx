@@ -44,7 +44,7 @@ export function MultiSelect({ options, value, onChange, placeholder = 'Select…
           {value.slice(0, 6).map((v) => (
             <span key={v} className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-ink ring-1 ring-inset ring-primary/25">
               {byValue.get(v)?.label ?? v}
-              <span role="button" tabIndex={-1} aria-label={`Remove ${byValue.get(v)?.label ?? v}`} onClick={(e) => { e.stopPropagation(); toggle(v); }} className="text-ink-3 hover:text-ink"><X size={10} /></span>
+              <span aria-hidden onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggle(v); }} className="text-ink-3 hover:text-ink"><X size={10} /></span>
             </span>
           ))}
           {value.length > 6 && <span className="text-2xs text-ink-3">+{value.length - 6} more</span>}
