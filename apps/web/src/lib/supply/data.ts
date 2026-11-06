@@ -73,6 +73,10 @@ export const endpoints = {
   ticketMessage: { method: 'POST', path: '/support/tickets/:id/messages', status: 'planned' },
   qualityCases: { method: 'GET', path: '/quality/cases', status: 'planned' },
   events: { method: 'GET', path: '/panels/events', status: 'planned' },
+  sampleonOverview: { method: 'GET', path: '/panels/sampleon/overview', status: 'planned' }, // added by the SAMPLEON supply API PR
+  approveAllocation: { method: 'POST', path: '/sampleon/v1/audience-requests/:id/approve', status: 'planned' },
+  counterPropose: { method: 'PATCH', path: '/sampleon/v1/audience-requests/:id', status: 'planned' },
+  redirectTest: { method: 'POST', path: '/sampleon/v1/surveys/:id/redirect-test', status: 'planned' },
 } as const;
 
 export type PanelStat = (typeof panelStats)[number] & { id: PanelId };

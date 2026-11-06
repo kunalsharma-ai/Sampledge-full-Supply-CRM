@@ -230,4 +230,13 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
    - The points ledger is append-only. Each row carries its hash and the previous row's hash, and corrections are new rows. 100 points = $1.
    - Redemption decisions and quality actions are reversible: redemptions have a 10-second undo window, and a suspension can be lifted from the case.
    - AI support drafts always show their sources. Auto-send needs confirmation and never covers drafts that propose an action.
-6. Global, connected products & platform — globe, distribution, copilot, analytics, SAMPLEON / PROJEXA / ZAPX workspaces, API hub, roles, settings.
+6. **Global, connected products & platform** — shipped in two parts.
+   - **6a (built):** global intelligence (3D globe with a 2D map and a ranked list carrying the same numbers), distribution, SAMPLEON allocation, PROJEXA requests, ZAPX requests.
+     - The globe starts in 2D when WebGL is missing or motion is reduced.
+     - Map symbols are sized by area, and each one is a keyboard button.
+     - Send windows are 08:00–21:00 local, the same rule batch scheduling uses.
+     - SAMPLEON screens use the contract from the integration work: request statuses `submitted → feasibility_ready → approved → soft_launch → live → closed` (plus `paused`); feasibility fields `eligible`, `reachable`, `estimatedCompletes`, `shortfall` and `byCountry`; and the event names (`audience.approved`, `batch.scheduled`, `invitation.delivered`, `survey.completed`, `quota.full`, `quality.failed`).
+     - Allocation is points of 100 per panel, checked inline. Health criteria warn when the split goes outside MyHealthOpinions.
+     - Approving an allocation or a ZAPX launch asks for confirmation. Accepting a PROJEXA request has an 8-second undo. Counter-proposals need a reason and show a diff.
+     - ZAPX launch stays locked until every QA check passes, and the lock names the failing check.
+   - **6b:** copilot, analytics, API hub, roles, settings.

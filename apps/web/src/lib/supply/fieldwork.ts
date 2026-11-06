@@ -141,7 +141,7 @@ export const launchChecklist = [
 
 /** Invitation batches (Gantt rows). Hours are relative to Monday 00:00 UTC of the plan week. */
 export type Batch = { id: string; surveyId: string; country: string; utcOffset: number; start: number; duration: number; invites: number; throttle: number; status: 'sent' | 'sending' | 'scheduled' | 'held' };
-const tz: Record<string, number> = { US: -5, CA: -5, MX: -6, BR: -3, GB: 0, DE: 1, FR: 1, ES: 1, IT: 1, IN: 5.5, SG: 8 };
+const tz: Record<string, number> = { US: -5, CA: -5, MX: -6, BR: -3, GB: 0, DE: 1, FR: 1, ES: 1, IT: 1, NL: 1, SE: 1, ZA: 2, AE: 4, IN: 5.5, ID: 7, SG: 8, CN: 8, JP: 9, KR: 9, AU: 10 };
 export const utcOffsetOf = (c: string) => tz[c] ?? 0;
 export const NOW_HOUR = 2 * 24 + 15; // Wednesday 15:00 UTC in the demo week
 
