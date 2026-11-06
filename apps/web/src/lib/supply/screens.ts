@@ -193,7 +193,9 @@ export const screenByPath = (path: string | null | undefined) =>
 export const screenBySlug = (slug: string) => screens.find((s) => s.slug === slug);
 /** Screens with a finished implementation in this build; the rest show their design brief. */
 export const BUILT_WAVES = [1, 2, 3, 4, 5] as const;
-export const isScreenBuilt = (s: Screen) => (BUILT_WAVES as readonly number[]).includes(s.wave);
+/** Screens built ahead of their whole wave (wave 6 ships in two parts). */
+export const BUILT_EARLY = new Set(['global-intelligence', 'distribution', 'sampleon', 'projexa-requests', 'zapx-requests']);
+export const isScreenBuilt = (s: Screen) => (BUILT_WAVES as readonly number[]).includes(s.wave) || BUILT_EARLY.has(s.slug);
 
 export const brandColors: Record<NonNullable<Screen['brand']>, { name: string; color: string; ink: string }> = {
   sampleon: { name: 'SAMPLEON', color: '#14B8A6', ink: '#ffffff' },
