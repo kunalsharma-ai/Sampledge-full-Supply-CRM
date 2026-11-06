@@ -3,8 +3,10 @@
  * registers them. Kinds that need effects beyond their own record (suspending a panellist,
  * queueing a message) define them here, inside the action's transaction.
  */
+import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
-import { registerKind } from './supply-records';
+import { queueMessage, resolveTarget } from './comms';
+import { registerKind, type RecordAction } from './supply-records';
 
 const email = z.string().trim().toLowerCase().email('Not an e-mail address').max(200);
 const panelShort = z.enum(['T2O', 'MFR', 'MHO']);
@@ -59,4 +61,99 @@ registerKind('report', {
     archive: { from: ['active'], to: 'archived' },
     restore: { from: ['archived'], to: 'active' },
   },
+});
+
+// ───────────────────────── Communications: e-mail campaigns and newsletters
+const brandName: Record<string, string> = { turn2opinion: 'Turn2Opinion', myfrequentrewards: 'MyFrequentRewards', myhealthopinions: 'MyHealthOpinions' };
+const isoFuture = z.string().datetime({ offset: true, message: 'A date and time' }).refine((v) => new Date(v).getTime() > Date.now() - 60_000, 'Pick a time in the future');
+/** Subject rules the screen also shows: required, short enough for phones, no spam-trigger words. */
+export const subjectProblem = (v: string) => (!v.trim() ? 'A subject is required' : v.length > 70 ? 'Over 70 characters gets cut off on most phones' : /free|\$\$\$|!!!/i.test(v) ? 'Words like this trip spam filters' : null);
+/** Fields the server writes when it sends or fails; kept through later edits of a failed record. */
+const sentFields = {
+  sendAt: z.string().datetime({ offset: true }).optional(),
+  messageId: z.string().max(40).optional(), recipients: z.number().int().optional(), needsApproval: z.boolean().optional(),
+  sentAt: z.string().max(40).optional(), error: z.string().max(400).optional(),
+};
+const block = z.object({ id: z.string().max(40), kind: z.enum(['heading', 'text', 'button', 'image', 'survey', 'divider']), text: z.string().max(2000) }).strict();
+/**
+ * The text body a campaign is sent with. Merge fields: {{panel_name}} is the brand, and
+ * {{first_name}} becomes "there", because SUPPLY360 holds pseudonymous handles, not names.
+ */
+export const renderBlocks = (blocks: z.infer<typeof block>[], b: string) => blocks.map((x) => {
+  const t = x.text.replaceAll('{{panel_name}}', brandName[b] ?? b).replaceAll('{{first_name}}', 'there');
+  return x.kind === 'heading' ? `## ${t}` : x.kind === 'button' ? `[${t}]` : x.kind === 'divider' ? '---' : x.kind === 'image' ? '' : t;
+}).filter(Boolean).join('\n\n');
+
+type Send = { brand: string; segment: string; subject: string; body: string };
+async function sendToPanel(tx: Parameters<NonNullable<RecordAction['effect']>>[0], ctx: Parameters<NonNullable<RecordAction['effect']>>[1], recId: string, s: Send) {
+  const target = `panel:${s.brand}:${s.segment}`;
+  const r = await resolveTarget(tx, ctx, 'panel', target);
+  if (!r.recipients) throw new BadRequestException('Nobody in this audience can receive it (after consent filtering)');
+  const q = await queueMessage(tx, ctx, { channel: 'email', audience: 'panel', target, subject: s.subject, body: s.body }, r, { relatedType: 'SupplyRecord', relatedId: recId });
+  return { messageId: q.message.id, recipients: q.recipients, needsApproval: q.needsApproval, sentAt: new Date().toISOString(), error: undefined };
+}
+
+const campaignSend: RecordAction['effect'] = async (tx, ctx, rec) => {
+  const d = rec.data as { brand: string; segment: string; subjectA: string; subjectB?: string; blocks: z.infer<typeof block>[] };
+  const problems = [subjectProblem(d.subjectA), d.subjectB ? 'A/B subject tests are not in the live sender yet; clear subject B to send' : null,
+    !d.blocks.some((b) => b.kind === 'button') ? 'Add a button so members can act' : null,
+    !d.blocks.some((b) => /email settings|unsubscribe/i.test(b.text)) ? 'Add an unsubscribe or email-settings line' : null].filter(Boolean);
+  if (problems.length) throw new BadRequestException(problems.join('; '));
+  return sendToPanel(tx, ctx, rec.id, { brand: d.brand, segment: d.segment, subject: d.subjectA, body: renderBlocks(d.blocks, d.brand) });
+};
+registerKind('campaign', {
+  label: 'E-mail campaign', module: 'communications', prefix: 'EM',
+  data: z.object({
+    name: z.string().trim().min(2).max(80),
+    brand,
+    /** panel members by status; consent is always filtered at send */
+    segment: z.enum(['active', 'dormant', 'all']).default('active'),
+    subjectA: z.string().trim().max(120).default(''),
+    subjectB: z.string().trim().max(120).optional(),
+    split: z.number().int().min(5).max(50).default(20),
+    blocks: z.array(block).max(40).default([]),
+    /** sendAt: when set and the campaign is scheduled, the scheduler sends it then */
+    ...sentFields,
+  }).strict(),
+  title: (d) => String(d.name),
+  statuses: ['draft', 'scheduled', 'sent', 'failed', 'cancelled'], initial: 'draft', editableIn: ['draft', 'failed'],
+  actions: {
+    schedule: { from: ['draft', 'failed'], to: 'scheduled', body: z.object({ sendAt: isoFuture }).strict(), effect: async (_tx, _ctx, rec, b) => {
+      const d = rec.data as { subjectA: string; subjectB?: string };
+      const p = subjectProblem(d.subjectA) ?? (d.subjectB ? 'A/B subject tests are not in the live sender yet; clear subject B to schedule' : null);
+      if (p) throw new BadRequestException(p);
+      return { sendAt: b.sendAt, error: undefined };
+    } },
+    unschedule: { from: ['scheduled'], to: 'draft' },
+    send: { from: ['draft', 'scheduled', 'failed'], to: 'sent', effect: campaignSend },
+    cancel: { from: ['draft', 'scheduled', 'failed'], to: 'cancelled' },
+  },
+  due: { status: 'scheduled', action: 'send', at: (d) => d.sendAt },
+});
+
+registerKind('newsletter', {
+  label: 'Newsletter issue', module: 'communications', prefix: 'NL',
+  data: z.object({
+    title: z.string().trim().min(2).max(120),
+    brand,
+    stories: z.array(z.string().trim().min(2).max(160)).max(8).default([]),
+    intro: z.string().trim().max(2000).optional(),
+    ...sentFields,
+  }).strict(),
+  title: (d) => String(d.title),
+  statuses: ['draft', 'review', 'scheduled', 'sent', 'failed', 'cancelled'], initial: 'draft', editableIn: ['draft', 'review', 'failed'],
+  actions: {
+    submit: { from: ['draft'], to: 'review', effect: async (_tx, _ctx, rec) => { if (!(rec.data as { stories: string[] }).stories.length) throw new BadRequestException('Add at least one story before review'); } },
+    return: { from: ['review'], to: 'draft' },
+    schedule: { from: ['review', 'failed'], to: 'scheduled', body: z.object({ sendAt: isoFuture }).strict(), effect: async (_tx, _ctx, _r, b) => ({ sendAt: b.sendAt, error: undefined }) },
+    unschedule: { from: ['scheduled'], to: 'review' },
+    send: { from: ['scheduled', 'review', 'failed'], to: 'sent', effect: async (tx, ctx, rec) => {
+      const d = rec.data as { title: string; brand: string; stories: string[]; intro?: string };
+      if (!d.stories.length) throw new BadRequestException('Add at least one story');
+      const body = [d.intro ?? `This month at ${brandName[d.brand]}`, ...d.stories.map((s) => `• ${s}`), 'Change what we send you in your email settings.'].join('\n\n');
+      return sendToPanel(tx, ctx, rec.id, { brand: d.brand, segment: 'all', subject: d.title, body });
+    } },
+    cancel: { from: ['draft', 'review', 'scheduled', 'failed'], to: 'cancelled' },
+  },
+  due: { status: 'scheduled', action: 'send', at: (d) => d.sendAt },
 });

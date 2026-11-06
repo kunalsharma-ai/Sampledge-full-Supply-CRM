@@ -144,3 +144,45 @@ export class SupplyQuotasController {
     });
   }
 }
+
+/**
+ * Lifecycle journeys from recorded activity, per panel brand, for members who joined in the last
+ * `days` days (default 90). Stages SUPPLY360 records: Registered (joined), Profiled (profile at
+ * least 60% complete), First survey (started one), Active (completed one in the last 30 days),
+ * Loyal (3 or more completes). Visits and verification are not recorded here, so they are absent.
+ */
+@ForModule('panels')
+@Controller('supply/journeys')
+export class JourneysController {
+  constructor(private db: PrismaService) {}
+
+  @Get()
+  async get(@Caller() ctx: Ctx, @Query() q: unknown) {
+    const { days } = parse(z.object({ days: z.coerce.number().int().min(7).max(730).default(90) }).passthrough(), q);
+    const now = new Date();
+    const since = new Date(now.getTime() - days * day);
+    const active = new Date(now.getTime() - 30 * day);
+    type Row = { brand: string; registered: bigint; profiled: bigint; first: bigint; active: bigint; loyal: bigint; days_to_first: number | null };
+    const rows = await this.db.$queryRaw<Row[]>(Prisma.sql`
+      WITH m AS (
+        SELECT p.id, p.brand, p."joinedAt", p."profileCompletion",
+          (SELECT min(x."startedAt") FROM "Participation" x WHERE x."panelistId" = p.id AND x."tenantId" = p."tenantId") AS first_at,
+          (SELECT count(*) FROM "Participation" x WHERE x."panelistId" = p.id AND x."tenantId" = p."tenantId" AND x.status = 'complete') AS completes,
+          EXISTS (SELECT 1 FROM "Participation" x WHERE x."panelistId" = p.id AND x."tenantId" = p."tenantId" AND x.status = 'complete' AND coalesce(x."endedAt", x."startedAt") >= ${active}) AS recent
+        FROM "Panelist" p WHERE p."tenantId" = ${ctx.tenantId} AND p."joinedAt" >= ${since} AND p.status <> 'deletion_requested')
+      SELECT brand, count(*) AS registered, count(*) FILTER (WHERE "profileCompletion" >= 0.6) AS profiled,
+        count(*) FILTER (WHERE first_at IS NOT NULL) AS first, count(*) FILTER (WHERE recent) AS active, count(*) FILTER (WHERE completes >= 3) AS loyal,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM first_at - "joinedAt") / 86400) FILTER (WHERE first_at IS NOT NULL) AS days_to_first
+      FROM m GROUP BY brand`);
+    const short: Record<string, string> = { turn2opinion: 't2o', myfrequentrewards: 'mfr', myhealthopinions: 'mho' };
+    const panels = Object.fromEntries(Object.values(short).map((p) => [p, [0, 0, 0, 0, 0]]));
+    const medianDaysToFirst: Record<string, number | null> = Object.fromEntries(Object.values(short).map((p) => [p, null]));
+    for (const r of rows) {
+      const p = short[r.brand];
+      if (!p) continue;
+      panels[p] = [r.registered, r.profiled, r.first, r.active, r.loyal].map(Number);
+      medianDaysToFirst[p] = r.days_to_first == null ? null : Math.round(Number(r.days_to_first) * 10) / 10;
+    }
+    return { asOf: now.toISOString(), days, stages: ['Registered', 'Profiled', 'First survey', 'Active', 'Loyal'], notTracked: ['Visitor', 'Verified'], counts: panels, medianDaysToFirst };
+  }
+}
