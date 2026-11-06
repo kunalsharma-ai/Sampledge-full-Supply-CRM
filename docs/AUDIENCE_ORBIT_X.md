@@ -290,3 +290,17 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
    - Decisions stay in SampAudience, because approving, launching, batching and pausing need a SampAudience approver. Live screens therefore show a "Decide in SampAudience" link to the console (`SAMPLEON_CONSOLE_URL`, or `${SAMPLEON_URL}/console`) in place of the demo buttons. In `lib/supply/data.ts` those endpoints are marked `console`.
    - When `SAMPLEON_URL` and `SAMPLEON_SECRET` are not set, the screens keep their labelled demo data. Routing is "Partly demo data": the graph is a model, and the table under it holds the real counts.
    - Web mappers are in `lib/supply/sampaudience.ts`. Budget and CPI stay in SampTrek, so live screens show "—" or "In SampTrek" for them.
+12. **Communications (built)**: the e-mail designer, newsletter studio and lifecycle journeys work on real data.
+   - **E-mail campaigns** are `campaign` records (`EM-…`). Drafts autosave. "Send" checks the content again on the server (subject rules, a button, an unsubscribe or e-mail settings line). It then queues one Comms Hub message to `panel:<brand>:<active|dormant|all>`. That message has the same consent filtering and high-volume approval as any other send (`queueMessage` in `modules/comms.ts`), and it links back to the campaign (`relatedType` `SupplyRecord`).
+     - "Schedule" stores a send time.
+     - The audience count comes from `GET /comms/preview`.
+     - A/B subject tests and per-member send times need the delivery provider to split audiences and track opens. The live screen says so, and the server refuses a campaign that still has a subject B.
+   - **Newsletter issues** are `newsletter` records (`NL-…`): draft, review, scheduled, then sent. An issue needs a story before review. Sending goes to every consented member of the panel.
+   - **Scheduler**: a record kind can name a `due` action. The worker runs it once a minute for records whose time has passed (`SupplyRecordsService.runDue`), as "Scheduler". If it fails, the record moves to `failed` with the reason, and someone can fix it and send it again.
+   - **Lifecycle journeys**: `GET /supply/journeys?days=90|365` counts the stages SUPPLY360 records, per panel, for members who joined in the window:
+     - Registered
+     - Profiled: at least 60% of the profile
+     - First survey
+     - Active: a complete in the last 30 days
+     - Loyal: 3 or more completes
+     Visits and verification are not recorded, so live mode leaves them out. The automation lift figures are examples and are hidden live.

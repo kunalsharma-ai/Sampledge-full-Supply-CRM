@@ -103,3 +103,21 @@ export type LiveProject = {
 export const loadProjects = () => api<LiveProject[]>('/projects');
 export const closeQuota = (id: string, reason: string) => api<{ id: string; closedAt: string }>(`/supply/quotas/${id}/close`, { method: 'POST', body: { reason } });
 export const reopenQuota = (id: string) => api<{ id: string; closedAt: null }>(`/supply/quotas/${id}/reopen`, { method: 'POST' });
+
+/** Communications records (`campaign`, `newsletter`): sending queues a Comms Hub message. */
+export type SendState = { sendAt?: string; messageId?: string; recipients?: number; needsApproval?: boolean; sentAt?: string; error?: string };
+export type CampaignData = SendState & { name: string; brand: string; segment: 'active' | 'dormant' | 'all'; subjectA: string; subjectB?: string; split: number; blocks: { id: string; kind: 'heading' | 'text' | 'button' | 'image' | 'survey' | 'divider'; text: string }[] };
+export type NewsletterData = SendState & { title: string; brand: string; stories: string[]; intro?: string };
+/** `GET /comms/preview`: consent-filtered recipients for a panel segment. */
+export type CommsPreview = { recipients: number; label: string; needsApproval: boolean; threshold: number; adapter: string };
+export const previewPanel = (brand: string, segment: string) => api<CommsPreview>(`/comms/preview?audience=panel&target=${encodeURIComponent(`panel:${brand}:${segment}`)}`);
+export type LiveMessage = { id: string; status: string; recipients: number; deliveredAt: string | null; relatedId: string | null; error: string | null };
+export const loadMessages = () => api<LiveMessage[]>('/comms/messages?take=200');
+export const messageLabel: Record<string, string> = { pending_approval: 'Awaiting approval', queued: 'Queued', delivered_dev: 'Delivered (development adapter)', delivered: 'Delivered', failed: 'Failed', cancelled: 'Cancelled' };
+
+/** `GET /supply/journeys`: lifecycle stages counted for a joining cohort. */
+export type LiveJourneys = { asOf: string; days: number; stages: string[]; notTracked: string[]; counts: Record<'t2o' | 'mfr' | 'mho', number[]>; medianDaysToFirst: Record<string, number | null> };
+export const loadJourneys = (days = 90) => api<LiveJourneys>(`/supply/journeys?days=${days}`);
+/** Panel brand ids as the API stores them. */
+export const apiBrand: Record<'t2o' | 'mfr' | 'mho', string> = { t2o: 'turn2opinion', mfr: 'myfrequentrewards', mho: 'myhealthopinions' };
+export const brandFromApi: Record<string, 't2o' | 'mfr' | 'mho'> = { turn2opinion: 't2o', myfrequentrewards: 'mfr', myhealthopinions: 'mho' };

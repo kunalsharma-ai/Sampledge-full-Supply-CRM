@@ -25,6 +25,57 @@ const Compose = z.object({
 
 const fill = (text: string, vars: Record<string, string>) => text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`);
 
+type Db = Prisma.TransactionClient | PrismaService;
+
+/** Recipients a target resolves to, after consent filtering. */
+export async function resolveTarget(db: Db, ctx: Ctx, audience: string, target: string): Promise<{ recipients: number; label: string }> {
+  const [kind, a, b] = target.split(':');
+  if (kind !== audience && !(audience === 'internal' && kind === 'role')) throw new BadRequestException('Target does not match audience');
+  if (kind === 'client') {
+    const c = await db.client.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
+    if (!c) throw new BadRequestException('Unknown client');
+    return { recipients: 1, label: `${c.name} (primary contact)` };
+  }
+  if (kind === 'vendor') {
+    const v = await db.vendor.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
+    if (!v) throw new BadRequestException('Unknown vendor');
+    return { recipients: 1, label: `${v.name} (account contact)` };
+  }
+  if (kind === 'panel') {
+    const where: Prisma.PanelistWhereInput = {
+      tenantId: ctx.tenantId, brand: a, ...(b && b !== 'all' ? { status: b } : { status: { in: ['active', 'dormant'] } }),
+      NOT: { consents: { some: { purpose: 'marketing_email', granted: false } } },
+    };
+    return { recipients: await db.panelist.count({ where }), label: `${a} members (${b ?? 'active+dormant'}), consent-filtered` };
+  }
+  if (kind === 'role') return { recipients: await db.membership.count({ where: { tenantId: ctx.tenantId, role: a as never } }), label: `${a} team` };
+  throw new BadRequestException('Unknown target');
+}
+
+/**
+ * Writes one outbound message inside the caller's transaction: queued for the delivery worker, or
+ * held behind a 'High-volume communications' approval above HIGH_VOLUME recipients. The caller
+ * writes the audit entry.
+ */
+export async function queueMessage(
+  tx: Prisma.TransactionClient, ctx: Ctx,
+  b: { channel: string; audience: string; target: string; subject: string; body: string },
+  r: { recipients: number; label: string },
+  o: { agentId?: string; relatedType?: string; relatedId?: string } = {},
+) {
+  const big = r.recipients > HIGH_VOLUME;
+  const m = await tx.message.create({
+    data: { tenantId: ctx.tenantId, channel: b.channel, audience: b.audience, toRef: b.target, recipients: r.recipients, subject: b.subject, body: b.body, status: big ? 'pending_approval' : 'queued', createdBy: ctx.name, relatedType: o.relatedType, relatedId: o.relatedId },
+  });
+  if (big) {
+    const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'High-volume communications', ...(o.agentId ? { agentId: o.agentId } : {}), title: `${b.channel.toUpperCase()} "${b.subject}" to ${r.recipients.toLocaleString('en-US')} recipients (${r.label})`, requestedBy: ctx.userId, payload: { messageId: m.id } });
+    await tx.message.update({ where: { id: m.id }, data: { approvalId: ap.id } });
+  } else {
+    await emit(tx, ctx.tenantId, 'message.queued', { messageId: m.id });
+  }
+  return { message: m, recipients: r.recipients, needsApproval: big };
+}
+
 /**
  * Comms Hub. Every outbound message is a row with a status; delivery goes through the adapter in
  * delivery.ts (development adapter unless SMTP_* or SMS_* is set; see there). Panel sends count
@@ -50,29 +101,7 @@ export class CommsService {
   }
 
   /** Recipients a target resolves to, after consent filtering. */
-  async resolve(ctx: Ctx, audience: string, target: string): Promise<{ recipients: number; label: string }> {
-    const [kind, a, b] = target.split(':');
-    if (kind !== audience && !(audience === 'internal' && kind === 'role')) throw new BadRequestException('Target does not match audience');
-    if (kind === 'client') {
-      const c = await this.db.client.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
-      if (!c) throw new BadRequestException('Unknown client');
-      return { recipients: 1, label: `${c.name} (primary contact)` };
-    }
-    if (kind === 'vendor') {
-      const v = await this.db.vendor.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
-      if (!v) throw new BadRequestException('Unknown vendor');
-      return { recipients: 1, label: `${v.name} (account contact)` };
-    }
-    if (kind === 'panel') {
-      const where: Prisma.PanelistWhereInput = {
-        tenantId: ctx.tenantId, brand: a, ...(b && b !== 'all' ? { status: b } : { status: { in: ['active', 'dormant'] } }),
-        NOT: { consents: { some: { purpose: 'marketing_email', granted: false } } },
-      };
-      return { recipients: await this.db.panelist.count({ where }), label: `${a} members (${b ?? 'active+dormant'}), consent-filtered` };
-    }
-    if (kind === 'role') return { recipients: await this.db.membership.count({ where: { tenantId: ctx.tenantId, role: a as never } }), label: `${a} team` };
-    throw new BadRequestException('Unknown target');
-  }
+  resolve(ctx: Ctx, audience: string, target: string) { return resolveTarget(this.db, ctx, audience, target); }
 
   async preview(ctx: Ctx, audience: string, target: string) {
     const r = await this.resolve(ctx, audience, target);
@@ -86,18 +115,9 @@ export class CommsService {
     const r = await this.resolve(ctx, b.audience, b.target);
     if (r.recipients === 0) throw new BadRequestException('No eligible recipients (after consent filtering)');
     return this.db.$transaction(async (tx) => {
-      const big = r.recipients > HIGH_VOLUME;
-      const m = await tx.message.create({
-        data: { tenantId: ctx.tenantId, channel: b.channel, audience: b.audience, toRef: b.target, recipients: r.recipients, subject: b.subject, body: b.body, status: big ? 'pending_approval' : 'queued', createdBy: ctx.name },
-      });
-      if (big) {
-        const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'High-volume communications', title: `${b.channel.toUpperCase()} "${b.subject}" to ${r.recipients.toLocaleString('en-US')} recipients (${r.label})`, requestedBy: ctx.userId, payload: { messageId: m.id } });
-        await tx.message.update({ where: { id: m.id }, data: { approvalId: ap.id } });
-      } else {
-        await emit(tx, ctx.tenantId, 'message.queued', { messageId: m.id });
-      }
-      await this.audit.log(ctx, 'message.create', 'Message', m.id, undefined, { to: b.target, recipients: r.recipients, status: m.status }, tx);
-      return { message: m, recipients: r.recipients, needsApproval: big, adapter: deliveryAdapter.name };
+      const q = await queueMessage(tx, ctx, b, r);
+      await this.audit.log(ctx, 'message.create', 'Message', q.message.id, undefined, { to: b.target, recipients: r.recipients, status: q.message.status }, tx);
+      return { ...q, adapter: deliveryAdapter.name };
     });
   }
 
@@ -110,16 +130,9 @@ export class CommsService {
     const ctx: Ctx = { userId: `agent:${agent.id}`, sessionId: 'agent', tenantId: agent.tenantId, role: 'platform_admin', name: agent.name, email: '', vendorId: null, clientId: null };
     const r = await this.resolve(ctx, b.audience, b.target);
     if (r.recipients === 0) return null;
-    const big = r.recipients > HIGH_VOLUME;
-    const m = await tx.message.create({ data: { tenantId: ctx.tenantId, channel: b.channel, audience: b.audience, toRef: b.target, recipients: r.recipients, subject: b.subject, body: b.body, status: big ? 'pending_approval' : 'queued', createdBy: agent.name } });
-    if (big) {
-      const ap = await requestApproval(tx, { tenantId: ctx.tenantId, kind: 'High-volume communications', agentId: agent.id, title: `${b.channel.toUpperCase()} "${b.subject}" to ${r.recipients.toLocaleString('en-US')} recipients (${r.label})`, requestedBy: ctx.userId, payload: { messageId: m.id } });
-      await tx.message.update({ where: { id: m.id }, data: { approvalId: ap.id } });
-    } else {
-      await emit(tx, ctx.tenantId, 'message.queued', { messageId: m.id });
-    }
-    await this.audit.log(ctx, 'message.create', 'Message', m.id, undefined, { to: b.target, recipients: r.recipients, status: m.status, agent: agent.name }, tx);
-    return { message: m, recipients: r.recipients, needsApproval: big };
+    const q = await queueMessage(tx, ctx, b, r, { agentId: agent.id });
+    await this.audit.log(ctx, 'message.create', 'Message', q.message.id, undefined, { to: b.target, recipients: r.recipients, status: q.message.status, agent: agent.name }, tx);
+    return q;
   }
 
   async render(ctx: Ctx, key: string, vars: Record<string, string>) {

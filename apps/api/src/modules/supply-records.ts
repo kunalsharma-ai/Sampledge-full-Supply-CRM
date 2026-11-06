@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { AuditService } from '../common/audit.service';
 import { Caller, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
+import { asTenant } from '../common/tenant-scope';
 import { parse } from '../common/zod';
 
 type Tx = Prisma.TransactionClient;
@@ -49,6 +50,11 @@ export type RecordKind = {
   actions?: Record<string, RecordAction>;
   /** checks across records, e.g. one weekly programme entry per week */
   unique?: (d: Record<string, unknown>) => string | null;
+  /**
+   * An action the scheduler runs by itself: records in `status` whose `at(data)` time has passed
+   * get `action`, as "Scheduler" with platform admin rights, once a minute (see runDue).
+   */
+  due?: { status: string; action: string; at: (d: Record<string, unknown>) => unknown };
 };
 
 const kinds = new Map<string, RecordKind>();
@@ -147,6 +153,34 @@ export class SupplyRecordsService {
       await this.audit.log(ctx, `${kindId}.updated`, 'SupplyRecord', r.id, { data: r.data }, { data }, tx);
       return recordView(await tx.supplyRecord.findUniqueOrThrow({ where: { id: r.id } }));
     });
+  }
+
+  /**
+   * Runs the due scheduled actions across tenants (called by the worker once a minute). A record
+   * whose action fails (for example nobody is eligible any more) moves to `failed` with the error
+   * kept in its data, so it is not retried every minute; kinds with `due` list that status.
+   */
+  async runDue(now = new Date()) {
+    let ran = 0;
+    for (const [kindId, k] of kinds) {
+      if (!k.due) continue;
+      const rows = await this.db.supplyRecord.findMany({ where: { kind: kindId, status: k.due.status }, take: 200, orderBy: { updatedAt: 'asc' } });
+      for (const r of rows) {
+        const at = k.due.at(r.data as Record<string, unknown>);
+        if (typeof at !== 'string' || !(new Date(at) <= now)) continue;
+        const ctx: Ctx = { userId: 'system:scheduler', sessionId: 'scheduler', tenantId: r.tenantId, role: 'platform_admin', name: 'Scheduler', email: '', vendorId: null, clientId: null };
+        try {
+          await asTenant(r.tenantId, () => this.act(ctx, kindId, r.id, k.due!.action, { version: r.version }));
+          ran++;
+        } catch (e) {
+          await asTenant(r.tenantId, () => this.db.$transaction(async (tx) => {
+            const n = await tx.supplyRecord.updateMany({ where: { id: r.id, version: r.version }, data: { status: 'failed', data: { ...(r.data as object), error: e instanceof Error ? e.message.slice(0, 300) : 'failed' } as Prisma.InputJsonValue, version: { increment: 1 } } });
+            if (n.count) await this.audit.log(ctx, `${kindId}.failed`, 'SupplyRecord', r.id, { status: r.status }, { status: 'failed', error: e instanceof Error ? e.message : 'failed' }, tx);
+          }));
+        }
+      }
+    }
+    return ran;
   }
 
   async act(ctx: Ctx, kindId: string, id: string, action: string, body: unknown) {
