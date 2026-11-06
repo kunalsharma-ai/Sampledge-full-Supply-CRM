@@ -85,7 +85,7 @@ export default function Newsletters() {
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
         <Panel className="p-4">
-          <SectionTitle eyebrow={`${brandOf(sel.panel).name} · ${sel.owner}`} title={sel.title}
+          <SectionTitle help="Selected issue" eyebrow={`${brandOf(sel.panel).name} · ${sel.owner}`} title={sel.title}
             actions={<><StatusPill status={stages.find((s) => s.id === sel.status)!.status} label={stages.find((s) => s.id === sel.status)!.label} />
               {stages.find((s) => s.id === sel.status)!.next && <Button size="sm" onClick={() => advance(sel)}>{stages.find((s) => s.id === sel.status)!.next!.label} <ArrowRight size={13} /></Button>}</>} />
           <div className="grid gap-4 md:grid-cols-[1fr_220px]">

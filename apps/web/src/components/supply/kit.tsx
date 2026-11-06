@@ -6,16 +6,20 @@
 import Link from 'next/link';
 import { ArrowDownRight, ArrowUpRight, Info } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
+import { InfoTip } from '@/components/supply/info-tip';
+import { screenHelp, sectionHelp, slugFromPath } from '@/lib/supply/help';
 import { DemoBadge } from '@/components/ui/primitives';
 import { AnimatedNumber, Sparkline } from '@/components/ui/kpi';
 import { Tip } from '@/components/ui/overlay';
-import { brandColors, type Screen } from '@/lib/supply/screens';
+import { brandColors, screenBySlug, type Screen } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtMoney, fmtNum } from '@/lib/utils';
 import type { Source as DataSource } from '@/lib/supply/data';
 
 export function SupplyHeader({ screen, title, subtitle, actions, source = 'demo', children }: {
   screen?: Pick<Screen, 'group' | 'n'>; title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; source?: DataSource | 'mixed'; children?: ReactNode;
 }) {
+  const slug = slugFromPath(usePathname());
   return (
     <header className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
@@ -24,7 +28,10 @@ export function SupplyHeader({ screen, title, subtitle, actions, source = 'demo'
           {source === 'demo' && <DemoBadge label="Demo data" />}
           {source === 'mixed' && <DemoBadge label="Partly demo data" />}
         </div>
-        <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight md:text-[28px]">{title}</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight md:text-[28px]">{title}</h1>
+          <InfoTip entry={slug ? screenHelp(slug) : undefined} label={(slug && screenBySlug(slug)?.label) || (typeof title === 'string' ? title : 'this screen')} size="md" className="mt-1" />
+        </div>
         {subtitle && <p className="mt-1 max-w-2xl text-[13.5px] text-ink-2">{subtitle}</p>}
         {children}
       </div>
@@ -115,12 +122,17 @@ export function CountryChips({ codes, max = 3 }: { codes: string[]; max?: number
   );
 }
 
-export function SectionTitle({ title, eyebrow, actions, id }: { title: ReactNode; eyebrow?: ReactNode; actions?: ReactNode; id?: string }) {
+export function SectionTitle({ title, eyebrow, actions, id, help }: { title: ReactNode; eyebrow?: ReactNode; actions?: ReactNode; id?: string; help?: string }) {
+  const slug = slugFromPath(usePathname());
+  const info = sectionHelp(slug, help, typeof title === 'string' ? title : undefined, typeof eyebrow === 'string' ? eyebrow : undefined);
   return (
     <div className="mb-3 flex items-start justify-between gap-3">
       <div className="min-w-0">
         {eyebrow && <div className="eyebrow mb-0.5">{eyebrow}</div>}
-        <h2 id={id} className="font-display text-[15px] font-semibold tracking-tight">{title}</h2>
+        <div className="flex items-center gap-1">
+          <h2 id={id} className="font-display text-[15px] font-semibold tracking-tight">{title}</h2>
+          <InfoTip entry={info} label={typeof title === 'string' ? title : typeof eyebrow === 'string' ? eyebrow : 'this section'} />
+        </div>
       </div>
       {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
     </div>

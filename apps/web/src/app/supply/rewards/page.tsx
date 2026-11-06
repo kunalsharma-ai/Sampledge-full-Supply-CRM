@@ -17,6 +17,8 @@ import { StatusPill, type Status } from '@/components/ui/status';
 import { DataTable, type Column } from '@/components/ui/table';
 import { KpiTile, PanelChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { useSupplyData } from '@/lib/supply/data';
 import { loadLedger, type LiveLedgerEntry } from '@/lib/supply/live';
 import { ledger, liability, POINT_USD, reconciliation, type Tx, type TxType } from '@/lib/supply/operations';
@@ -91,7 +93,7 @@ export default function Rewards() {
       {isLive ? <LiveLedger rows={live.data!} /> : (
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-          <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Lock size={13} className="text-ink-3" /> Points ledger</span>
+          <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Lock size={13} className="text-ink-3" /> Points ledger</span><InfoTip entry={sectionHelp('rewards', 'Points ledger')} label="Points ledger" />
           <Badge tone="neutral">Append-only</Badge>
           <SearchInput value={q} onChange={setQ} placeholder="Transaction, handle or reference…" className="ml-auto w-64" />
           <Segmented label="Transaction type" size="sm" value={type} onChange={setType} options={[{ value: 'all', label: 'All' }, ...(['earn', 'bonus', 'redeem', 'reversal', 'expiry', 'adjust'] as const).map((t) => ({ value: t, label: t[0].toUpperCase() + t.slice(1) }))]} />
@@ -154,7 +156,7 @@ function LiveLedger({ rows }: { rows: LiveLedgerEntry[] }) {
   return (
     <Panel className="p-0">
       <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-        <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Lock size={13} className="text-ink-3" /> Points ledger</span>
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Lock size={13} className="text-ink-3" /> Points ledger</span><InfoTip entry={sectionHelp('rewards', 'Points ledger')} label="Points ledger" />
         <Badge tone="emerald">Live</Badge>
         <SearchInput value={q} onChange={setQ} placeholder="Handle, project or note…" className="ml-auto w-64" />
         <Segmented label="Entry type" size="sm" value={kind} onChange={setKind} options={[{ value: 'all', label: 'All' }, ...(['earn', 'redeem', 'adjust', 'expire'] as const).map((k) => ({ value: k, label: liveKind[k].label }))]} />

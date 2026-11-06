@@ -17,6 +17,8 @@ import { Badge, Button, Panel, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { InfoTip } from '@/components/supply/info-tip';
+import { sectionHelp } from '@/lib/supply/help';
 import { copilot, copilotStarters, type AnswerCard, type ContextChip, type CopilotReply, type ProposedAction } from '@/lib/supply/platform';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
@@ -68,7 +70,7 @@ export default function Copilot() {
             {turns.length === 0 && (
               <div className="mx-auto max-w-lg py-10 text-center">
                 <Sparkles size={28} className="mx-auto text-purple" aria-hidden />
-                <h2 className="mt-3 font-display text-lg font-semibold">What do you want to know?</h2>
+                <h2 className="mt-3 flex items-center justify-center gap-1 font-display text-lg font-semibold">What do you want to know?<InfoTip entry={sectionHelp('copilot', 'Ask')} label="Asking the copilot" /></h2>
                 <p className="mt-1 text-[13px] text-ink-3">Numbers come from the same data as the rest of SUPPLY360. Actions are only proposed; you approve them.</p>
                 <ul className="mt-5 grid gap-2 sm:grid-cols-2">{copilotStarters.map((s) => <li key={s}><button onClick={() => ask(s)} className="w-full rounded-xl border hairline px-3 py-2 text-left text-[12.5px] hover:border-primary/40 hover:bg-surface-2/50">{s}</button></li>)}</ul>
               </div>

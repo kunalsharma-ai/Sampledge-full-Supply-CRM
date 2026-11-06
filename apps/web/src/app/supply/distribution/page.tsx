@@ -62,7 +62,7 @@ function Distribution() {
 
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
         <Panel className="p-4">
-          <SectionTitle eyebrow={`At ${hh(hour)} UTC`} title={`${Math.round(awakeShare * 100)}% of the audience is inside its send window`}
+          <SectionTitle help="Map" eyebrow={`At ${hh(hour)} UTC`} title={`${Math.round(awakeShare * 100)}% of the audience is inside its send window`}
             actions={<Badge tone="neutral"><Sun size={11} /> 08:00–21:00 local</Badge>} />
           <div className="h-[340px]">
             <GeoMap ariaLabel="Audience by country, split by panel" selected={selected} onSelect={setSelected}

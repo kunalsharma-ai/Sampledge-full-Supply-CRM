@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  CircleHelp,
   Bell, Bot, Building2, ChartScatter, Check, ChevronRight, ChevronsLeft, Command, Database, Globe2, KanbanSquare, Keyboard, Landmark, Lock, Menu as Menu_, MessagesSquare,
   KeyRound, LogOut, Monitor, Orbit, Palette, Plug, RotateCcw, ShieldCheck, Sparkles, Target, Truck, Users, Workflow, Zap, ZapOff,
   type LucideIcon,
@@ -67,6 +68,10 @@ function Sidebar({ filterRef }: { filterRef: React.RefObject<HTMLInputElement | 
         <SupplyNav collapsed={collapsed} filterRef={filterRef} />
       </div>
       <div className="border-t hairline p-2">
+        <Link href="/supply/guide" aria-label={collapsed ? 'Guide: how SUPPLY360 fits together' : undefined} title={collapsed ? 'Guide' : undefined}
+          className={cn('mb-1 flex h-8 w-full items-center gap-2 rounded-lg px-3 text-[13px] text-ink-2 hover:bg-surface-2/60 hover:text-ink', collapsed && 'justify-center px-0')}>
+          <CircleHelp size={15} aria-hidden />{!collapsed && <span>Guide: what each screen is for</span>}
+        </Link>
         <Button variant="ghost" size="sm" className={cn('w-full', collapsed ? 'justify-center px-0' : 'justify-start')} onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title="Toggle sidebar ( [ )">
           <ChevronsLeft size={15} className={cn('transition-transform', collapsed && 'rotate-180')} />
           {!collapsed && <><span className="flex-1 text-left">Collapse</span><Kbd>[</Kbd></>}
