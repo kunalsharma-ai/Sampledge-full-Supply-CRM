@@ -5,6 +5,7 @@
 import { countries, extractRfq, parseQuestionnaire, suggestCodeframe } from '@sampledge/core';
 import { z } from 'zod/v4';
 import type { AiTask } from './gateway';
+import { supplyTasks } from './supply-tasks';
 
 const countryCodes = countries.map((c) => c.code);
 
@@ -154,4 +155,4 @@ export const openEndCodeframe: AiTask<{ question: string; answers: string[]; max
   rules: ({ answers, maxCodes }) => ({ codes: suggestCodeframe(answers, maxCodes) }),
 };
 
-export const tasks = [rfqExtract, questionnaireStructure, projectSummary, openEndCodeframe];
+export const tasks = [rfqExtract, questionnaireStructure, projectSummary, openEndCodeframe, ...supplyTasks];

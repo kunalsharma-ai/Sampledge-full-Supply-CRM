@@ -6,13 +6,20 @@
  * proposed-actions tray and waits for a person; medium- and high-risk actions ask for confirmation.
  * The context rail shows what the conversation is about (country, panel, segment) and is reused by
  * follow-up questions until cleared.
- * Integration: `POST /ai/copilot` through the AI gateway (planned); in demo mode answers come from a
- * local, deterministic router over the same seeded data the screens use.
+ * Live: `POST /supply/ai/copilot`. The AI gateway (a connected Claude model, or the rules) only works
+ * out which question it is and the country, panel and segment; every number is then counted from the
+ * database, so the model never invents a figure. The only change it can propose is a draft win-back
+ * e-mail, created as a draft campaign when approved. Demo: a local router over the seeded data.
  */
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowRight, Check, CornerDownLeft, Sparkles, Trash2, User, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { useSupplyData } from '@/lib/supply/data';
+import { panelBrands } from '@/lib/supply/demo';
+import { AI_SETUP, aiLabel, askCopilot, loadAiStatus, records, type AiMeta, type ApiCopilotAction, type ApiCopilotCard } from '@/lib/supply/live';
 import { Badge, Button, Panel, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
@@ -24,7 +31,9 @@ import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
 
 const screen = screenBySlug('copilot')!;
-type Turn = { id: string; q: string; a: CopilotReply | null };
+type Action = ProposedAction & { create?: ApiCopilotAction['create'] };
+type Turn = { id: string; q: string; a: (Omit<CopilotReply, 'actions'> & { actions: Action[]; ai?: AiMeta }) | null };
+const toCard = (c: ApiCopilotCard): AnswerCard => (c.kind === 'count' ? { ...c, breakdown: c.breakdown.map((b) => { const p = panelBrands.find((x) => x.id === b.panel)!; return { label: p.short, value: b.value, color: p.color }; }) } : c);
 const riskTone = { low: 'emerald', medium: 'warn', high: 'danger' } as const;
 
 export default function Copilot() {
@@ -33,9 +42,12 @@ export default function Copilot() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [ctx, setCtx] = useState<ContextChip[]>([]);
-  const [tray, setTray] = useState<ProposedAction[]>([]);
-  const [done, setDone] = useState<(ProposedAction & { verdict: 'approved' | 'dismissed' })[]>([]);
-  const [confirm, setConfirm] = useState<ProposedAction | null>(null);
+  const [tray, setTray] = useState<Action[]>([]);
+  const [done, setDone] = useState<(Action & { verdict: 'approved' | 'dismissed' })[]>([]);
+  const [confirm, setConfirm] = useState<Action | null>(null);
+  const status = useSupplyData('copilot:ai', () => null, loadAiStatus);
+  const live = status.source === 'live' ? status.data : null;
+  const router = useRouter();
   const end = useRef<HTMLDivElement>(null);
   const busy = turns.some((t) => !t.a);
 
@@ -47,22 +59,39 @@ export default function Copilot() {
     const id = `t-${Date.now()}`;
     setTurns((t) => [...t, { id, q: text, a: null }]);
     setInput('');
-    setTimeout(() => {
-      const a = copilot(text, ctx);
+    const land = (a: NonNullable<Turn['a']>) => {
       setTurns((t) => t.map((x) => (x.id === id ? { ...x, a } : x)));
       if (a.context.length) setCtx((c) => [...c.filter((x) => !a.context.some((n) => n.kind === x.kind)), ...a.context]);
       if (a.actions.length) setTray((l) => [...a.actions, ...l]);
-    }, reduced ? 50 : 650);
+    };
+    if (live) {
+      askCopilot(text, Object.fromEntries(ctx.filter((c) => c.kind === 'country' || c.kind === 'panel' || c.kind === 'segment').map((c) => [c.kind, c.value])))
+        .then((r) => land({ text: r.text, cards: r.cards.map(toCard), actions: r.actions, context: r.context, ai: r.ai }))
+        .catch((e) => land({ text: e instanceof ApiError ? `I could not answer that: ${e.message}` : 'I could not reach the server. Try again in a moment.', cards: [], actions: [], context: [] }));
+      return;
+    }
+    setTimeout(() => land(copilot(text, ctx)), reduced ? 50 : 650);
   };
-  const resolve = (a: ProposedAction, verdict: 'approved' | 'dismissed') => {
+  const resolve = async (a: Action, verdict: 'approved' | 'dismissed') => {
+    if (verdict === 'approved' && live) {
+      if (a.create) {
+        try { const r = await records.create(a.create.kind, a.create.data); toast(`${r.ref} created as a draft e-mail. Review and send it from E-mail campaigns.`, 'ok'); } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not create the draft', 'warn'); return; }
+      } else { router.push(a.href); }
+    }
     setTray((l) => l.filter((x) => x.id !== a.id));
     setDone((d) => [{ ...a, verdict }, ...d]);
-    toast(verdict === 'approved' ? `Approved: ${a.title}` : 'Dismissed', verdict === 'approved' ? 'ok' : 'info');
+    if (!live || verdict === 'dismissed') toast(verdict === 'approved' ? `Approved: ${a.title}` : 'Dismissed', verdict === 'approved' ? 'ok' : 'info');
   };
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="AI copilot" subtitle="Ask about audiences, fieldwork, rewards and quality. Answers link to where you can check them; anything that changes data waits for your approval." />
+      <SupplyHeader screen={screen} source={status.source} title="AI copilot" subtitle="Ask about audiences, fieldwork, rewards and quality. Answers link to where you can check them; anything that changes data waits for your approval." />
+      {live && (
+        <Panel className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-2xs text-ink-2">
+          <Badge tone={live.connected ? 'emerald' : 'neutral'}>{aiLabel(live)}</Badge>
+          <span>{live.connected ? `The model reads only your question; numbers are counted from the database. ${live.monthCalls} AI calls this month, $${live.monthSpendUsd} of the $${live.capUsd} cap.` : AI_SETUP}</span>
+        </Panel>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
         <Panel className="flex min-h-[620px] flex-col p-0">
@@ -85,6 +114,7 @@ export default function Copilot() {
                       <>
                         <p className="text-[13px] leading-relaxed">{t.a.text}</p>
                         {t.a.cards.map((c, i) => <Card key={i} c={c} />)}
+                        {t.a.ai && <p className="text-[10.5px] text-ink-3">{aiLabel(t.a.ai)}{t.a.ai.status !== 'ok' ? ` · ${t.a.ai.note}` : ''}</p>}
                         {t.a.actions.length > 0 && <p className="text-2xs text-ink-3">{t.a.actions.length === 1 ? 'One action is' : `${t.a.actions.length} actions are`} waiting in the tray for your approval.</p>}
                         {!t.a.cards.length && !t.a.actions.length && t.a.context.length === 0 && <div className="flex flex-wrap gap-1.5">{copilotStarters.slice(0, 4).map((s) => <button key={s} onClick={() => ask(s)} className="rounded-full border hairline px-2.5 py-1 text-2xs hover:border-primary/40">{s}</button>)}</div>}
                       </>
@@ -113,7 +143,7 @@ export default function Copilot() {
                     <p className="mt-1 text-2xs text-ink-3">{a.detail}</p>
                     <p className="mt-1 text-2xs text-ink-2">Impact: {a.impact}</p>
                     <div className="mt-2 flex gap-1.5">
-                      <Button size="xs" variant="success" onClick={() => (a.risk === 'low' ? resolve(a, 'approved') : setConfirm(a))}><Check size={12} /> Approve</Button>
+                      <Button size="xs" variant="success" onClick={() => (a.risk === 'low' ? void resolve(a, 'approved') : setConfirm(a))}><Check size={12} /> {live && !a.create ? 'Open' : 'Approve'}</Button>
                       <Button size="xs" variant="ghost" onClick={() => resolve(a, 'dismissed')}><X size={12} /> Dismiss</Button>
                     </div>
                   </motion.li>
@@ -144,7 +174,7 @@ export default function Copilot() {
 
       <ConfirmDialog open={!!confirm} onOpenChange={(v) => !v && setConfirm(null)} tone="primary" title="Approve this action?"
         body={confirm ? <><b>{confirm.title}</b><br />{confirm.detail}<br /><span className="text-ink-3">Impact: {confirm.impact}</span></> : ''}
-        confirmLabel="Approve" onConfirm={() => { if (confirm) resolve(confirm, 'approved'); setConfirm(null); }} />
+        confirmLabel={live && confirm?.create ? 'Create draft' : 'Approve'} onConfirm={() => { if (confirm) void resolve(confirm, 'approved'); setConfirm(null); }} />
     </div>
   );
 }
@@ -179,7 +209,7 @@ function Card({ c }: { c: AnswerCard }) {
     return (
       <section className="rounded-xl border hairline bg-surface-2/30 p-3">
         <div className="eyebrow mb-2">{c.title}</div>
-        <ul className="space-y-1">{c.bars.map((b) => <li key={b.label} className="flex items-center gap-2 text-[12px]"><span className="w-10 font-mono text-[11px] font-semibold">{b.label}</span><span className="h-2 flex-1 overflow-hidden rounded-full bg-ink-3/10"><span className="block h-full rounded-full bg-primary" style={{ width: `${(b.value / max) * 100}%` }} /></span><span className="num w-20 text-right">{c.unit === 'USD' ? `$${fmtNum(b.value)}` : fmtNum(b.value)}</span></li>)}</ul>
+        <ul className="space-y-1">{c.bars.map((b) => <li key={b.label} className="flex items-center gap-2 text-[12px]"><span className={cn('font-mono text-[11px] font-semibold', b.label.length > 3 ? 'w-36 truncate' : 'w-10')}>{b.label}</span><span className="h-2 flex-1 overflow-hidden rounded-full bg-ink-3/10"><span className="block h-full rounded-full bg-primary" style={{ width: `${(b.value / max) * 100}%` }} /></span><span className="num w-20 shrink-0 text-right">{c.unit === 'USD' ? `$${fmtNum(b.value)}` : fmtNum(b.value)}</span></li>)}</ul>
         <p className="mt-1.5 text-2xs text-ink-3">{c.note}</p>{link}
       </section>
     );
