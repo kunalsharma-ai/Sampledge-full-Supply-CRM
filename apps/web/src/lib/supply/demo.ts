@@ -132,7 +132,7 @@ export const activityFeed = Array.from({ length: 8 }, (_, i) => ({
   text: pick([
     'Batch 3 sent to 4,200 US panellists for AR-24137',
     'Quota 55+ closed on Streaming habits tracker',
-    'SampAudience accepted audience request from ZAPX survey ZX-S886',
+    'SampAudience accepted audience request from SampCode survey ZX-S886',
     'Redemption batch #882 paid (612 transactions)',
     'Profile nudge raised B2B completion by 3.2 pts',
     'Routing recovered 1,140 screen-outs into other surveys',
