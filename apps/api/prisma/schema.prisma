@@ -233,6 +233,8 @@ model QuotaCell {
   target    Int
   count     Int      @default(0)
   hard      Boolean  @default(true)
+  /// closed early by an operator: counts as full for routing until reopened
+  closedAt  DateTime?
   project   Project  @relation(fields: [projectId], references: [id])
 
   @@unique([surveyId, key])
@@ -887,4 +889,26 @@ model InboundEvent {
   type          String
   correlationId String
   receivedAt    DateTime @default(now())
+}
+
+/// SUPPLY360 working records that have no dedicated table: weekly programme weeks, saved reports,
+/// campaign drafts, journeys, support tickets, quality cases, workflows and the like. Each kind's
+/// shape, statuses and who may change it are defined in modules/supply-records.ts; every change is
+/// audited and `version` guards against two people overwriting each other.
+model SupplyRecord {
+  id          String   @id @default(cuid())
+  tenantId    String
+  kind        String
+  ref         String
+  status      String
+  title       String
+  data        Json     @default("{}")
+  version     Int      @default(1)
+  createdBy   String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@unique([tenantId, ref])
+  @@index([tenantId, kind, updatedAt])
 }

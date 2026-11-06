@@ -272,3 +272,12 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
    - `SupplyHeader` and `SectionTitle` look the help up from the current path. Custom headers pass `sectionHelp(slug, key)` to `InfoTip`.
    - `/supply/guide` lists every screen with the same text and has a search. It is linked from the sidebar and from every help panel.
    - The button is a real 24px button that opens a popover. It works with Enter and Escape, and focus returns to the button when the popover closes.
+10. **Working records, analytics facts, weekly programme and quota closing (built)**.
+   - **Working records**: `SupplyRecord` (migration `20261107090000_supply_records`) holds SUPPLY360 things with no dedicated table. Kinds are registered in `apps/api/src/modules/supply-kinds.ts` and served by `/supply/records/:kind` (`modules/supply-records.ts`).
+     - Each kind names the module whose role access applies. Reading needs any access, changing needs full access, and vendors and clients never see supply records.
+     - Each kind has a zod shape, statuses and allowed actions (status changes). An action can carry an effect that commits in the same transaction.
+     - Updates and actions send the version the person last saw; a stale version gets 409 instead of overwriting. Every create, update and action is an audit entry (entity `SupplyRecord`).
+     - Web: `records.list/get/create/update/act` in `lib/supply/live.ts`.
+   - **Analytics**: the report builder pivots `GET /supply/facts` (last 8 ISO weeks, one row per panel × country × week × source), counted from SampAudience sessions, survey cards, sign-ups and posted earn entries. Saved reports are `report` records, shared by the workspace; deleting one archives it.
+   - **Weekly rewards**: weeks are `weekly` records (one per ISO week: planned → scheduled → sent, or cancelled). `GET /supply/weekly-programme` adds invitations, completes and reward cost for weeks SampAudience ran, linked by audience request id. "Plan next week" adds the next free week.
+   - **Quota monitoring**: live projects in soft launch, full launch or fieldwork with their quota cells. "Close cell" asks for a reason and calls `POST /supply/quotas/:id/close`; the runtime then sends anyone who matches the cell to the over-quota end until `/reopen`. Incentive boosts and extra batches are SampAudience rules, and the screen says so when live.

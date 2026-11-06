@@ -3,16 +3,20 @@
  * Screen 18 · Weekly Rewards Surveys. A week strip across the top (sent, live, scheduled,
  * planned), programme health below it (uptake and cost per complete per week), and a template
  * carousel to assign a template to any week that has not gone out yet.
- * Integration: programme `GET/PUT /panels/weekly-programme` (planned); costs from the ledger.
+ * Live: weeks are `weekly` records (`/supply/records/weekly`); `GET /supply/weekly-programme` adds
+ * invitations, completes and reward cost for each week SampAudience ran (linked by audience request).
  */
 import { motion } from 'motion/react';
-import { CalendarHeart, Check, ChevronLeft, ChevronRight, Clock3 } from 'lucide-react';
+import { CalendarHeart, CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { EChart, axis } from '@/components/charts/echart';
 import { Badge, Button, Panel } from '@/components/ui/primitives';
 import { StatusPill, type Status } from '@/components/ui/status';
 import { KpiTile, SectionTitle, SupplyHeader } from '@/components/supply/kit';
+import { ApiError } from '@/lib/api';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadWeeklyProgramme, records, type LiveWeek, type WeeklyData } from '@/lib/supply/live';
 import { weeklyTemplates, weeks as seed, type Week } from '@/lib/supply/engagement';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtMoney, fmtNum } from '@/lib/utils';
@@ -20,21 +24,70 @@ import { cn, fmtMoney, fmtNum } from '@/lib/utils';
 const screen = screenBySlug('weekly-rewards')!;
 const pill: Record<Week['status'], Status> = { sent: 'completed', live: 'live', scheduled: 'scheduled', planned: 'draft' };
 
+type Row = Week & { rec?: LiveWeek };
+/** 2026-W46 → 202646 (sortable, unique across years). */
+const weekKey = (w: string) => Number(w.replace('-W', ''));
+const isoWeek = (d: Date) => {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const y = t.getUTCFullYear();
+  return `${y}-W${String(Math.ceil(((t.getTime() - Date.UTC(y, 0, 1)) / 86400_000 + 1) / 7)).padStart(2, '0')}`;
+};
+const toRow = (r: LiveWeek): Row => ({
+  week: weekKey(r.data.week), label: `Week ${Number(r.data.week.slice(-2))}`, rec: r,
+  status: r.status === 'sent' ? (r.data.week === isoWeek(new Date()) ? 'live' : 'sent') : (r.status as 'scheduled' | 'planned'),
+  template: r.data.template, invites: r.invites, completes: r.completes, cost: r.cost, topics: r.data.topics,
+});
+const ratio = (a: number, b: number) => (b ? a / b : 0);
+
 export default function WeeklyRewards() {
   const toast = useOS((s) => s.toast);
-  const [list, setList] = useState(seed);
-  const [selWeek, setSelWeek] = useState(seed.find((w) => w.status === 'scheduled')!.week);
+  const live = useOS((s) => s.mode === 'live' && !!s.session);
+  const q = useSupplyData<Row[] | null>('weekly-programme', () => null, async () => (await loadWeeklyProgramme()).filter((w) => w.status !== 'cancelled').map(toRow));
+  const [local, setLocal] = useState<Row[]>(seed);
+  const list: Row[] = live && q.data ? q.data : local;
+  const [selWeek, setSelWeek] = useState<number | null>(null);
   const carousel = useRef<HTMLUListElement>(null);
-  const sel = list.find((w) => w.week === selWeek)!;
-  const editable = sel.status === 'scheduled' || sel.status === 'planned';
+  const sel = list.find((w) => w.week === selWeek) ?? list.find((w) => w.status === 'scheduled') ?? list.find((w) => w.status === 'planned') ?? list[list.length - 1];
+  const editable = !!sel && (sel.status === 'scheduled' || sel.status === 'planned');
   const sent = list.filter((w) => w.status === 'sent');
-  const uptake = sent.map((w) => w.completes / w.invites);
-  const cpc = sent.map((w) => w.cost / w.completes);
+  const uptake = sent.map((w) => ratio(w.completes, w.invites));
+  const cpc = sent.map((w) => ratio(w.cost, w.completes));
   const last = sent[sent.length - 1], prev = sent[sent.length - 2];
+  const lastCpc = last ? ratio(last.cost, last.completes) : 0, prevCpc = prev ? ratio(prev.cost, prev.completes) : 0;
+
+  const fail = (e: unknown, what: string) => toast(e instanceof ApiError ? e.message : `Could not ${what}`, 'warn');
+  const planNext = async () => {
+    const lastKey = list.reduce((m, w) => Math.max(m, w.week), 0);
+    const now = isoWeek(new Date(Date.now() + 7 * 86400_000));
+    let week = now;
+    if (lastKey >= weekKey(now)) { const y = Math.floor(lastKey / 100), n = lastKey % 100; week = n >= 52 ? `${y + 1}-W01` : `${y}-W${String(n + 1).padStart(2, '0')}`; }
+    if (!live) { const k = weekKey(week); setLocal((l) => [...l, { week: k, label: `Week ${k % 100}`, status: 'planned', template: weeklyTemplates[0].name, invites: 0, completes: 0, cost: 0, topics: [] }]); setSelWeek(k); toast(`Planned week ${k % 100}`, 'ok'); return; }
+    try { const r = await records.create<WeeklyData>('weekly', { week, template: weeklyTemplates[0].name }); q.reload(); setSelWeek(weekKey(r.data.week)); toast(`Planned ${r.data.week} with ${r.data.template}`, 'ok'); } catch (e) { fail(e, 'plan the week'); }
+  };
+  const setTemplate = async (w: Row, template: string) => {
+    if (!live || !w.rec) { setLocal((l) => l.map((x) => (x.week === w.week ? { ...x, template } : x))); toast(`${w.label} will use ${template}`, 'ok'); return; }
+    try { await records.update<WeeklyData>('weekly', w.rec, { template }); q.reload(); toast(`${w.label} will use ${template}`, 'ok'); } catch (e) { fail(e, 'change the template'); }
+  };
+  const schedule = async (w: Row, on: boolean) => {
+    if (!live || !w.rec) { setLocal((l) => l.map((x) => (x.week === w.week ? { ...x, status: on ? 'scheduled' : 'planned' } : x))); toast(on ? `${w.label} is scheduled` : `${w.label} is back to planned`, 'ok'); return; }
+    try { await records.act('weekly', w.rec, on ? 'schedule' : 'unschedule'); q.reload(); toast(on ? `${w.label} is scheduled` : `${w.label} is back to planned`, 'ok'); } catch (e) { fail(e, 'change the week'); }
+  };
+
+  if (!sel) return (
+    <div className="space-y-4">
+      <SupplyHeader screen={screen} source={q.source} title="Weekly rewards surveys" subtitle="A short survey every week keeps members active between client studies. Choose what goes out each week and watch what it costs." />
+      <Panel className="grid place-items-center gap-3 p-10 text-center">
+        <CalendarHeart size={28} className="text-primary" aria-hidden />
+        <p className="max-w-md text-[13px] text-ink-2">No weeks are planned yet. Plan the next week, pick a template, then schedule it. SampAudience sends it and the numbers appear here once it runs.</p>
+        <Button variant="primary" size="sm" onClick={planNext}><CalendarPlus size={13} /> Plan next week</Button>
+      </Panel>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Weekly rewards surveys" subtitle="A short survey every week keeps members active between client studies. Choose what goes out each week and watch what it costs." />
+      <SupplyHeader screen={screen} source={q.source} actions={<Button size="sm" onClick={planNext}><CalendarPlus size={13} /> Plan next week</Button>} title="Weekly rewards surveys" subtitle="A short survey every week keeps members active between client studies. Choose what goes out each week and watch what it costs." />
 
       <ol className="grid grid-cols-2 gap-2 sm:grid-cols-5 xl:grid-cols-10" aria-label="Programme weeks">
         {list.map((w, i) => (
@@ -50,8 +103,8 @@ export default function WeeklyRewards() {
       </ol>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <KpiTile label="Uptake, last week" value={uptake[uptake.length - 1]} format="pct" delta={uptake[uptake.length - 1] - uptake[uptake.length - 2]} spark={uptake.map((u) => u * 100)} hint="Completes divided by invitations" />
-        <KpiTile label="Cost per complete" value={last.cost / last.completes} format="money" delta={(last.cost / last.completes - prev.cost / prev.completes) / (prev.cost / prev.completes)} good="down" spark={cpc} hint="Points paid, in dollars, per completed weekly survey" />
+        <KpiTile label="Uptake, last week" value={uptake[uptake.length - 1] ?? 0} format="pct" delta={uptake.length > 1 ? uptake[uptake.length - 1] - uptake[uptake.length - 2] : undefined} spark={uptake.map((u) => u * 100)} hint="Completes divided by invitations" />
+        <KpiTile label="Cost per complete" value={lastCpc} format="money" delta={prevCpc ? (lastCpc - prevCpc) / prevCpc : undefined} good="down" spark={cpc} hint="Points paid, in dollars, per completed weekly survey" />
         <KpiTile label="Members reached, 6 weeks" value={sent.reduce((a, w) => a + w.completes, 0)} format="compact" hint="Total weekly-survey completes across the last six sent weeks" />
       </div>
 
@@ -78,6 +131,8 @@ export default function WeeklyRewards() {
           </dl>
           <p className="mt-3 flex items-center gap-1.5 text-2xs text-ink-3"><Clock3 size={12} /> Sends Monday 09:00 local time; closes Sunday night.</p>
           {!editable && <p className="mt-1 text-2xs text-ink-3">This week has gone out, so its template is locked.</p>}
+          {sel.status === 'planned' && <Button size="sm" variant="primary" className="mt-3 w-full" onClick={() => schedule(sel, true)}>Schedule {sel.label}</Button>}
+          {sel.status === 'scheduled' && <Button size="sm" className="mt-3 w-full" onClick={() => schedule(sel, false)}>Move back to planned</Button>}
         </Panel>
       </div>
 
@@ -94,7 +149,7 @@ export default function WeeklyRewards() {
                   <p className="mt-2 flex-1 text-[12px] text-ink-2">{tp.desc}</p>
                   <div className="mt-2 text-2xs text-ink-3">{tp.questions} questions · about {tp.loi} min</div>
                   <Button size="xs" variant={on ? 'ghost' : 'primary'} className="mt-3" disabled={!editable || on}
-                    onClick={() => { setList((l) => l.map((w) => (w.week === sel.week ? { ...w, template: tp.name } : w))); toast(`${sel.label} will use ${tp.name}`, 'ok'); }}>
+                    onClick={() => setTemplate(sel, tp.name)}>
                     {on ? <><Check size={12} /> In use</> : 'Use this week'}
                   </Button>
                 </div>
