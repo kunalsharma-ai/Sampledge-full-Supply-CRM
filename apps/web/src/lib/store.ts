@@ -24,7 +24,8 @@ import {
   type ApiAgent, type ApiApproval, type ApiNotification, type ApiSurvey, type ApiSurveyDetail, type Session,
 } from './api';
 
-export type ThemePref = 'dark' | 'light' | 'system';
+import { normalizeTheme, type Density, type TextSize, type ThemePref } from './themes';
+export type { ThemePref } from './themes';
 
 type Notification = (typeof notificationsSeed)[number];
 type Approval = Omit<(typeof approvalsSeed)[number], 'projectId' | 'amount' | 'agentId'> & { projectId?: string; amount?: number; agentId?: string; canDecide?: boolean };
@@ -42,6 +43,11 @@ type State = {
   syncing: boolean;
   theme: ThemePref;
   motion: 'full' | 'reduced';
+  density: Density;
+  textSize: TextSize;
+  sidebarCollapsed: boolean;
+  /** Per-screen preferences that persist: saved views, visible columns, filter presets. */
+  prefs: Record<string, unknown>;
   role: Role;
   projects: Project[];
   opportunities: Opportunity[];
@@ -61,6 +67,10 @@ type State = {
 type Actions = {
   setTheme: (t: ThemePref) => void;
   setMotion: (m: State['motion']) => void;
+  setDensity: (d: Density) => void;
+  setTextSize: (t: TextSize) => void;
+  setSidebarCollapsed: (v: boolean) => void;
+  setPref: (key: string, value: unknown) => void;
   setRole: (r: Role) => void;
   setAssistant: (open: boolean) => void;
   setPalette: (open: boolean) => void;
@@ -85,7 +95,7 @@ type Actions = {
   signOut: () => Promise<void>;
 };
 
-const seed = (): Omit<State, 'theme' | 'motion' | 'role' | 'assistantOpen' | 'paletteOpen' | 'toasts' | 'mode' | 'session' | 'syncing'> => ({
+const seed = (): Omit<State, 'theme' | 'motion' | 'density' | 'textSize' | 'sidebarCollapsed' | 'prefs' | 'role' | 'assistantOpen' | 'paletteOpen' | 'toasts' | 'mode' | 'session' | 'syncing'> => ({
   vendors: [...vendorSeed],
   projects: structuredClone(projectSeed),
   opportunities: structuredClone(oppSeed),
@@ -125,8 +135,12 @@ export const useOS = create<State & Actions>()(
         mode: 'connecting',
         session: null,
         syncing: false,
-        theme: 'dark',
+        theme: 'cosmic',
         motion: 'full',
+        density: 'default',
+        textSize: 'md',
+        sidebarCollapsed: false,
+        prefs: {},
         role: 'executive',
         assistantOpen: false,
         paletteOpen: false,
@@ -134,6 +148,10 @@ export const useOS = create<State & Actions>()(
         ...seed(),
         setTheme: (theme) => set({ theme }),
         setMotion: (motion) => set({ motion }),
+        setDensity: (density) => set({ density }),
+        setTextSize: (textSize) => set({ textSize }),
+        setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+        setPref: (key, value) => set((s) => ({ prefs: { ...s.prefs, [key]: value } })),
         setRole: (role) => {
           if (!live()) return set({ role });
           // Live: switching role signs in as that role's demo account (dev convenience, NEXT_PUBLIC_DEMO_LOGINS).
@@ -367,16 +385,22 @@ export const useOS = create<State & Actions>()(
     },
     {
       name: 'sampledge-os-demo-v1',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       // Only preferences persist while signed in; server records are never cached in localStorage.
       // In offline mode the demo records persist as in Phase 2.
       partialize: (s) => {
         const { toasts, assistantOpen, paletteOpen, mode, session, syncing, ...rest } = s;
         void toasts; void assistantOpen; void paletteOpen; void session; void syncing;
-        return mode === 'offline' ? rest : { theme: s.theme, motion: s.motion };
+        const prefs = { theme: s.theme, motion: s.motion, density: s.density, textSize: s.textSize, sidebarCollapsed: s.sidebarCollapsed, prefs: s.prefs };
+        return mode === 'offline' ? { ...rest, ...prefs } : prefs;
       },
-      migrate: (persisted) => persisted as never,
+      // v4 (Audience Orbit X): 'dark'/'light' became the Cosmic and Bright Enterprise themes.
+      migrate: (persisted) => {
+        const p = (persisted ?? {}) as Record<string, unknown>;
+        return { ...p, theme: normalizeTheme(p.theme) } as never;
+      },
+      merge: (persisted, current) => ({ ...current, ...(persisted as object), theme: normalizeTheme((persisted as { theme?: unknown } | undefined)?.theme ?? current.theme) }),
     },
   ),
 );

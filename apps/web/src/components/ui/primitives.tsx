@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, FlaskConical, Inbox, Search, X } from 'lucide-react';
 import { forwardRef, useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { useOS } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -29,27 +30,27 @@ export function PanelHeader({ title, eyebrow, actions, className, info }: { titl
   );
 }
 
-// ───────────────────────── Button
-type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'outline' | 'subtle' | 'danger'; size?: 'sm' | 'md' | 'icon' };
-export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ className, variant = 'outline', size = 'md', ...p }, ref) {
-  return (
-    <button
-      ref={ref}
-      className={cn(
-        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-40',
-        size === 'sm' && 'h-8 px-3 text-xs',
-        size === 'md' && 'h-9 px-4 text-[13px]',
-        size === 'icon' && 'h-9 w-9',
-        variant === 'primary' && 'bg-gradient-to-r from-blue to-purple text-white shadow-glow hover:brightness-110 active:scale-[.98]',
-        variant === 'outline' && 'border hairline bg-surface-2/40 text-ink hover:border-blue/50 hover:bg-surface-2/80',
-        variant === 'ghost' && 'text-ink-2 hover:bg-surface-2/70 hover:text-ink',
-        variant === 'subtle' && 'bg-blue/10 text-blue hover:bg-blue/20',
-        variant === 'danger' && 'bg-danger/15 text-danger hover:bg-danger/25',
-        className,
-      )}
-      {...p}
-    />
-  );
+// ───────────────────────── Button (shadcn-style variants via cva)
+export const buttonVariants = cva(
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl font-medium transition-[background-color,border-color,color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-40 active:scale-[.98]',
+  {
+    variants: {
+      variant: {
+        primary: 'bg-gradient-to-r from-primary-strong to-primary-2 text-on-primary shadow-glow hover:brightness-110',
+        outline: 'border hairline bg-surface-2/40 text-ink hover:border-primary/50 hover:bg-surface-2/80',
+        ghost: 'text-ink-2 hover:bg-surface-2/70 hover:text-ink',
+        subtle: 'bg-primary/10 text-primary hover:bg-primary/20',
+        danger: 'bg-danger/15 text-danger hover:bg-danger/25',
+        success: 'bg-emerald/15 text-emerald hover:bg-emerald/25',
+      },
+      size: { xs: 'h-7 px-2.5 text-2xs', sm: 'h-8 px-3 text-xs', md: 'h-9 px-4 text-[13px]', icon: 'h-9 w-9', 'icon-sm': 'h-8 w-8' },
+    },
+    defaultVariants: { variant: 'outline', size: 'md' },
+  },
+);
+type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants>;
+export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ className, variant, size, ...p }, ref) {
+  return <button ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...p} />;
 });
 
 // ───────────────────────── Badge / status
@@ -117,7 +118,7 @@ export function Segmented<T extends string>({ value, onChange, options, size = '
 // ───────────────────────── Search
 export function SearchInput({ value, onChange, placeholder = 'Search…', className }: { value: string; onChange: (v: string) => void; placeholder?: string; className?: string }) {
   return (
-    <label className={cn('flex h-9 items-center gap-2 rounded-xl border hairline bg-surface-2/40 px-3 text-sm focus-within:border-blue/60', className)}>
+    <label className={cn('flex h-9 items-center gap-2 rounded-xl border hairline bg-surface-2/40 px-3 text-sm focus-within:border-primary/60', className)}>
       <Search size={14} className="text-ink-3" />
       <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-3" />
       {value && <button aria-label="Clear search" onClick={() => onChange('')}><X size={13} className="text-ink-3" /></button>}
@@ -134,7 +135,7 @@ export function Field({ label, children, hint }: { label: string; children: Reac
     </label>
   );
 }
-export const inputCls = 'h-9 w-full rounded-xl border hairline bg-surface-2/40 px-3 text-[13px] text-ink outline-none focus:border-blue/60';
+export const inputCls = 'h-9 w-full rounded-xl border hairline bg-surface-2/40 px-3 text-[13px] text-ink outline-none focus:border-primary/60 aria-[invalid=true]:border-danger/70';
 
 // ───────────────────────── States
 export function EmptyState({ title, body, action, icon }: { title: string; body?: string; action?: ReactNode; icon?: ReactNode }) {

@@ -1,5 +1,7 @@
 # Design system
 
+> **Superseded for SUPPLY360 by [Audience Orbit X](./AUDIENCE_ORBIT_X.md)** (six themes, semantic tokens, SUPPLY360 navigation). The notes below still describe the shared primitives.
+
 Live reference: `/design-system` in the running app.
 
 ## Principles
