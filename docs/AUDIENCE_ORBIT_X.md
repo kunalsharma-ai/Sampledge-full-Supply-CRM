@@ -304,3 +304,20 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
      - Active: a complete in the last 30 days
      - Loyal: 3 or more completes
      Visits and verification are not recorded, so live mode leaves them out. The automation lift figures are examples and are hidden live.
+13. **Support tickets and quality cases (built)**.
+   - **Support** tickets are `ticket` records (`TCK-…`, panels module). They can only be opened for a member of the workspace.
+     - "Reply" e-mails the member through the Comms Hub and moves the ticket to waiting. The new target is `panelist:<id>`: one recipient, transactional, and nothing goes to members who asked to be deleted.
+     - "From member" logs what the member wrote and reopens the ticket.
+     - Notes stay internal and keep the status.
+     - "Grant 50 points" posts a signed `adjust` entry on the ledger, with the ticket as the reason (at most 500 points).
+     - The SLA counts from when the ticket was opened: urgent 4 h, high 12 h, normal 24 h, low 72 h.
+     - Every step is an audit entry, and so are the message and the ledger entry.
+   - **Quality cases** are `quality_case` records (`QC-…`).
+     - "Open cases" (`POST /supply/quality/scan`) opens one for each active or dormant member whose risk (1 − quality score) is at or above the threshold and who has no open or watched case. It opens at most 200 per run.
+     - Suspend, clear and lift a suspension each need a reason. Suspending sets the member's status, and lifting it restores the earlier one. Both are audited on the member (`panelist.suspended` and `panelist.reinstated`).
+     - `GET /supply/quality/summary` gives the radar and the backtest:
+       - The radar is SampAudience session outcomes this week against last.
+       - The backtest shows recall and precision at each threshold, where a bad member is one with a quality-failed session or a suspension.
+       - The signal behind each quality fail (device, speeding, straight-lining) stays in SampAudience.
+   - Records gained three things used here: actions that keep the status (`to: '='`), a `check` hook on create and update, and a `log` helper so effects can audit what they change outside the record.
+   - `GET /panels/panelists` also takes `ids` (comma-separated) and `q` (part of a handle).

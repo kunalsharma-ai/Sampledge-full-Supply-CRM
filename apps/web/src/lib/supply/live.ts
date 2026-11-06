@@ -121,3 +121,30 @@ export const loadJourneys = (days = 90) => api<LiveJourneys>(`/supply/journeys?d
 /** Panel brand ids as the API stores them. */
 export const apiBrand: Record<'t2o' | 'mfr' | 'mho', string> = { t2o: 'turn2opinion', mfr: 'myfrequentrewards', mho: 'myhealthopinions' };
 export const brandFromApi: Record<string, 't2o' | 'mfr' | 'mho'> = { turn2opinion: 't2o', myfrequentrewards: 'mfr', myhealthopinions: 'mho' };
+
+/** Members by id or handle (`GET /panels/panelists?ids=` / `?q=`), in the API's shape. */
+export type ApiPanelist = { id: string; brand: string; handle: string; country: string; ageBand: string; gender: string; segment: string; status: string; qualityScore: number; points: number; profileCompletion: number; surveysCompleted: number; joinedAt: string; lastActiveAt: string | null };
+export const loadPanelistsByIds = async (ids: string[]) => (ids.length ? (await api<{ rows: ApiPanelist[] }>(`/panels/panelists?take=200&ids=${encodeURIComponent([...new Set(ids)].slice(0, 200).join(','))}`)).rows : []);
+export const searchPanelists = async (q: string) => (await api<{ rows: ApiPanelist[] }>(`/panels/panelists?take=8&q=${encodeURIComponent(q)}`)).rows;
+export const loadMemberLedger = (panelistId: string) => api<LiveLedgerEntry[]>(`/panels/ledger?take=5&panelistId=${encodeURIComponent(panelistId)}`);
+
+/** Support tickets (`ticket` records). */
+export type TicketMsg = { from: 'member' | 'agent' | 'note'; author: string; text: string; at: string };
+export type TicketData = { subject: string; category: 'Rewards' | 'Survey issue' | 'Account' | 'Privacy' | 'Technical'; priority: 'urgent' | 'high' | 'normal' | 'low'; channel: 'Email' | 'In app' | 'Chat' | 'Phone'; panelistId: string; messages: TicketMsg[] };
+/** Hours to the first answer by priority (same as the API's slaHours). */
+export const slaHours = { urgent: 4, high: 12, normal: 24, low: 72 } as const;
+
+/** Quality cases (`quality_case` records) and the quality summary. */
+export type QualityCaseData = { panelistId: string; rule: string; score: number; signals: string[]; note?: string; priorStatus?: string; decidedReason?: string };
+export type QualitySummary = {
+  asOf: string; members: number; bad: number; bands: number[]; cases: Record<string, number>;
+  outcomes: { thisWeek: { total: number; by: Record<string, number> }; lastWeek: { total: number; by: Record<string, number> } };
+  backtest: { threshold: number; flagged: number; recall: number; precision: number }[];
+};
+export const loadQualitySummary = () => api<QualitySummary>('/supply/quality/summary');
+export const scanQuality = (threshold: number) => api<{ opened: number; threshold: number; skipped: number }>('/supply/quality/scan', { method: 'POST', body: { threshold } });
+/** "3m ago" style time for ISO strings. */
+export const ago = (iso: string) => {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 48 * 60 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`;
+};

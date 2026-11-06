@@ -10,7 +10,12 @@ import { parse } from '../common/zod';
 const Brand = z.enum(['turn2opinion', 'myfrequentrewards', 'myhealthopinions']);
 const ListQuery = z.object({
   brand: Brand.optional(), status: z.enum(['active', 'dormant', 'suspended', 'deletion_requested']).optional(), country: z.string().length(2).optional(),
-  segment: z.string().optional(), skip: z.coerce.number().int().min(0).default(0), take: z.coerce.number().int().min(1).max(200).default(50),
+  segment: z.string().optional(),
+  /** comma-separated member ids (at most 200), e.g. the members behind a list of tickets */
+  ids: z.string().max(200 * 41).optional().transform((v) => (v ? v.split(',').filter(Boolean).slice(0, 200) : undefined)),
+  /** part of a pseudonymous handle */
+  q: z.string().trim().max(60).optional(),
+  skip: z.coerce.number().int().min(0).default(0), take: z.coerce.number().int().min(1).max(200).default(50),
 });
 const Purposes = ['research_participation', 'health_data', 'marketing_email'] as const;
 
@@ -39,7 +44,7 @@ export class PanelsService {
   }
 
   async list(ctx: Ctx, q: z.infer<typeof ListQuery>) {
-    const where = { tenantId: ctx.tenantId, ...(q.brand ? { brand: q.brand } : {}), ...(q.status ? { status: q.status } : {}), ...(q.country ? { country: q.country } : {}), ...(q.segment ? { segment: q.segment } : {}) };
+    const where = { tenantId: ctx.tenantId, ...(q.brand ? { brand: q.brand } : {}), ...(q.status ? { status: q.status } : {}), ...(q.country ? { country: q.country } : {}), ...(q.segment ? { segment: q.segment } : {}), ...(q.ids ? { id: { in: q.ids } } : {}), ...(q.q ? { handle: { contains: q.q, mode: 'insensitive' as const } } : {}) };
     const [total, rows] = await Promise.all([this.db.panelist.count({ where }), this.db.panelist.findMany({ where, skip: q.skip, take: q.take, orderBy: { handle: 'asc' } })]);
     return { total, rows };
   }

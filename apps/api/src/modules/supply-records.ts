@@ -29,12 +29,15 @@ type Tx = Prisma.TransactionClient;
 export type RecordAction = {
   /** statuses the action can start from */
   from: string[];
+  /** the status after the action; '=' keeps the current one (a note, a goodwill grant) */
   to: string;
   /** extra body the action takes (validated), e.g. a reason */
   body?: z.ZodType<Record<string, unknown>>;
   /** runs in the action's transaction; may return data fields to merge into the record */
-  effect?: (tx: Tx, ctx: Ctx, rec: SupplyRecord, body: Record<string, unknown>) => Promise<Record<string, unknown> | void>;
+  effect?: (tx: Tx, ctx: Ctx, rec: SupplyRecord, body: Record<string, unknown>, log: EffectLog) => Promise<Record<string, unknown> | void>;
 };
+/** An extra audit entry an effect writes for what it changed outside the record (e.g. a panellist). */
+export type EffectLog = (action: string, entity: string, entityId: string, before: unknown, after: unknown) => Promise<unknown>;
 export type RecordKind = {
   label: string;
   module: ModuleId;
@@ -50,6 +53,8 @@ export type RecordKind = {
   actions?: Record<string, RecordAction>;
   /** checks across records, e.g. one weekly programme entry per week */
   unique?: (d: Record<string, unknown>) => string | null;
+  /** checks against other tables on create and update, e.g. that a panellist exists in this workspace */
+  check?: (tx: Tx, ctx: Ctx, d: Record<string, unknown>) => Promise<void>;
   /**
    * An action the scheduler runs by itself: records in `status` whose `at(data)` time has passed
    * get `action`, as "Scheduler" with platform admin rights, once a minute (see runDue).
@@ -131,6 +136,7 @@ export class SupplyRecordsService {
     const status = k.initial;
     const run = async (t: Tx) => {
       await this.unique(t, ctx, kindId, k, data);
+      await k.check?.(t, ctx, data);
       const r = await t.supplyRecord.create({ data: { tenantId: ctx.tenantId, kind: kindId, ref: await this.nextRef(t, ctx.tenantId, k.prefix), status, title: k.title(data).slice(0, 200), data: data as Prisma.InputJsonValue, createdBy: ctx.name, createdById: ctx.userId } });
       await this.audit.log(ctx, `${kindId}.created`, 'SupplyRecord', r.id, null, { ref: r.ref, status, data }, t);
       return recordView(r);
@@ -148,6 +154,7 @@ export class SupplyRecordsService {
       if (!editable.includes(r.status)) throw new BadRequestException(`A ${r.status} ${k.label.toLowerCase()} can no longer be edited`);
       const data = this.check(k, { ...(r.data as object), ...b.data });
       await this.unique(tx, ctx, kindId, k, data, r.id);
+      await k.check?.(tx, ctx, data);
       const n = await tx.supplyRecord.updateMany({ where: { id: r.id, version: r.version }, data: { data: data as Prisma.InputJsonValue, title: k.title(data).slice(0, 200), version: { increment: 1 } } });
       if (!n.count) throw new ConflictException('Changed by someone else just now; reload to see the latest');
       await this.audit.log(ctx, `${kindId}.updated`, 'SupplyRecord', r.id, { data: r.data }, { data }, tx);
@@ -193,11 +200,13 @@ export class SupplyRecordsService {
       const r = await tx.supplyRecord.findFirst({ where: { tenantId: ctx.tenantId, kind: kindId, id } });
       if (!r) throw new NotFoundException('Record not found');
       if (r.version !== version) throw new ConflictException(`${r.ref} was changed since you opened it; reload to see the latest`);
-      if (!a.from.includes(r.status)) throw new BadRequestException(`A ${r.status} ${k.label.toLowerCase()} cannot be ${a.to}`);
-      const merged = { ...(r.data as object), ...((await a.effect?.(tx, ctx, r, extra)) ?? {}) };
-      const n = await tx.supplyRecord.updateMany({ where: { id: r.id, version: r.version }, data: { status: a.to, data: merged as Prisma.InputJsonValue, version: { increment: 1 } } });
+      const to = a.to === '=' ? r.status : a.to;
+      if (!a.from.includes(r.status)) throw new BadRequestException(a.to === '=' ? `Not possible on a ${r.status} ${k.label.toLowerCase()}` : `A ${r.status} ${k.label.toLowerCase()} cannot be ${a.to}`);
+      const log: EffectLog = (act, entity, entityId, before, after) => this.audit.log(ctx, act, entity, entityId, before, after, tx);
+      const merged = { ...(r.data as object), ...((await a.effect?.(tx, ctx, r, extra, log)) ?? {}) };
+      const n = await tx.supplyRecord.updateMany({ where: { id: r.id, version: r.version }, data: { status: to, data: merged as Prisma.InputJsonValue, version: { increment: 1 } } });
       if (!n.count) throw new ConflictException('Changed by someone else just now; reload to see the latest');
-      await this.audit.log(ctx, `${kindId}.${action}`, 'SupplyRecord', r.id, { status: r.status }, { status: a.to, ...extra }, tx);
+      await this.audit.log(ctx, `${kindId}.${action}`, 'SupplyRecord', r.id, { status: r.status }, { status: to, ...extra }, tx);
       return recordView(await tx.supplyRecord.findUniqueOrThrow({ where: { id: r.id } }));
     });
   }

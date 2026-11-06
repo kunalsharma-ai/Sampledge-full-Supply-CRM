@@ -157,3 +157,118 @@ registerKind('newsletter', {
   },
   due: { status: 'scheduled', action: 'send', at: (d) => d.sendAt },
 });
+
+// ───────────────────────── Support tickets (panels)
+type Tx = Parameters<NonNullable<RecordAction['effect']>>[0];
+type EffectCtx = Parameters<NonNullable<RecordAction['effect']>>[1];
+const panelistIn = async (tx: Tx, ctx: EffectCtx, id: unknown) => {
+  const p = await tx.panelist.findFirst({ where: { id: String(id), tenantId: ctx.tenantId } });
+  if (!p) throw new BadRequestException('No such panel member in this workspace');
+  return p;
+};
+const msg = z.object({ from: z.enum(['member', 'agent', 'note']), author: z.string().max(120), text: z.string().max(5000), at: z.string().max(40) }).strict();
+type Msg = z.infer<typeof msg>;
+const text = z.object({ text: z.string().trim().min(1, 'Write something first').max(5000) }).strict();
+const author = (ctx: EffectCtx) => ctx.name.replace(/ \(Demo\)$/, '');
+const append = (rec: { data: unknown }, m: Omit<Msg, 'at'>) => ({ messages: [...((rec.data as { messages?: Msg[] }).messages ?? []), { ...m, at: new Date().toISOString() }] });
+/** Hours to the first answer, by priority; the screen counts the SLA from when the ticket was opened. */
+export const slaHours = { urgent: 4, high: 12, normal: 24, low: 72 } as const;
+
+const reply = (solve: boolean): RecordAction => ({
+  from: ['new', 'open', 'waiting'], to: solve ? 'solved' : 'waiting', body: text,
+  effect: async (tx, ctx, rec, b, log) => {
+    const d = rec.data as { subject: string; panelistId: string };
+    const target = `panelist:${d.panelistId}`;
+    const r = await resolveTarget(tx, ctx, 'panel', target);
+    if (!r.recipients) throw new BadRequestException('This member asked to be deleted; record a note instead of replying');
+    const q = await queueMessage(tx, ctx, { channel: 'email', audience: 'panel', target, subject: `Re: ${d.subject} [${rec.ref}]`, body: String(b.text) }, r, { relatedType: 'SupplyRecord', relatedId: rec.id });
+    await log('message.create', 'Message', q.message.id, undefined, { to: target, recipients: 1, status: q.message.status, ticket: rec.ref });
+    return append(rec, { from: 'agent', author: `${author(ctx)} (Support)`, text: String(b.text) });
+  },
+});
+registerKind('ticket', {
+  label: 'Support ticket', module: 'panels', prefix: 'TCK',
+  data: z.object({
+    subject: z.string().trim().min(3).max(160),
+    category: z.enum(['Rewards', 'Survey issue', 'Account', 'Privacy', 'Technical']),
+    priority: z.enum(['urgent', 'high', 'normal', 'low']).default('normal'),
+    channel: z.enum(['Email', 'In app', 'Chat', 'Phone']).default('Email'),
+    /** pseudonymous member id; replies go to them through the Comms Hub */
+    panelistId: z.string().min(1).max(40),
+    messages: z.array(msg).max(200).default([]),
+  }).strict(),
+  title: (d) => String(d.subject),
+  check: async (tx, ctx, d) => { await panelistIn(tx, ctx, d.panelistId); },
+  statuses: ['new', 'open', 'waiting', 'solved'], initial: 'new', editableIn: ['new', 'open', 'waiting'],
+  actions: {
+    reply: reply(false),
+    reply_solve: reply(true),
+    note: { from: ['new', 'open', 'waiting', 'solved'], to: '=', body: text, effect: async (_tx, ctx, rec, b) => append(rec, { from: 'note', author: author(ctx), text: String(b.text) }) },
+    /** what the member wrote, logged by the team (e-mail, phone or chat) */
+    member: { from: ['new', 'open', 'waiting', 'solved'], to: 'open', body: text, effect: async (tx, ctx, rec, b) => append(rec, { from: 'member', author: (await panelistIn(tx, ctx, (rec.data as { panelistId: string }).panelistId)).handle, text: String(b.text) }) },
+    open: { from: ['new', 'waiting'], to: 'open' },
+    wait: { from: ['new', 'open'], to: 'waiting' },
+    solve: { from: ['new', 'open', 'waiting'], to: 'solved' },
+    reopen: { from: ['solved'], to: 'open' },
+    /** a signed points adjustment on the member's ledger with the ticket as the reason; reversible only by another adjustment */
+    goodwill: {
+      from: ['new', 'open', 'waiting'], to: '=', body: z.object({ points: z.number().int().min(1).max(500) }).strict(),
+      effect: async (tx, ctx, rec, b, log) => {
+        const p = await panelistIn(tx, ctx, (rec.data as { panelistId: string }).panelistId);
+        const points = Number(b.points);
+        const t = await tx.tenant.findUniqueOrThrow({ where: { id: ctx.tenantId }, select: { pointValue: true } });
+        const e = await tx.incentiveEntry.create({ data: { tenantId: ctx.tenantId, panelistId: p.id, kind: 'adjust', points, valueBase: Math.round(points * t.pointValue * 100) / 100, note: `Goodwill, support ticket ${rec.ref}`, createdBy: ctx.name } });
+        await tx.panelist.update({ where: { id: p.id }, data: { points: { increment: points } } });
+        await log('incentive.adjust', 'IncentiveEntry', e.id, { points: p.points }, { panelist: p.handle, points: p.points + points, delta: points, ticket: rec.ref });
+        return append(rec, { from: 'note', author: author(ctx), text: `Granted ${points} goodwill points (ledger adjustment).` });
+      },
+    },
+  },
+});
+
+// ───────────────────────── Quality cases (panels)
+registerKind('quality_case', {
+  label: 'Quality case', module: 'panels', prefix: 'QC',
+  data: z.object({
+    panelistId: z.string().min(1).max(40),
+    /** what opened the case, e.g. "Quality score below 35" */
+    rule: z.string().trim().min(3).max(120),
+    /** risk at opening: 1 - the member's quality score */
+    score: z.number().min(0).max(1),
+    signals: z.array(z.string().trim().max(60)).max(10).default([]),
+    note: z.string().trim().max(1000).optional(),
+    /** set when suspended, so lifting the suspension restores it */
+    priorStatus: z.enum(['active', 'dormant']).optional(),
+    decidedReason: z.string().max(500).optional(),
+  }).strict(),
+  title: (d) => String(d.rule),
+  check: async (tx, ctx, d) => { await panelistIn(tx, ctx, d.panelistId); },
+  statuses: ['open', 'watching', 'suspended', 'cleared'], initial: 'open', editableIn: ['open', 'watching'],
+  actions: {
+    watch: { from: ['open'], to: 'watching' },
+    suspend: {
+      from: ['open', 'watching'], to: 'suspended', body: z.object({ reason: z.string().trim().min(3, 'Say why').max(500) }).strict(),
+      effect: async (tx, ctx, rec, b, log) => {
+        const p = await panelistIn(tx, ctx, (rec.data as { panelistId: string }).panelistId);
+        if (p.status !== 'active' && p.status !== 'dormant') throw new BadRequestException(`${p.handle} is ${p.status.replace('_', ' ')}, so cannot be suspended here`);
+        await tx.panelist.update({ where: { id: p.id }, data: { status: 'suspended' } });
+        await log('panelist.suspended', 'Panelist', p.id, { status: p.status }, { status: 'suspended', reason: b.reason, case: rec.ref });
+        return { priorStatus: p.status as 'active' | 'dormant', decidedReason: String(b.reason) };
+      },
+    },
+    clear: { from: ['open', 'watching'], to: 'cleared', body: z.object({ reason: z.string().trim().min(3, 'Say why').max(500) }).strict(), effect: async (_tx, _ctx, _r, b) => ({ decidedReason: String(b.reason) }) },
+    reinstate: {
+      from: ['suspended'], to: 'cleared', body: z.object({ reason: z.string().trim().min(3, 'Say why').max(500) }).strict(),
+      effect: async (tx, ctx, rec, b, log) => {
+        const d = rec.data as { panelistId: string; priorStatus?: 'active' | 'dormant' };
+        const p = await panelistIn(tx, ctx, d.panelistId);
+        if (p.status === 'suspended') {
+          await tx.panelist.update({ where: { id: p.id }, data: { status: d.priorStatus ?? 'active' } });
+          await log('panelist.reinstated', 'Panelist', p.id, { status: 'suspended' }, { status: d.priorStatus ?? 'active', reason: b.reason, case: rec.ref });
+        }
+        return { decidedReason: String(b.reason) };
+      },
+    },
+    reopen: { from: ['cleared'], to: 'open' },
+  },
+});
