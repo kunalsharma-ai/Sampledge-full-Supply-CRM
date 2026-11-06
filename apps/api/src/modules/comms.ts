@@ -30,7 +30,7 @@ type Db = Prisma.TransactionClient | PrismaService;
 /** Recipients a target resolves to, after consent filtering. */
 export async function resolveTarget(db: Db, ctx: Ctx, audience: string, target: string): Promise<{ recipients: number; label: string }> {
   const [kind, a, b] = target.split(':');
-  if (kind !== audience && !(audience === 'internal' && kind === 'role')) throw new BadRequestException('Target does not match audience');
+  if (kind !== audience && !(audience === 'internal' && kind === 'role') && !(audience === 'panel' && kind === 'panelist')) throw new BadRequestException('Target does not match audience');
   if (kind === 'client') {
     const c = await db.client.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
     if (!c) throw new BadRequestException('Unknown client');
@@ -40,6 +40,13 @@ export async function resolveTarget(db: Db, ctx: Ctx, audience: string, target: 
     const v = await db.vendor.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
     if (!v) throw new BadRequestException('Unknown vendor');
     return { recipients: 1, label: `${v.name} (account contact)` };
+  }
+  // One member, for a support reply: transactional, so marketing consent does not apply, but
+  // members who asked to be deleted get nothing.
+  if (kind === 'panelist' && audience === 'panel') {
+    const p = await db.panelist.findFirst({ where: { id: a, tenantId: ctx.tenantId }, select: { handle: true, status: true } });
+    if (!p) throw new BadRequestException('Unknown panel member');
+    return { recipients: p.status === 'deletion_requested' ? 0 : 1, label: `${p.handle} (support reply)` };
   }
   if (kind === 'panel') {
     const where: Prisma.PanelistWhereInput = {

@@ -17,7 +17,7 @@ import { AuditService } from '../common/audit.service';
 import { Caller, ForModule, Write, type Ctx } from '../common/context';
 import { PrismaService } from '../common/prisma.service';
 import { parse } from '../common/zod';
-import { recordView } from './supply-records';
+import { recordView, SupplyRecordsService } from './supply-records';
 
 const SHORT: Record<string, string> = { turn2opinion: 'T2O', myfrequentrewards: 'MFR', myhealthopinions: 'MHO' };
 const day = 86400_000;
@@ -184,5 +184,71 @@ export class JourneysController {
       medianDaysToFirst[p] = r.days_to_first == null ? null : Math.round(Number(r.days_to_first) * 10) / 10;
     }
     return { asOf: now.toISOString(), days, stages: ['Registered', 'Profiled', 'First survey', 'Active', 'Loyal'], notTracked: ['Visitor', 'Verified'], counts: panels, medianDaysToFirst };
+  }
+}
+
+/**
+ * Quality & risk from recorded data. Risk is 1 − a member's quality score.
+ * - `GET /supply/quality/summary`: SampAudience session outcomes this week against last; members
+ *   by risk band; and a backtest at each threshold. "Bad" means a member who has a quality-failed
+ *   session or is suspended. Recall is the share of bad members a threshold flags, and precision is
+ *   the share of flagged members who are bad.
+ * - `POST /supply/quality/scan`: opens a `quality_case` for each active or dormant member at or
+ *   above the risk threshold who has no open or watched case yet (at most 200 per scan). Each case
+ *   is its own audited record.
+ */
+@ForModule('panels')
+@Controller('supply/quality')
+export class SupplyQualityController {
+  constructor(private db: PrismaService, private records: SupplyRecordsService) {}
+
+  @Get('summary')
+  async summary(@Caller() ctx: Ctx) {
+    const t = ctx.tenantId;
+    const now = Date.now();
+    const thisWeek = new Date(now - 7 * day), lastWeek = new Date(now - 14 * day);
+    const [outcomes, members, cases] = await Promise.all([
+      this.db.$queryRaw<{ status: string; recent: boolean; n: bigint }[]>(Prisma.sql`SELECT status, "startedAt" >= ${thisWeek} AS recent, count(*) AS n FROM "Participation"
+        WHERE "tenantId" = ${t} AND "startedAt" >= ${lastWeek} GROUP BY 1, 2`),
+      this.db.$queryRaw<{ risk: number; bad: boolean }[]>(Prisma.sql`SELECT 1 - p."qualityScore" AS risk,
+        (p.status = 'suspended' OR EXISTS (SELECT 1 FROM "Participation" x WHERE x."panelistId" = p.id AND x."tenantId" = p."tenantId" AND x.status = 'quality_fail')) AS bad
+        FROM "Panelist" p WHERE p."tenantId" = ${t} AND p.status <> 'deletion_requested'`),
+      this.db.supplyRecord.groupBy({ by: ['status'], where: { tenantId: t, kind: 'quality_case' }, _count: true }),
+    ]);
+    const share = (recent: boolean) => {
+      const rows = outcomes.filter((o) => o.recent === recent);
+      const total = rows.reduce((a, o) => a + Number(o.n), 0);
+      return { total, by: Object.fromEntries(rows.map((o) => [o.status, total ? Number(o.n) / total : 0])) };
+    };
+    const bad = members.filter((m) => m.bad).length;
+    const thresholds = Array.from({ length: 11 }, (_, i) => Math.round((0.1 + i * 0.05) * 100) / 100);
+    const backtest = thresholds.map((th) => {
+      const flagged = members.filter((m) => m.risk >= th);
+      const hit = flagged.filter((m) => m.bad).length;
+      return { threshold: th, flagged: flagged.length, recall: bad ? hit / bad : 0, precision: flagged.length ? hit / flagged.length : 0 };
+    });
+    const bands = Array.from({ length: 10 }, (_, i) => members.filter((m) => m.risk >= i / 10 && (i === 9 ? m.risk <= 1 : m.risk < (i + 1) / 10)).length);
+    return { asOf: new Date(now).toISOString(), outcomes: { thisWeek: share(true), lastWeek: share(false) }, members: members.length, bad, bands, backtest, cases: Object.fromEntries(cases.map((c) => [c.status, c._count])) };
+  }
+
+  @Post('scan')
+  @Write()
+  @HttpCode(200)
+  async scan(@Caller() ctx: Ctx, @Body() body: unknown) {
+    const { threshold } = parse(z.object({ threshold: z.number().min(0.1).max(0.95) }).strict(), body);
+    this.records.kind(ctx, 'quality_case', true);
+    const open = await this.db.supplyRecord.findMany({ where: { tenantId: ctx.tenantId, kind: 'quality_case', status: { in: ['open', 'watching'] } }, select: { data: true } });
+    const busy = new Set(open.map((o) => (o.data as { panelistId: string }).panelistId));
+    const due = (await this.db.panelist.findMany({ where: { tenantId: ctx.tenantId, status: { in: ['active', 'dormant'] }, qualityScore: { lte: 1 - threshold } }, orderBy: { qualityScore: 'asc' }, take: 400, select: { id: true, qualityScore: true } }))
+      .filter((p) => !busy.has(p.id)).slice(0, 200);
+    const fails = new Set((await this.db.participation.findMany({ where: { tenantId: ctx.tenantId, panelistId: { in: due.map((p) => p.id) }, status: 'quality_fail' }, select: { panelistId: true } })).map((x) => x.panelistId));
+    const rule = `Risk ${Math.round(threshold * 100)} or higher`;
+    await this.db.$transaction(async (tx) => {
+      for (const p of due) {
+        const risk = Math.round((1 - p.qualityScore) * 100) / 100;
+        await this.records.create(ctx, 'quality_case', { data: { panelistId: p.id, rule, score: risk, signals: [`Quality score ${Math.round(p.qualityScore * 100)}`, ...(fails.has(p.id) ? ['Quality-failed session'] : [])] } }, tx);
+      }
+    }, { timeout: 60_000 });
+    return { opened: due.length, threshold, skipped: busy.size };
   }
 }
