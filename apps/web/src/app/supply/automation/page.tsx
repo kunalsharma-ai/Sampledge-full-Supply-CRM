@@ -4,8 +4,12 @@
  * inspector on the right, execution log underneath. Add blocks from the palette, connect handles
  * (conditions have yes and no outputs), and test-run with a sample member to watch the path light
  * up step by step. Activating a workflow asks for confirmation because it messages real members.
- * Integration: workflows save to `PUT /automation/workflows/:id` (planned) and run through the
- * existing agent runner, whose runs feed the log.
+ * Live: workflows are `workflow` records (`/supply/records/workflow`), editable while draft or
+ * paused. Activating is checked on the server (one trigger, every block connected, both condition
+ * paths, supported blocks only) and the worker then enrols members who meet the trigger from that
+ * moment and moves them through the graph once a minute. The test run asks the server for the path a
+ * recent member would take today (`POST /supply/workflows/:id/test`), and the log is
+ * `GET /supply/workflows/:id/runs`. "Opened last message" needs open tracking, so it stays demo only.
  */
 import {
   addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useEdgesState, useNodesState,
@@ -13,6 +17,9 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Clock3, FlaskConical, GitBranch, Play, Plus, Power, Trash2, Undo2, Zap } from 'lucide-react';
+import { ApiError } from '@/lib/api';
+import { useSupplyData } from '@/lib/supply/data';
+import { ago, loadWorkflowRuns, records, testWorkflow, type Rec, type WorkflowData, type WorkflowRuns } from '@/lib/supply/live';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Field, Panel, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/overlay';
@@ -30,7 +37,10 @@ const kindMeta: Record<WfKind, { icon: typeof Zap; cls: string; label: string }>
   delay: { icon: Clock3, cls: 'text-cyan bg-cyan/12', label: 'Delay' },
   action: { icon: Play, cls: 'text-emerald bg-emerald/12', label: 'Action' },
 };
-type ND = { node: WfNode; state: 'idle' | 'run' | 'done' | 'skip' };
+type ND = { node: WfNode; state: 'idle' | 'run' | 'done' | 'skip'; note?: string };
+type LWorkflow = Workflow & { rec?: Rec<WorkflowData> };
+const fromRec = (r: Rec<WorkflowData>): LWorkflow => ({ id: r.id, name: r.data.name, panel: r.data.panel, status: r.status as Workflow['status'], nodes: r.data.nodes ?? [], edges: r.data.edges ?? [], runs7d: 0, conversion: 0, rec: r });
+const OPENED = '“Opened last message” needs open tracking from the delivery provider, which is not connected yet';
 
 function summary(n: WfNode) {
   const c = n.config;
@@ -57,6 +67,7 @@ function WfNodeView({ data, selected }: NodeProps<Node<ND>>) {
       </div>
       <div className="mt-1.5 text-[12.5px] font-semibold text-ink">{blockLabel(node.kind, node.type)}</div>
       <div className="truncate text-[11px] text-ink-2">{summary(node)}</div>
+      {data.note && <div className="mt-1 truncate rounded bg-primary/10 px-1.5 py-0.5 text-[10.5px] font-medium text-ink">{data.note}</div>}
       {node.kind === 'condition' ? (<>
         <Handle id="yes" type="source" position={Position.Bottom} style={{ left: '28%' }} className="!h-2.5 !w-2.5 !border-0 !bg-emerald" />
         <Handle id="no" type="source" position={Position.Bottom} style={{ left: '72%' }} className="!h-2.5 !w-2.5 !border-0 !bg-danger" />
@@ -67,16 +78,24 @@ function WfNodeView({ data, selected }: NodeProps<Node<ND>>) {
 }
 const nodeTypes = { wf: WfNodeView };
 
-const toNodes = (w: Workflow): Node<ND>[] => w.nodes.map((n) => ({ id: n.id, type: 'wf', position: { x: n.x, y: n.y }, data: { node: n, state: 'idle' } }));
+const toNodes = (w?: Workflow): Node<ND>[] => (w?.nodes ?? []).map((n) => ({ id: n.id, type: 'wf', position: { x: n.x, y: n.y }, data: { node: n, state: 'idle' } }));
 const edgeStyle = (branch?: string) => ({ stroke: branch === 'yes' ? 'rgb(var(--emerald))' : branch === 'no' ? 'rgb(var(--danger))' : 'rgb(var(--ink-3) / .7)', strokeWidth: 1.8 });
-const toEdges = (w: Workflow): Edge[] => w.edges.map((e) => ({ id: e.id, source: e.from, target: e.to, sourceHandle: e.branch, style: edgeStyle(e.branch) }));
+const toEdges = (w?: Workflow): Edge[] => (w?.edges ?? []).map((e) => ({ id: e.id, source: e.from, target: e.to, sourceHandle: e.branch, style: edgeStyle(e.branch) }));
 
 function Builder() {
   const toast = useOS((s) => s.toast);
   const reduced = useOS((s) => s.motion === 'reduced');
-  const [list, setList] = useState(seed);
+  const q = useSupplyData<LWorkflow[] | null>('automation:workflows', () => null, async () => (await records.list<WorkflowData>('workflow')).map(fromRec));
+  const live = q.source === 'live' && q.data ? q.data : null;
+  const [demoList, setList] = useState<LWorkflow[]>(seed);
+  const list: LWorkflow[] = live ?? demoList;
   const [wid, setWid] = useState(seed[0].id);
-  const wf = list.find((w) => w.id === wid)!;
+  const wf: LWorkflow | undefined = list.find((w) => w.id === wid) ?? list[0];
+  const [name, setName] = useState(wf?.name ?? '');
+  const [busy, setBusy] = useState(false);
+  const [runs, setRuns] = useState<WorkflowRuns | null>(null);
+  const fail = (e: unknown, what: string) => toast(e instanceof ApiError ? e.message : `Could not ${what}`, 'warn');
+  const locked = !!live && wf?.status === 'active';
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<ND>>(toNodes(wf));
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(toEdges(wf));
   const [selId, setSelId] = useState<string | null>(null);
@@ -86,7 +105,13 @@ function Builder() {
   const [running, setRunning] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  useEffect(() => { setNodes(toNodes(wf)); setEdges(toEdges(wf)); setSelId(null); setHistory([]); setDirty(false); }, [wid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setNodes(toNodes(wf)); setEdges(toEdges(wf)); setSelId(null); setHistory([]); setDirty(false); setName(wf?.name ?? ''); }, [wf?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!live || !wf) { setRuns(null); return; }
+    let off = false;
+    loadWorkflowRuns(wf.id).then((r) => { if (!off) setRuns(r); }).catch(() => { if (!off) setRuns(null); });
+    return () => { off = true; };
+  }, [live, wf?.id, wf?.rec?.version]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const snapshot = () => { setHistory((h) => [...h.slice(-29), { nodes, edges }]); setDirty(true); };
   const sel = nodes.find((n) => n.id === selId);
@@ -98,7 +123,7 @@ function Builder() {
     const maxY = Math.max(0, ...nodes.map((n) => n.position.y));
     const anchorX = sel ? sel.position.x : (nodes[0]?.position.x ?? 0);
     const defaults = Object.fromEntries((blocks[kind].find((b) => b.type === type)?.fields ?? []).map((f) => [f.key, f.kind === 'number' ? (f.unit === 'hours' ? 24 : f.unit === 'pts' ? 50 : 30) : f.options?.[0] ?? '']));
-    const node: WfNode = { id, kind, type, config: defaults, x: anchorX, y: maxY + 115 };
+    const node: WfNode = { id, kind, type, config: defaults, x: anchorX, y: maxY + 140 };
     setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { id, type: 'wf', position: { x: node.x, y: node.y }, data: { node, state: 'idle' }, selected: true }]);
     if (selId && sel?.data.node.kind !== 'condition') setEdges((es) => addEdge({ id: `e${id}`, source: selId, target: id, style: edgeStyle() }, es));
     setSelId(id);
@@ -115,14 +140,75 @@ function Builder() {
   };
   const remove = () => { if (!sel || sel.data.node.kind === 'trigger') return; snapshot(); setNodes((ns) => ns.filter((n) => n.id !== sel.id)); setEdges((es) => es.filter((e) => e.source !== sel.id && e.target !== sel.id)); setSelId(null); };
   const undo = () => { const last = history[history.length - 1]; if (!last) return; setNodes(last.nodes); setEdges(last.edges); setHistory((h) => h.slice(0, -1)); };
-  const save = () => {
-    setList((l) => l.map((w) => (w.id === wf.id ? { ...w, nodes: nodes.map((n) => ({ ...n.data.node, x: n.position.x, y: n.position.y })), edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, branch: (e.sourceHandle as 'yes' | 'no' | null) ?? undefined })) } : w)));
-    setDirty(false); toast(`${wf.name} saved as draft changes`, 'ok');
+  const graph = (): Pick<WorkflowData, 'name' | 'nodes' | 'edges'> => ({
+    name: name.trim() || wf!.name,
+    nodes: nodes.map((n) => ({ ...n.data.node, x: Math.round(n.position.x), y: Math.round(n.position.y) })),
+    edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, ...(e.sourceHandle === 'yes' || e.sourceHandle === 'no' ? { branch: e.sourceHandle as 'yes' | 'no' } : {}) })),
+  });
+  /** Saves the canvas; live, returns the saved record (or null when the save failed). */
+  const save = async (): Promise<Rec<WorkflowData> | null | undefined> => {
+    if (!wf) return null;
+    if (live && wf.rec) {
+      setBusy(true);
+      try { const r = await records.update<WorkflowData>('workflow', wf.rec, graph()); setDirty(false); toast(`${r.data.name} saved`, 'ok'); q.reload(); return r; } catch (e) { fail(e, 'save the workflow'); return null; } finally { setBusy(false); }
+    }
+    setList((l) => l.map((w) => (w.id === wf.id ? { ...w, ...graph() } : w)));
+    setDirty(false); toast(`${name || wf.name} saved as draft changes`, 'ok');
+    return undefined;
+  };
+  const create = async () => {
+    const trigger: WfNode = { id: 't', kind: 'trigger', type: 'signup', config: { panel: 'Any' }, x: 0, y: 0 };
+    const nm = `New workflow ${list.length + 1}`;
+    if (live) {
+      setBusy(true);
+      try { const r = await records.create<WorkflowData>('workflow', { name: nm, panel: 'all', nodes: [trigger], edges: [] }); q.reload(); setWid(r.id); toast(`${r.ref} created as a draft`, 'ok'); } catch (e) { fail(e, 'create the workflow'); } finally { setBusy(false); }
+      return;
+    }
+    const id = `wf-${Date.now().toString(36)}`;
+    setList((l) => [...l, { id, name: nm, panel: 'all', status: 'draft', nodes: [trigger], edges: [], runs7d: 0, conversion: 0 }]);
+    setWid(id);
+  };
+  const toggle = async (to: 'activate' | 'pause') => {
+    if (!wf) return;
+    if (live && wf.rec) {
+      let rec: Rec<WorkflowData> | null | undefined = wf.rec;
+      if (dirty && to === 'activate') rec = await save();
+      if (!rec) return;
+      setBusy(true);
+      try { const r = await records.act<WorkflowData>('workflow', rec, to); toast(`${r.data.name} ${to === 'activate' ? 'activated' : 'paused'}`, to === 'activate' ? 'ok' : 'warn'); q.reload(); } catch (e) { fail(e, `${to} the workflow`); } finally { setBusy(false); }
+      return;
+    }
+    if (dirty) await save();
+    setList((l) => l.map((w) => (w.id === wf.id ? { ...w, status: to === 'activate' ? 'active' : 'paused' } : w)));
+    toast(`${wf.name} ${to === 'activate' ? 'activated' : 'paused'}`, to === 'activate' ? 'ok' : 'warn');
   };
 
-  /** Walk the graph from the trigger, taking "yes" at the first condition and "no" at later ones. */
-  const testRun = () => {
+  /** Lights up the path step by step, with each step's note on its block. */
+  const animate = (path: string[], notes: Record<string, string>, done: string) => {
+    const mark = (k: number) => setNodes((ns) => ns.map((n) => {
+      const i = path.indexOf(n.id);
+      return { ...n, data: { ...n.data, note: i !== -1 && i <= k ? notes[n.id] : undefined, state: i === -1 ? (k >= path.length ? 'skip' : 'idle') : i < k ? 'done' : i === k ? 'run' : 'idle' } };
+    }));
+    setRunning(true);
+    if (reduced) { mark(path.length); setRunning(false); toast(done, 'info'); return; }
+    path.forEach((_, k) => timers.current.push(setTimeout(() => mark(k), k * 650)));
+    timers.current.push(setTimeout(() => { mark(path.length); setRunning(false); toast(done, 'info'); }, path.length * 650));
+    timers.current.push(setTimeout(() => setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, state: 'idle', note: undefined } }))), path.length * 650 + 6000));
+  };
+  /** Live: the server walks the saved graph for a recent member. Demo: "yes" at the first condition, "no" after. */
+  const testRun = async () => {
     timers.current.forEach(clearTimeout); timers.current = [];
+    if (live && wf) {
+      if (dirty) {
+        if (locked) { toast('Pause the workflow and save to test your changes; this test uses the saved version', 'warn'); }
+        else if (!(await save())) return;
+      }
+      try {
+        const r = await testWorkflow(wf.id);
+        animate(r.path.map((p) => p.node), Object.fromEntries(r.path.map((p) => [p.node, p.note])), `Test run for ${r.member.handle} (${r.member.country}): ${r.path.length} steps, nothing sent`);
+      } catch (e) { fail(e, 'run the test'); }
+      return;
+    }
     const trig = nodes.find((n) => n.data.node.kind === 'trigger');
     if (!trig) return;
     const path: string[] = [trig.id];
@@ -134,39 +220,45 @@ function Builder() {
       const next = curNode.data.node.kind === 'condition' ? (outs.find((e) => e.sourceHandle === (conds++ === 0 ? 'yes' : 'no')) ?? outs[0]) : outs[0];
       cur = next.target; path.push(cur);
     }
-    const mark = (k: number) => setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, state: path.indexOf(n.id) === -1 ? (k >= path.length ? 'skip' : 'idle') : path.indexOf(n.id) < k ? 'done' : path.indexOf(n.id) === k ? 'run' : 'idle' } })));
-    setRunning(true);
-    if (reduced) { mark(path.length); setRunning(false); return; }
-    path.forEach((_, k) => timers.current.push(setTimeout(() => mark(k), k * 650)));
-    timers.current.push(setTimeout(() => { mark(path.length); setRunning(false); toast(`Test run finished: ${path.length} steps, no messages sent`, 'info'); }, path.length * 650));
-    timers.current.push(setTimeout(() => setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, state: 'idle' } }))), path.length * 650 + 3500));
+    animate(path, {}, `Test run finished: ${path.length} steps, no messages sent`);
   };
-  const logs = useMemo(() => runLogs.filter((l) => l.workflow === wf.id), [wf.id]);
+  const logs = useMemo(() => {
+    if (live) return (runs?.runs ?? []).map((r) => ({ id: r.id.slice(-6), member: r.member, at: ago(r.updatedAt), steps: r.path.length, outcome: r.status, note: r.note ?? (r.status === 'waiting' && r.wakeAt ? `waiting until ${new Date(r.wakeAt).toLocaleString()}` : r.path[r.path.length - 1]?.note ?? '') }));
+    return runLogs.filter((l) => l.workflow === wf?.id).map((l) => ({ id: l.id, member: l.member, at: l.at, steps: l.path.length, outcome: l.outcome as string, note: l.note }));
+  }, [live, runs, wf?.id]);
   const issues = useMemo(() => {
     const out: string[] = [];
     const targets = new Set(edges.map((e) => e.target));
     nodes.forEach((n) => { if (n.data.node.kind !== 'trigger' && !targets.has(n.id)) out.push(`${blockLabel(n.data.node.kind, n.data.node.type)} is not connected`); });
     nodes.filter((n) => n.data.node.kind === 'condition').forEach((n) => { const hs = edges.filter((e) => e.source === n.id).map((e) => e.sourceHandle); if (!hs.includes('yes') || !hs.includes('no')) out.push(`${blockLabel('condition', n.data.node.type)} needs both a yes and a no path`); });
     if (!nodes.some((n) => n.data.node.kind === 'action')) out.push('Add at least one action');
+    if (live && nodes.some((n) => n.data.node.type === 'opened')) out.push(OPENED);
     return out;
-  }, [nodes, edges]);
+  }, [nodes, edges, live]);
+
+  if (!wf) return (
+    <div className="space-y-4">
+      <SupplyHeader screen={screen} source={q.source} title="Automation builder" subtitle="Build engagement workflows from triggers, conditions, delays and actions." actions={<Button size="sm" disabled={busy} onClick={create}><Plus size={13} /> New workflow</Button>} />
+      <Panel className="p-8 text-center text-[12.5px] text-ink-2">No workflows yet. Create one to start from a sign-up trigger.</Panel>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Automation builder" subtitle="Build engagement workflows from triggers, conditions, delays and actions. Test runs use a sample member and send nothing."
+      <SupplyHeader screen={screen} source={q.source} title="Automation builder" subtitle={`Build engagement workflows from triggers, conditions, delays and actions. Test runs ${live ? 'use a recent member' : 'use a sample member'} and send nothing.`}
         actions={<>
           <Button size="sm" variant="ghost" disabled={!history.length} onClick={undo}><Undo2 size={13} /> Undo</Button>
-          <Button size="sm" variant="ghost" disabled={running} onClick={testRun}><FlaskConical size={13} /> Test run</Button>
-          <Button size="sm" variant="ghost" disabled={!dirty} onClick={save}>Save</Button>
+          <Button size="sm" variant="ghost" disabled={running || busy} onClick={testRun}><FlaskConical size={13} /> Test run</Button>
+          <Button size="sm" variant="ghost" disabled={!dirty || busy || locked} title={locked ? 'Pause the workflow to save changes' : undefined} onClick={() => void save()}>Save</Button>
           {wf.status === 'active'
-            ? <Button size="sm" variant="ghost" onClick={() => setConfirm('pause')}><Power size={13} /> Pause</Button>
-            : <Button size="sm" disabled={issues.length > 0} onClick={() => setConfirm('activate')}><Power size={13} /> Activate</Button>}
+            ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirm('pause')}><Power size={13} /> Pause</Button>
+            : <Button size="sm" disabled={issues.length > 0 || busy} onClick={() => setConfirm('activate')}><Power size={13} /> Activate</Button>}
         </>} />
 
       <div className="grid gap-4 xl:grid-cols-[230px_1fr]">
         <div className="space-y-4">
           <Panel className="p-3">
-            <SectionTitle eyebrow="Workflows" title={`${list.length} workflows`} />
+            <SectionTitle eyebrow="Workflows" title={`${list.length} workflow${list.length === 1 ? "" : "s"}`} actions={<Button size="icon-sm" variant="ghost" aria-label="New workflow" disabled={busy} onClick={create}><Plus size={13} /></Button>} />
             <ul className="space-y-1">
               {list.map((w) => (
                 <li key={w.id}><button onClick={() => setWid(w.id)} aria-current={w.id === wid ? 'true' : undefined} className={cn('w-full rounded-lg px-2.5 py-2 text-left', w.id === wid ? 'bg-primary/10 ring-1 ring-inset ring-primary/30' : 'hover:bg-surface-2/50')}>
@@ -182,10 +274,13 @@ function Builder() {
               {(Object.keys(blocks) as WfKind[]).filter((k) => k !== 'trigger').map((k) => (
                 <div key={k}>
                   <div className="eyebrow mb-1">{kindMeta[k].label}s</div>
-                  <div className="flex flex-wrap gap-1">{blocks[k].map((b) => <Button key={b.type} size="xs" variant="ghost" onClick={() => addBlock(k, b.type)} className="border hairline"><Plus size={11} /> {b.label}</Button>)}</div>
+                  <div className="flex flex-wrap gap-1">{blocks[k].map((b) => {
+                    const off = !!live && b.type === 'opened';
+                    return <Button key={b.type} size="xs" variant="ghost" disabled={off} title={off ? OPENED : undefined} onClick={() => addBlock(k, b.type)} className="border hairline"><Plus size={11} /> {b.label}</Button>;
+                  })}</div>
                 </div>
               ))}
-              <p className="text-2xs text-ink-3">New blocks attach after the selected block.</p>
+              <p className="text-2xs text-ink-3">New blocks attach after the selected block.{live && ' “Opened last message” needs open tracking from the delivery provider.'}</p>
             </div>
           </Panel>
         </div>
@@ -216,11 +311,15 @@ function Builder() {
                 ))}
               </div>
             </>) : (<>
-              <SectionTitle eyebrow="Workflow" title={wf.name} />
-              <dl className="grid grid-cols-2 gap-2 text-center text-[12.5px]">
-                <div className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">Runs, 7 days</dt><dd className="num font-semibold">{fmtNum(wf.runs7d)}</dd></div>
-                <div className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">Converted</dt><dd className="num font-semibold">{Math.round(wf.conversion * 100)}%</dd></div>
+              <SectionTitle eyebrow={wf.rec ? `Workflow · ${wf.rec.ref}` : 'Workflow'} title={wf.name} />
+              <Field label="Name"><input className={inputCls} value={name} disabled={locked} onChange={(e) => { setName(e.target.value); setDirty(true); }} /></Field>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-center text-[12.5px]">
+                <div className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">Runs, 7 days</dt><dd className="num font-semibold">{fmtNum(live ? runs?.stats.runs7d ?? 0 : wf.runs7d)}</dd></div>
+                {live
+                  ? <div className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">Completed · waiting</dt><dd className="num font-semibold">{fmtNum(runs?.stats.completed7d ?? 0)} · {fmtNum(runs?.stats.waiting ?? 0)}</dd></div>
+                  : <div className="rounded-lg bg-surface-2/40 p-2"><dt className="text-2xs text-ink-3">Converted</dt><dd className="num font-semibold">{Math.round(wf.conversion * 100)}%</dd></div>}
               </dl>
+              {locked && <p className="mt-2 text-2xs text-ink-3">Active workflows are locked. Pause it to change the blocks.</p>}
               <p className="mt-3 text-2xs text-ink-3">Select a block to edit it. Drag from a block’s bottom handle to another block to connect. Backspace deletes the selected edge or block.</p>
             </>)}
           </Panel>
@@ -240,8 +339,8 @@ function Builder() {
               <caption className="sr-only">Recent runs of {wf.name}</caption>
               <thead><tr className="text-left text-2xs text-ink-3">{['Run', 'Member', 'When', 'Steps', 'Outcome', 'Note'].map((h) => <th key={h} scope="col" className="py-1.5 font-semibold">{h}</th>)}</tr></thead>
               <tbody>{logs.map((l) => (
-                <tr key={l.id} className="border-t hairline"><td className="py-1.5 font-mono text-2xs">{l.id}</td><td>{l.member}</td><td className="text-ink-3">{l.at}</td><td className="num">{l.path.length}</td>
-                  <td><StatusPill status={l.outcome === 'completed' ? 'completed' : l.outcome === 'waiting' ? 'scheduled' : l.outcome === 'failed' ? 'failed' : 'closed'} label={l.outcome} /></td><td className="text-ink-2">{l.note}</td></tr>
+                <tr key={l.id} className="border-t hairline"><td className="py-1.5 font-mono text-2xs">{l.id}</td><td>{l.member}</td><td className="text-ink-3">{l.at}</td><td className="num">{l.steps}</td>
+                  <td><StatusPill status={l.outcome === 'completed' ? 'completed' : l.outcome === 'waiting' ? 'scheduled' : l.outcome === 'failed' ? 'failed' : l.outcome === 'running' ? 'active' : 'closed'} label={l.outcome} /></td><td className="text-ink-2">{l.note}</td></tr>
               ))}</tbody>
             </table>
           </div>
@@ -250,9 +349,9 @@ function Builder() {
 
       <ConfirmDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)} tone={confirm === 'activate' ? 'primary' : 'danger'}
         title={confirm === 'activate' ? `Activate ${wf.name}?` : `Pause ${wf.name}?`}
-        body={confirm === 'activate' ? 'Members who meet the trigger from now on will start receiving messages and points. Members already past the trigger are not included.' : 'Runs in progress stop at their next step. Nothing more is sent until you activate it again.'}
+        body={confirm === 'activate' ? `Members who meet the trigger from now on will start receiving messages and points. Members already past the trigger are not included.${live ? ' E-mails skip members without marketing consent, and each workflow sends at most 500 messages a day.' : ''}` : 'Runs in progress stop at their next step. Nothing more is sent until you activate it again.'}
         confirmLabel={confirm === 'activate' ? 'Activate' : 'Pause'}
-        onConfirm={() => { if (dirty) save(); setList((l) => l.map((w) => (w.id === wf.id ? { ...w, status: confirm === 'activate' ? 'active' : 'paused' } : w))); toast(`${wf.name} ${confirm === 'activate' ? 'activated' : 'paused'}`, confirm === 'activate' ? 'ok' : 'warn'); setConfirm(null); }} />
+        onConfirm={() => { const c = confirm; setConfirm(null); if (c) void toggle(c); }} />
     </div>
   );
 }

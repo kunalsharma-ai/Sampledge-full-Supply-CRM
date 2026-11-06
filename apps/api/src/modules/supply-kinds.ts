@@ -6,6 +6,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 import { queueMessage, resolveTarget } from './comms';
+import { graphProblems, type WorkflowData } from './workflows';
 import { registerKind, type RecordAction } from './supply-records';
 
 const email = z.string().trim().toLowerCase().email('Not an e-mail address').max(200);
@@ -270,5 +271,41 @@ registerKind('quality_case', {
       },
     },
     reopen: { from: ['cleared'], to: 'open' },
+  },
+});
+
+// ───────────────────────── Engagement workflows (automation); the runner is modules/workflows.ts
+const wfNode = z.object({
+  id: z.string().min(1).max(40),
+  kind: z.enum(['trigger', 'condition', 'delay', 'action']),
+  type: z.string().min(1).max(40),
+  config: z.record(z.string().max(40), z.union([z.string().max(500), z.number()])).default({}),
+  x: z.number(), y: z.number(),
+}).strict();
+const wfEdge = z.object({ id: z.string().min(1).max(80), from: z.string().max(40), to: z.string().max(40), branch: z.enum(['yes', 'no']).optional() }).strict();
+registerKind('workflow', {
+  label: 'Workflow', module: 'automation', prefix: 'WF',
+  data: z.object({
+    name: z.string().trim().min(3).max(120),
+    panel: z.enum(['all', 't2o', 'mfr', 'mho']).default('all'),
+    nodes: z.array(wfNode).max(60).default([]),
+    edges: z.array(wfEdge).max(120).default([]),
+    /** members are enrolled only for trigger events after this time */
+    activatedAt: z.string().datetime().optional(),
+  }).strict(),
+  title: (d) => String(d.name),
+  statuses: ['draft', 'active', 'paused'], initial: 'draft', editableIn: ['draft', 'paused'],
+  actions: {
+    /** starts enrolling members; refused while the graph has a problem */
+    activate: {
+      from: ['draft', 'paused'], to: 'active',
+      effect: async (_tx, _ctx, rec) => {
+        const p = graphProblems(rec.data as unknown as WorkflowData);
+        if (p.length) throw new BadRequestException(p.join('. '));
+        return { activatedAt: new Date().toISOString() };
+      },
+    },
+    /** runs stop at their next step until the workflow is active again */
+    pause: { from: ['active'], to: 'paused' },
   },
 });

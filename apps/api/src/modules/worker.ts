@@ -1,5 +1,6 @@
 import { documentCurrency, invoiceTerms, toDoc } from './finance-ledgers';
 import { SupplyRecordsService } from './supply-records';
+import { WorkflowEngine } from './workflows';
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { live } from '../common/live';
 import { can, type Role } from '@sampledge/core';
@@ -48,7 +49,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
   private log = new Logger('EventsWorker');
-  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService, private schedules: ReportSchedulesService, private insights: InsightsService, private agents: AgentsService, private records: SupplyRecordsService) {}
+  constructor(private db: PrismaService, private panels: PanelBackend, private panelSync: PanelSyncService, private schedules: ReportSchedulesService, private insights: InsightsService, private agents: AgentsService, private records: SupplyRecordsService, private workflows: WorkflowEngine) {}
 
   onApplicationBootstrap() {
     if (process.env.WORKER_INLINE === 'false') return;
@@ -111,6 +112,7 @@ export class EventsWorker implements OnApplicationBootstrap, OnModuleDestroy {
       void this.schedules.runDue().then((n) => n && this.log.log(`ran ${n} scheduled report deliver${n === 1 ? 'y' : 'ies'}`)).catch((e) => this.log.error(e));
       void this.agents.runDue().then((n) => n && this.log.log(`ran ${n} automation agent${n === 1 ? '' : 's'}`)).catch((e) => this.log.error(e));
       void this.records.runDue().then((n) => n && this.log.log(`ran ${n} scheduled record action${n === 1 ? '' : 's'}`)).catch((e) => this.log.error(e));
+      void this.workflows.runDue().then((n) => n && this.log.log(`moved ${n} workflow run${n === 1 ? '' : 's'}`)).catch((e) => this.log.error(e));
     }
     this.running = true;
     try {
