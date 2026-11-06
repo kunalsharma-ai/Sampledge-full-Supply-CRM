@@ -6,9 +6,11 @@
  * request, with feasibility from SUPPLY360 counts, the panel allocation (points of 100, checked
  * inline), quota cells, batches and delivery, and the event log in contract event names.
  * Approving an allocation sends `audience.approved` to SAMPLEON, so it asks for confirmation.
- * Integration: `GET /sampleon/v1/audience-requests` (planned), `POST /sampleon/v1/audience-requests/:id/approve` (planned),
- * staff overview `GET /panels/sampleon/overview` (live: the "Recorded in SUPPLY360" strip shows the real
- * survey card, participation and reward totals when signed in to the API; the pipeline is still demo).
+ * Live: the pipeline is every request SampAudience holds, read through `GET /sampaudience/requests`
+ * (signed as SUPPLY360), and the "Recorded in SUPPLY360" strip comes from `GET /panels/sampleon/overview`.
+ * Decisions (approve, soft launch, pause, resume) are made by a SampAudience approver in its
+ * console, so live the buttons open it. Offline, or when SampAudience is not connected, the
+ * pipeline is the labelled demo set and the buttons act on it locally.
  */
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -22,6 +24,8 @@ import { useOS } from '@/lib/store';
 import { InfoTip } from '@/components/supply/info-tip';
 import { sectionHelp } from '@/lib/supply/help';
 import { useSupplyData } from '@/lib/supply/data';
+import { DecideInSampAudience } from '@/components/supply/decide-link';
+import { loadSampFeed, toSampleonRequest, type SampFeed } from '@/lib/supply/sampaudience';
 import { cardStatus, loadSampOverview, participationStatus, type SampOverview } from '@/lib/supply/live';
 import { pipelineStages, sampleonRequests, type FlowEvent, type SampleonRequest, type SampleonStatus } from '@/lib/supply/connected';
 import { panelBrands, type PanelId } from '@/lib/supply/demo';
@@ -37,13 +41,16 @@ export default function Page() { return <Suspense><Sampleon /></Suspense>; }
 function Sampleon() {
   const params = useSearchParams();
   const toast = useOS((s) => s.toast);
-  const [items, setItems] = useState(sampleonRequests);
+  const [localItems, setItems] = useState(sampleonRequests);
+  const feed = useSupplyData<SampFeed | null>('samp:feed', () => null, () => loadSampFeed());
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
+  const items = useMemo(() => (liveFeed ? liveFeed.requests.map(toSampleonRequest) : localItems), [liveFeed, localItems]);
   const [src, setSrc] = useState<'all' | 'PROJEXA' | 'ZAPX'>('all');
   const [q, setQ] = useState('');
-  const [selId, setSelId] = useState<string>(params.get('r') ?? sampleonRequests.find((r) => r.status === 'feasibility_ready')!.id);
+  const [selId, setSelId] = useState<string | null>(params.get('r'));
 
   const shown = useMemo(() => items.filter((r) => (src === 'all' || r.platform === src) && (!q || `${r.id} ${r.title} ${r.client} ${r.projectId ?? ''} ${r.surveyId}`.toLowerCase().includes(q.toLowerCase()))), [items, src, q]);
-  const sel = items.find((r) => r.id === selId) ?? items[0];
+  const sel = items.find((r) => r.id === selId) ?? items.find((r) => r.status === 'feasibility_ready') ?? items[0];
   const update = (id: string, patch: Partial<SampleonRequest>, ev?: Omit<FlowEvent, 'id' | 'at'>) =>
     setItems((l) => l.map((r) => (r.id === id ? { ...r, ...patch, events: ev ? [{ ...ev, id: `x-${Date.now()}`, at: 'just now' }, ...r.events] : r.events } : r)));
 
@@ -54,7 +61,7 @@ function Sampleon() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} source={overview.source === 'live' ? 'mixed' : 'demo'} title={<span className="flex flex-wrap items-center gap-3"><SampAudienceLogo height={44} /> <span>Audience allocation</span></span>}
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : overview.source === 'live' ? 'mixed' : 'demo'} title={<span className="flex flex-wrap items-center gap-3"><SampAudienceLogo height={44} /> <span>Audience allocation</span></span>}
         subtitle="Requests from SampTrek projects and SampCode surveys, from feasibility to closed. SUPPLY360 does the counting and delivery; names and e-mail addresses never leave SUPPLY360." />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -68,7 +75,7 @@ function Sampleon() {
 
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-          <span className="text-[13px] font-semibold">Pipeline</span><InfoTip entry={sectionHelp('sampleon', 'Pipeline')} label="Pipeline" />{overview.source === 'live' && <Badge tone="neutral">Demo requests</Badge>}
+          <span className="text-[13px] font-semibold">Pipeline</span><InfoTip entry={sectionHelp('sampleon', 'Pipeline')} label="Pipeline" />{overview.source === 'live' && !liveFeed && <Badge tone="neutral">Demo requests: SampAudience is not connected</Badge>}
           <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'SampTrek' }, { value: 'ZAPX', label: 'SampCode' }]} />
           <SearchInput value={q} onChange={setQ} placeholder="Request, project, survey or client…" className="ml-auto w-full sm:w-64" />
         </div>
@@ -81,11 +88,11 @@ function Sampleon() {
                 <ul className="space-y-1.5">
                   {col.map((r) => (
                     <li key={r.id}>
-                      <button onClick={() => setSelId(r.id)} aria-pressed={r.id === sel.id} aria-label={`${r.title}, ${statusLabel[r.status]}`}
-                        className={cn('w-full rounded-lg border bg-surface p-2 text-left transition-shadow hover:shadow-lift', r.id === sel.id ? 'border-primary/60 ring-1 ring-primary/30' : 'hairline')}>
+                      <button onClick={() => setSelId(r.id)} aria-pressed={r.id === sel?.id} aria-label={`${r.title}, ${statusLabel[r.status]}`}
+                        className={cn('w-full rounded-lg border bg-surface p-2 text-left transition-shadow hover:shadow-lift', r.id === sel?.id ? 'border-primary/60 ring-1 ring-primary/30' : 'hairline')}>
                         <div className="flex items-center justify-between gap-1"><ProductChip product={r.platform === 'PROJEXA' ? 'projexa' : 'zapx'} />{r.status === 'paused' && <Badge tone="warn">Paused</Badge>}{r.healthcare && r.status !== 'paused' && <PanelChip panel="mho" short />}</div>
                         <div className="mt-1 line-clamp-2 text-[12px] font-medium leading-snug">{r.title}</div>
-                        <div className="mt-1 flex items-center justify-between text-[10.5px] text-ink-3"><span className="font-mono">{r.id}</span><CountryChips codes={r.countries} max={2} /></div>
+                        <div className="mt-1 flex min-w-0 items-center justify-between gap-1.5 text-[10.5px] text-ink-3"><span className="min-w-0 truncate font-mono" title={r.id}>{r.id}</span><span className="shrink-0"><CountryChips codes={r.countries} max={2} /></span></div>
                         {r.completes > 0 && <Bar value={r.completes / r.requiredCompletes} tone={r.status === 'closed' ? 'emerald' : 'blue'} className="mt-1.5" />}
                       </button>
                     </li>
@@ -98,12 +105,14 @@ function Sampleon() {
         </div>
       </Panel>
 
-      {sel && <Workspace key={sel.id} r={sel} update={update} toast={toast} />}
+      {liveFeed && items.length === 0 && <Panel className="p-8 text-center text-[13px] text-ink-2">SampAudience has no audience requests yet. They appear here as soon as SampTrek or SampCode sends one.</Panel>}
+      {sel && <Workspace key={sel.id} r={sel} update={update} toast={toast} consoleUrl={liveFeed ? liveFeed.consoleUrl ?? '' : null} />}
     </div>
   );
 }
 
-function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: string, p: Partial<SampleonRequest>, ev?: Omit<FlowEvent, 'id' | 'at'>) => void; toast: (t: string, tone?: 'ok' | 'warn' | 'info') => void }) {
+function Workspace({ r, update, toast, consoleUrl }: { r: SampleonRequest; update: (id: string, p: Partial<SampleonRequest>, ev?: Omit<FlowEvent, 'id' | 'at'>) => void; toast: (t: string, tone?: 'ok' | 'warn' | 'info') => void; consoleUrl: string | null }) {
+  const live = consoleUrl !== null;
   const f = r.feasibility;
   const suggest = (): Record<PanelId, number> => {
     const t = f.byPanel.t2o + f.byPanel.mfr + f.byPanel.mho || 1;
@@ -113,7 +122,7 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
   const [alloc, setAlloc] = useState<Record<PanelId, number>>(r.allocation ?? suggest());
   const [confirm, setConfirm] = useState<null | 'approve' | 'pause' | 'soft'>(null);
   const sum = alloc.t2o + alloc.mfr + alloc.mho;
-  const editable = r.status === 'feasibility_ready';
+  const editable = r.status === 'feasibility_ready' && !live;
   const hcWarn = r.healthcare && (alloc.t2o > 0 || alloc.mfr > 0);
   const deadPanel = (Object.keys(alloc) as PanelId[]).find((p) => alloc[p] > 0 && f.byPanel[p] === 0);
   const error = sum !== 100 ? `Adds up to ${sum}; it must be 100.` : deadPanel ? `${panelBrands.find((b) => b.id === deadPanel)!.short} has no reachable panellists for this audience.` : null;
@@ -129,10 +138,11 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
           <p className="mt-1 flex items-start gap-1.5 text-2xs text-ink-3"><Sparkles size={12} className="mt-px shrink-0 text-purple" aria-hidden />“{r.naturalLanguage}” → {r.criteria.join(' AND ')}</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {r.status === 'approved' && <Button size="sm" onClick={() => setConfirm('soft')}><Rocket size={13} /> Schedule soft launch</Button>}
+          {live && <DecideInSampAudience url={consoleUrl} />}
+          {!live && r.status === 'approved' && <Button size="sm" onClick={() => setConfirm('soft')}><Rocket size={13} /> Schedule soft launch</Button>}
           {r.status === 'soft_launch' && <Link href="/supply/launch" className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/20"><Rocket size={13} /> Read-out and full launch</Link>}
-          {r.status === 'live' && <Button size="sm" variant="ghost" onClick={() => setConfirm('pause')}><CirclePause size={13} /> Pause</Button>}
-          {r.status === 'paused' && <Button size="sm" onClick={() => { update(r.id, { status: 'live' }, { type: 'batch.scheduled', text: 'Resumed: next batch scheduled' }); toast(`${r.id} resumed`, 'ok'); }}><CirclePlay size={13} /> Resume</Button>}
+          {!live && r.status === 'live' && <Button size="sm" variant="ghost" onClick={() => setConfirm('pause')}><CirclePause size={13} /> Pause</Button>}
+          {!live && r.status === 'paused' && <Button size="sm" onClick={() => { update(r.id, { status: 'live' }, { type: 'batch.scheduled', text: 'Resumed: next batch scheduled' }); toast(`${r.id} resumed`, 'ok'); }}><CirclePlay size={13} /> Resume</Button>}
         </div>
       </div>
       {r.completes > 0 && <div className="mt-3 max-w-md text-2xs text-ink-3"><div className="flex justify-between"><span>Verified completes</span><span className="num">{fmtNum(r.completes)} / {fmtNum(r.requiredCompletes)} · {Math.round(pct * 100)}%</span></div><Bar value={pct} className="mt-1" /></div>}
@@ -174,7 +184,7 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
               {hcWarn && <p className="mt-1 text-2xs text-warn">Health criteria only match panellists with health-data consent, which is almost all on MyHealthOpinions.</p>}
               {editable
                 ? <Button size="sm" className="mt-3 w-full" disabled={!!error} onClick={() => setConfirm('approve')}><CheckCircle2 size={13} /> Approve allocation</Button>
-                : <p className="mt-3 text-2xs text-ink-3">{r.status === 'submitted' ? 'Waiting for feasibility from SUPPLY360.' : 'Allocation approved. Change it from the quota screen while in field.'}</p>}
+                : <p className="mt-3 text-2xs text-ink-3">{live && r.status === 'feasibility_ready' ? 'A SampAudience approver sets and approves the split in the SampAudience console.' : r.status === 'submitted' ? 'Waiting for feasibility from SUPPLY360.' : r.allocation ? 'Allocation approved. Change it from the quota screen while in field.' : 'No allocation yet.'}</p>}
             </div>
           </div>
         </TabsContent>
@@ -244,3 +254,4 @@ function LiveOverview({ o }: { o: SampOverview }) {
     </Panel>
   );
 }
+

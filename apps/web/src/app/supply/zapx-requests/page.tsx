@@ -4,17 +4,21 @@
  * first: a preview of the questionnaire, the four redirects back to SAMPLEON and the QA checks.
  * Launch approval stays locked until every check passes; the lock says which check is failing.
  * "Test redirects" re-runs the four redirect checks against the survey's test link.
- * Integration: ZAPX survey-host adapter and `POST /sampleon/v1/audience-requests` (built in the integration work),
- * redirect test `POST /sampleon/v1/surveys/:id/redirect-test` (planned).
+ * Live: SampCode requests as SampAudience holds them (`GET /sampaudience/requests?platform=ZAPX`). The
+ * questionnaire, test runs and redirect checks live in SampCode, and launch approval is a SampAudience
+ * decision, so live each card shows status, countries and feasibility and opens the SampAudience console.
  */
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import { CheckCircle2, CircleDashed, FlaskConical, Link2, Lock, Rocket, Smartphone, XCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge, Button, Panel, Segmented } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/overlay';
 import { CountryChips, KpiTile, ProductChip, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadSampFeed, toZapxRequest, type SampFeed } from '@/lib/supply/sampaudience';
+import { DecideInSampAudience } from '@/components/supply/decide-link';
 import { InfoTip } from '@/components/supply/info-tip';
 import { sectionHelp } from '@/lib/supply/help';
 import { zapxRequests, type RedirectCheck, type ZapxRequest } from '@/lib/supply/connected';
@@ -30,7 +34,10 @@ const redirectIcon = (s: RedirectCheck['state']) => s === 'passed' ? <CheckCircl
 
 export default function ZapxRequests() {
   const toast = useOS((s) => s.toast);
-  const [items, setItems] = useState(zapxRequests);
+  const [localItems, setItems] = useState(zapxRequests);
+  const feed = useSupplyData<SampFeed | null>('samp:feed:ZAPX', () => null, () => loadSampFeed('ZAPX'));
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
+  const items = useMemo(() => (liveFeed ? liveFeed.requests.map(toZapxRequest) : localItems), [liveFeed, localItems]);
   const [filter, setFilter] = useState<'all' | 'qa' | 'ready' | 'done'>('all');
   const [testing, setTesting] = useState<string | null>(null);
   const [approve, setApprove] = useState<ZapxRequest | null>(null);
@@ -54,7 +61,7 @@ export default function ZapxRequests() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title={<span className="flex items-center gap-2.5"><ProductChip product="zapx" /> Audience requests</span>}
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : 'demo'} title={<span className="flex items-center gap-2.5"><ProductChip product="zapx" /> Audience requests</span>}
         subtitle="Requests raised from SampCode surveys, some for a SampTrek project and some for the survey alone. Check the survey and its redirects, then approve the launch." />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -71,30 +78,32 @@ export default function ZapxRequests() {
           const sm = statusMeta[z.status];
           return (
             <motion.article layout key={z.id} className="panel flex flex-col gap-4 p-4 sm:flex-row" aria-labelledby={`zx-${z.id}`}>
-              <div className="w-full shrink-0 sm:w-[190px]" aria-label="Survey preview">
+              {z.questions.length > 0 && <div className="w-full shrink-0 sm:w-[190px]" aria-label="Survey preview">
                 <div className="rounded-[22px] border-[5px] border-ink-3/25 bg-surface p-2.5 shadow-panel">
                   <div className="mb-2 flex items-center justify-between text-[9.5px] text-ink-3"><Smartphone size={10} aria-hidden /><span>{z.questions.length} questions · {z.plannedLoi} min</span></div>
                   <ol className="space-y-1.5">{z.questions.slice(0, 4).map((q) => <li key={q.n} className="rounded-lg bg-surface-2/60 px-2 py-1.5"><div className="text-[10.5px] font-medium leading-snug">{q.n}. {q.text}</div><div className="text-[9.5px] text-ink-3">{kindLabel[q.kind]}</div></li>)}</ol>
                 </div>
-              </div>
+              </div>}
 
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{z.surveyId}</span>{z.linkedProject ? <ProductChip product="projexa">{z.linkedProject}</ProductChip> : <Badge tone="neutral">Independent survey</Badge>}<Badge tone={sm.tone} className="ml-auto">{sm.label}</Badge></div>
                 <h2 id={`zx-${z.id}`} className="mt-1 flex items-center gap-1 font-display text-[15px] font-semibold">{z.title}<InfoTip entry={sectionHelp('zapx-requests', 'Request card')} label="This request" /></h2>
                 <p className="text-2xs text-ink-3">Owner {z.owner} · <CountryChips codes={z.countries} /> · {fmtNum(z.feasibility.estimatedCompletes)} estimated completes{z.feasibility.shortfall ? <span className="text-warn"> (short by {fmtNum(z.feasibility.shortfall)})</span> : ''}</p>
 
+                {liveFeed && <p className="mt-2 text-2xs text-ink-3">The questionnaire, test runs and redirect checks are in SampCode. {statusMeta[z.status].label}.</p>}
                 <ul className="mt-3 space-y-1">{z.qa.map((c) => (
                   <li key={c.id} className="flex items-start gap-2 text-[12px]">{c.ok ? <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald" aria-label="Passed" /> : <XCircle size={13} className="mt-0.5 shrink-0 text-danger" aria-label="Failing" />}<span className="min-w-0"><span className={c.ok ? '' : 'font-medium'}>{c.label}</span><span className="block text-2xs text-ink-3">{c.detail}</span></span></li>
                 ))}</ul>
 
-                <details className="mt-2 text-[12px]">
+                {!liveFeed && <details className="mt-2 text-[12px]">
                   <summary className="cursor-pointer text-2xs font-medium text-ink-2"><Link2 size={11} className="mr-1 inline" aria-hidden />Redirects ({z.redirects.filter((r) => r.state === 'passed').length} of 4 passed)</summary>
                   <ul className="mt-1.5 space-y-1">{z.redirects.map((r) => <li key={r.kind} className="flex items-center gap-2">{redirectIcon(r.state)}<span className="w-20 capitalize">{r.kind}</span><code className="truncate text-[10.5px] text-ink-3">{r.url}</code></li>)}</ul>
-                </details>
+                </details>}
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                  {(z.status === 'qa' || z.status === 'ready') && <Button size="sm" variant="ghost" disabled={testing === z.id} onClick={() => runTest(z)}><FlaskConical size={13} /> {testing === z.id ? 'Testing…' : 'Test redirects'}</Button>}
-                  {(z.status === 'qa' || z.status === 'ready') && (failing.length
+                  {liveFeed && <DecideInSampAudience url={liveFeed.consoleUrl} label={z.status === 'ready' ? 'Approve in SampAudience' : 'Open in SampAudience'} />}
+                  {!liveFeed && (z.status === 'qa' || z.status === 'ready') && <Button size="sm" variant="ghost" disabled={testing === z.id} onClick={() => runTest(z)}><FlaskConical size={13} /> {testing === z.id ? 'Testing…' : 'Test redirects'}</Button>}
+                  {!liveFeed && (z.status === 'qa' || z.status === 'ready') && (failing.length
                     ? <span className="inline-flex items-center gap-1.5 text-2xs text-ink-3"><Lock size={12} aria-hidden /> Launch locked: {failing[0].label.toLowerCase()}{failing.length > 1 ? ` and ${failing.length - 1} more` : ''}</span>
                     : <Button size="sm" onClick={() => setApprove(z)}><Rocket size={13} /> Approve launch</Button>)}
                   {(z.status === 'approved' || z.status === 'live') && <Link href={`/supply/sampleon?r=${z.requestId}`} className="text-2xs text-primary hover:underline">Open in SampAudience allocation</Link>}

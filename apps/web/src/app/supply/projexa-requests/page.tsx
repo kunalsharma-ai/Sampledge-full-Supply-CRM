@@ -4,8 +4,9 @@
  * each read with its project context: client, project manager, milestones and budget. The supply
  * team accepts (passes it to SAMPLEON allocation, with an undo window), counter-proposes changed
  * terms (completes, IR, LOI, end date, CPI, with a reason and a diff), or declines with a reason.
- * Integration: PROJEXA sends requests to SAMPLEON (`POST /sampleon/v1/audience-requests`, built in the
- * integration work); counter-proposals go back as `PATCH /sampleon/v1/audience-requests/:id` (planned).
+ * Live: SampTrek requests as SampAudience holds them (`GET /sampaudience/requests?platform=PROJEXA`).
+ * Accepting is a SampAudience approval and counter-proposals are changes SampTrek sends, so live the
+ * actions open the SampAudience console, and budget and CPI stay in SampTrek.
  */
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
@@ -15,9 +16,12 @@ import { Badge, Bar, Button, Panel, Segmented, inputCls } from '@/components/ui/
 import { Dialog, DialogClose, DialogContent, DialogFooter } from '@/components/ui/overlay';
 import { CountryChips, ProductChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadSampFeed, toProjexaRequest, toSampleonRequest, type SampFeed } from '@/lib/supply/sampaudience';
+import { DecideInSampAudience } from '@/components/supply/decide-link';
 import { InfoTip } from '@/components/supply/info-tip';
 import { sectionHelp } from '@/lib/supply/help';
-import { projexaRequests, sampleonRequests, type ProjexaRequest } from '@/lib/supply/connected';
+import { projexaRequests, sampleonRequests, type ProjexaRequest, type SampleonRequest } from '@/lib/supply/connected';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtMoney, fmtNum } from '@/lib/utils';
 
@@ -30,9 +34,13 @@ const TODAY = '2026-11-06'; // demo clock
 
 export default function ProjexaRequests() {
   const toast = useOS((s) => s.toast);
-  const [items, setItems] = useState(projexaRequests);
+  const [localItems, setItems] = useState(projexaRequests);
+  const feed = useSupplyData<SampFeed | null>('samp:feed:PROJEXA', () => null, () => loadSampFeed('PROJEXA'));
+  const liveFeed = feed.source === 'live' && feed.data ? feed.data : null;
+  const items = useMemo(() => (liveFeed ? liveFeed.requests.map(toProjexaRequest) : localItems), [liveFeed, localItems]);
+  const samp = useMemo(() => (liveFeed ? liveFeed.requests.map(toSampleonRequest) : sampleonRequests), [liveFeed]);
   const [filter, setFilter] = useState<'open' | 'all'>('open');
-  const [selId, setSelId] = useState(projexaRequests.find((p) => p.state === 'new')?.id ?? projexaRequests[0].id);
+  const [selId, setSelId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | 'counter' | 'decline'>(null);
   const [undo, setUndo] = useState<{ id: string; left: number } | null>(null);
   const [counters, setCounters] = useState<Record<string, { ask: Ask; reason: string }>>({});
@@ -45,14 +53,14 @@ export default function ProjexaRequests() {
   }, [undo]);
 
   const shown = useMemo(() => items.filter((p) => filter === 'all' || p.state === 'new' || p.state === 'countered'), [items, filter]);
-  const sel = items.find((p) => p.id === selId) ?? items[0];
+  const sel = items.find((p) => p.id === selId) ?? items.find((p) => p.state === 'new') ?? items[0];
   const setState = (id: string, state: State) => setItems((l) => l.map((p) => (p.id === id ? { ...p, state } : p)));
 
   const accept = (p: ProjexaRequest) => { setState(p.id, 'accepted'); setUndo({ id: p.id, left: UNDO_S }); toast(`${p.projectId} accepted; it is now in SampAudience allocation`, 'ok'); };
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title={<span className="flex items-center gap-2.5"><ProductChip product="projexa" /> Audience requests</span>}
+      <SupplyHeader screen={screen} source={liveFeed ? 'live' : 'demo'} title={<span className="flex items-center gap-2.5"><ProductChip product="projexa" /> Audience requests</span>}
         subtitle="Requests raised by SampTrek projects. Read each one with its project, then accept it into allocation, counter-propose terms, or decline." />
 
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -64,8 +72,8 @@ export default function ProjexaRequests() {
           <ul className="flex-1 overflow-y-auto" aria-label="SampTrek requests">
             {shown.map((p) => (
               <li key={p.id}>
-                <button onClick={() => setSelId(p.id)} aria-current={p.id === sel.id ? 'true' : undefined}
-                  className={cn('block w-full border-b hairline px-3 py-2.5 text-left hover:bg-surface-2/40', p.id === sel.id && 'bg-primary/[.07]')}>
+                <button onClick={() => setSelId(p.id)} aria-current={p.id === sel?.id ? 'true' : undefined}
+                  className={cn('block w-full border-b hairline px-3 py-2.5 text-left hover:bg-surface-2/40', p.id === sel?.id && 'bg-primary/[.07]')}>
                   <div className="flex items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{p.projectId}</span><span>·</span><span>{p.received}</span><Badge tone={stateTone[p.state]} className="ml-auto capitalize">{p.state}</Badge></div>
                   <div className="mt-0.5 truncate text-[13px] font-medium">{p.project}</div>
                   <div className="mt-0.5 flex items-center justify-between text-2xs text-ink-3"><span className="truncate">{p.client} · {fmtNum(p.ask.completes)} completes</span>{p.risk && <TriangleAlert size={12} className="shrink-0 text-warn" aria-label="Has a risk" />}</div>
@@ -76,21 +84,21 @@ export default function ProjexaRequests() {
           </ul>
         </Panel>
 
-        <Detail p={sel} counter={counters[sel.id]} undoLeft={undo?.id === sel.id ? undo.left : null}
+        {!sel ? <Panel className="p-8 text-center text-[13px] text-ink-2">No SampTrek requests in SampAudience yet.</Panel> : <Detail p={sel} s={samp.find((x) => x.id === sel.requestId)} consoleUrl={liveFeed ? liveFeed.consoleUrl : undefined} counter={counters[sel.id]} undoLeft={undo?.id === sel.id ? undo.left : null}
           onUndo={() => { setState(sel.id, 'new'); setUndo(null); toast(`Acceptance of ${sel.projectId} undone`, 'info'); }}
-          onAccept={() => accept(sel)} onCounter={() => setDialog('counter')} onDecline={() => setDialog('decline')} />
+          onAccept={() => accept(sel)} onCounter={() => setDialog('counter')} onDecline={() => setDialog('decline')} />}
       </div>
 
-      <CounterDialog open={dialog === 'counter'} onOpenChange={(v) => !v && setDialog(null)} p={sel}
+      {sel && <><CounterDialog open={dialog === 'counter'} onOpenChange={(v) => !v && setDialog(null)} p={sel}
         onSend={(ask, reason) => { setCounters((c) => ({ ...c, [sel.id]: { ask, reason } })); setState(sel.id, 'countered'); setDialog(null); toast(`Counter-proposal sent to ${sel.manager} in SampTrek`, 'ok'); }} />
       <DeclineDialog open={dialog === 'decline'} onOpenChange={(v) => !v && setDialog(null)} p={sel}
-        onDecline={() => { setState(sel.id, 'declined'); setDialog(null); toast(`${sel.projectId} declined; SampTrek notified`, 'info'); }} />
+        onDecline={() => { setState(sel.id, 'declined'); setDialog(null); toast(`${sel.projectId} declined; SampTrek notified`, 'info'); }} /></>}
     </div>
   );
 }
 
-function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }: { p: ProjexaRequest; counter?: { ask: Ask; reason: string }; undoLeft: number | null; onUndo: () => void; onAccept: () => void; onCounter: () => void; onDecline: () => void }) {
-  const s = sampleonRequests.find((x) => x.id === p.requestId)!;
+function Detail({ p, s, consoleUrl, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }: { p: ProjexaRequest; s?: SampleonRequest; consoleUrl?: string | null; counter?: { ask: Ask; reason: string }; undoLeft: number | null; onUndo: () => void; onAccept: () => void; onCounter: () => void; onDecline: () => void }) {
+  const live = consoleUrl !== undefined;
   const cost = p.ask.completes * p.ask.cpi;
   const overBudget = cost > p.budget.total;
   const open = p.state === 'new' || p.state === 'countered';
@@ -98,11 +106,12 @@ function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }
     <Panel className="p-4">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{p.projectId}</span><span>·</span><span>PM {p.manager}</span><span>·</span><span>received {p.received}</span><Badge tone={stateTone[p.state]} className="capitalize">{p.state}</Badge></div>
+          <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{p.projectId}</span><span>·</span>{p.manager && <><span>PM {p.manager}</span><span>·</span></>}<span>received {p.received}</span><Badge tone={stateTone[p.state]} className="capitalize">{p.state}</Badge></div>
           <h2 className="mt-1 flex items-center gap-1 font-display text-lg font-semibold">{p.project}<InfoTip entry={sectionHelp('projexa-requests', 'Selected request')} label="This request" /></h2>
           <p className="text-[12.5px] text-ink-2">{p.client}</p>
         </div>
-        {open && <div className="flex flex-wrap gap-1.5">
+        {live && <DecideInSampAudience url={consoleUrl ?? null} label="Review in SampAudience" />}
+        {open && !live && <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant="success" onClick={onAccept}><Check size={13} /> Accept</Button>
           <Button size="sm" variant="ghost" onClick={onCounter}><MessageSquareReply size={13} /> Counter-propose</Button>
           <Button size="sm" variant="ghost" onClick={onDecline}><X size={13} /> Decline</Button>
@@ -146,17 +155,20 @@ function Detail({ p, counter, undoLeft, onUndo, onAccept, onCounter, onDecline }
           {counter && <p className="mt-2 text-2xs text-ink-3">Reason sent: “{counter.reason}”</p>}
         </section>
         <section>
+          {live ? <><SectionTitle eyebrow="Budget" title="Held in SampTrek" /><p className="text-[12px] text-ink-2">The project budget and CPI stay in SampTrek; SampAudience shares reward points only.</p></> : <>
           <SectionTitle eyebrow="Budget" title={`${fmtMoney(cost)} at the asked CPI`} />
           <div className="text-2xs text-ink-3"><div className="flex justify-between"><span>Spent so far</span><span className="num">{fmtMoney(p.budget.spent)} of {fmtMoney(p.budget.total)}</span></div><Bar value={p.budget.spent / p.budget.total} className="mt-1" /></div>
           <p className={cn('mt-2 text-[12px]', overBudget ? 'text-warn' : 'text-ink-2')}>{overBudget ? `This request costs ${fmtMoney(cost - p.budget.total)} more than the project budget.` : `Leaves ${fmtMoney(p.budget.total - cost)} of the project budget.`} CPI cap from the rate card: ${p.budget.cpiCap.toFixed(2)}.</p>
+          </>}
           <h3 className="eyebrow mb-1.5 mt-4">Feasibility from SUPPLY360</h3>
-          <p className="text-[12.5px]"><b className="num">{fmtNum(s.feasibility.estimatedCompletes)}</b> estimated completes from <b className="num">{fmtNum(s.feasibility.reachable)}</b> reachable{s.feasibility.shortfall ? <span className="text-warn"> · short by {fmtNum(s.feasibility.shortfall)}</span> : <span className="text-emerald"> · feasible</span>}</p>
+          <p className="text-[12.5px]"><b className="num">{fmtNum(s?.feasibility.estimatedCompletes ?? 0)}</b> estimated completes from <b className="num">{fmtNum(s?.feasibility.reachable ?? 0)}</b> reachable{s?.feasibility.shortfall ? <span className="text-warn"> · short by {fmtNum(s?.feasibility.shortfall)}</span> : <span className="text-emerald"> · feasible</span>}</p>
           <Link href={`/supply/sampleon?r=${p.requestId}`} className="mt-2 inline-flex items-center gap-1 text-2xs text-primary hover:underline">Open in SampAudience allocation <ArrowRight size={11} /></Link>
         </section>
       </div>
 
       <section className="mt-4">
         <SectionTitle eyebrow="From the SampTrek questionnaire" title="Quota mapping" />
+        {!p.quotas.length && <p className="text-[12px] text-ink-3">No quota cells on this request yet. Cells mapped from the questionnaire appear here once SampAudience sets them up.</p>}
         <ul className="grid gap-1.5 sm:grid-cols-2">
           {p.quotas.map((q) => (
             <li key={q.id} className="flex items-center gap-2 rounded-lg border hairline px-2.5 py-1.5 text-[12px]">
@@ -177,7 +189,7 @@ const termRows = (a: Ask, b?: Ask) => [
   { label: 'Length (LOI)', a: `${a.loi} min`, b: b && `${b.loi} min`, changed: b && b.loi !== a.loi },
   { label: 'Countries', a: <CountryChips codes={a.countries} max={4} />, b: b && <CountryChips codes={b.countries} max={4} />, changed: false },
   { label: 'Fieldwork ends', a: a.end, b: b?.end, changed: b && b.end !== a.end },
-  { label: 'CPI', a: `$${a.cpi.toFixed(2)}`, b: b && `$${b.cpi.toFixed(2)}`, changed: b && b.cpi !== a.cpi },
+  { label: 'CPI', a: a.cpi ? `$${a.cpi.toFixed(2)}` : 'In SampTrek', b: b && `$${b.cpi.toFixed(2)}`, changed: b && b.cpi !== a.cpi },
 ];
 
 function CounterDialog({ open, onOpenChange, p, onSend }: { open: boolean; onOpenChange: (v: boolean) => void; p: ProjexaRequest; onSend: (a: Ask, reason: string) => void }) {
