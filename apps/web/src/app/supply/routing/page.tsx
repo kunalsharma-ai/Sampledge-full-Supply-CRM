@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css';
 import { CheckCircle2, Filter, GitBranch, LogIn, Play, Square, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Panel, Segmented } from '@/components/ui/primitives';
-import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
+import { fmt, SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { panelBrands } from '@/lib/supply/demo';
 import { pace, paceBand, paceMeta, surveys } from '@/lib/supply/fieldwork';
@@ -111,7 +111,7 @@ function Graph() {
     ...panelBrands.map((b, i) => ({ id: `e-${b.id}`, type: 'r', position: { x: X.entry, y: 60 + i * 120 }, data: { kind: 'entry' as const, title: b.name, sub: 'entering / h', metric: fmtNum(entryRate[b.id]), color: b.color, state: state(`e-${b.id}`) } })),
     { id: 'checks', type: 'r', position: { x: X.check, y: 150 }, data: { kind: 'check', title: 'Eligibility checks', lines: m.checkFlows.map((c) => [c.title, `${Math.round(c.pass * 100)}% pass`] as [string, string]), sub: 'eligible / h', metric: fmtNum(m.routed), state: state('checks') } },
     { id: 'router', type: 'r', position: { x: X.router, y: 175 }, data: { kind: 'router', title: { yield: 'Highest earnings', fill: 'Fill slowest quotas', balanced: 'Balanced' }[strategy], sub: 'routed / h', metric: fmtNum(m.routed), state: state('router') } },
-    ...m.rows.map((r, i) => ({ id: `s-${r.s.id}`, type: 'r', position: { x: X.survey, y: i * 78 }, data: { kind: 'survey' as const, title: r.s.title, sub: `${Math.round(r.share * 100)}% · EPC ${fmtMoney(r.epc, false)}`, metric: fmtNum(r.in), band: r.band, state: state(`s-${r.s.id}`) } })),
+    ...m.rows.map((r, i) => ({ id: `s-${r.s.id}`, type: 'r', position: { x: X.survey, y: i * 78 }, data: { kind: 'survey' as const, title: r.s.title, sub: `${Math.round(r.share * 100)}% · EPC ${fmt.money(r.epc)}`, metric: fmtNum(r.in), band: r.band, state: state(`s-${r.s.id}`) } })),
     ...outcomeMeta.map((o, i) => ({ id: `o-${o.id}`, type: 'r', position: { x: X.outcome, y: 30 + i * 110 }, data: { kind: 'outcome' as const, title: o.title, sub: 'per hour', metric: fmtNum(m.outcomes[o.id]), color: o.color, state: state(`o-${o.id}`) } })),
   ];
   const edge = (source: string, target: string, flow: number, color = 'rgb(var(--ink-3) / .45)'): Edge => {
@@ -161,7 +161,7 @@ function Graph() {
             {selRow ? (<>
               <SectionTitle eyebrow="Survey" title={selRow.s.title} />
               <ul className="space-y-1 text-[12.5px]">
-                {[['Routed in', fmtNum(selRow.in)], ['Completes', fmtNum(selRow.completes)], ['Screen-outs', fmtNum(selRow.screenout)], ['Over quota', fmtNum(selRow.overquota)], ['Pace', paceMeta[selRow.band].label], ['Earnings per click', fmtMoney(selRow.epc, false)]].map(([k, v]) => <li key={k} className="flex justify-between"><span className="text-ink-3">{k}</span><span className="num font-semibold">{v}</span></li>)}
+                {[['Routed in', fmtNum(selRow.in)], ['Completes', fmtNum(selRow.completes)], ['Screen-outs', fmtNum(selRow.screenout)], ['Over quota', fmtNum(selRow.overquota)], ['Pace', paceMeta[selRow.band].label], ['Earnings per click', fmt.money(selRow.epc)]].map(([k, v]) => <li key={k} className="flex justify-between"><span className="text-ink-3">{k}</span><span className="num font-semibold">{v}</span></li>)}
               </ul>
             </>) : selChecks ? (<>
               <SectionTitle eyebrow="Eligibility checks, in order" title={`${fmtNum(m.entering - m.routed)} stopped per hour`} />

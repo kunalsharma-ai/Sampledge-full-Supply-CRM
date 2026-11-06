@@ -65,5 +65,8 @@ export function readTokens() {
     danger: v('danger', '#FF627E'),
     warn: v('warn', '#FFC754'),
     emerald: v('emerald', '#1ECD9B'),
+    orange: v('orange', '#FF9654'),
+    purple: v('purple', '#A78BFA'),
+    cyan: v('cyan', '#22D3EE'),
   };
 }

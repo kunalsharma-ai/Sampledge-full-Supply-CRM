@@ -37,7 +37,7 @@ export const fmt = {
   int: (n: number) => fmtNum(Math.round(n)),
   compact: (n: number) => fmtCompact(n),
   pct: (n: number) => `${(n * 100).toFixed(1)}%`,
-  money: (n: number) => fmtMoney(n, n >= 100_000),
+  money: (n: number) => (Math.abs(n) < 100 ? `$${n.toFixed(2)}` : fmtMoney(n, n >= 100_000)),
 };
 
 /** Compact KPI: label + hint, animated value (0.6s on change), delta coloured by whether up is good. */
@@ -49,7 +49,9 @@ export function KpiTile({ label, value, format, delta, good = 'up', spark, hint,
     <div className="panel group flex h-full flex-col justify-between gap-2 p-4 transition-shadow duration-200 hover:shadow-lift">
       <div className="flex items-start justify-between gap-2">
         <span className="text-[12px] font-medium leading-tight text-ink-2">{label}</span>
-        {hint && <Tip content={hint}><span tabIndex={0} aria-label={`About ${label}`} className="text-ink-3 hover:text-ink"><Info size={12} /></span></Tip>}
+        {hint && (href
+          ? <span title={hint} aria-hidden className="text-ink-3"><Info size={12} /></span>
+          : <Tip content={hint}><button type="button" aria-label={`About ${label}`} className="text-ink-3 hover:text-ink"><Info size={12} /></button></Tip>)}
       </div>
       <div className="flex items-end justify-between gap-3">
         <AnimatedNumber value={value} format={fmt[format]} duration={0.6} className="font-jakarta text-[24px] font-bold leading-none tracking-tight" />
@@ -66,7 +68,7 @@ export function KpiTile({ label, value, format, delta, good = 'up', spark, hint,
       )}
     </div>
   );
-  return href ? <Link href={href} className="block h-full rounded-[1.25rem]" aria-label={`${label}: open`}>{body}</Link> : body;
+  return href ? <Link href={href} className="block h-full rounded-[1.25rem]" aria-label={`${label}: open`} title={hint}>{body}</Link> : body;
 }
 
 /** Product identity chip: SAMPLEON, PROJEXA and ZAPX keep their own colours inside SUPPLY360. */
