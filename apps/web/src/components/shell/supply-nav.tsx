@@ -30,7 +30,6 @@ function Item({ s, active, onNavigate }: { s: Screen; active: boolean; onNavigat
       {active && <motion.span layoutId="supply-nav-active" className="absolute inset-0 rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/25" transition={{ type: 'spring', bounce: 0.12, duration: 0.4 }} />}
       {active && <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-primary" />}
       {brand && brand.icon
-        // eslint-disable-next-line @next/next/no-img-element
         ? <img src={brand.icon} alt="" aria-hidden width={17} height={17} className="relative -mx-px h-[17px] w-[17px] shrink-0" />
         : <Icon size={15} className={cn('relative shrink-0', active ? 'text-primary' : 'text-ink-3 group-hover:text-ink-2')} style={brand ? { color: brand.color } : undefined} />}
       <span className="relative flex-1 truncate">{s.label}</span>

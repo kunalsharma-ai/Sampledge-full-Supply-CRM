@@ -76,9 +76,7 @@ export function SampAudienceLogo({ height = 40, className }: { height?: number; 
   const w = Math.round((height * 272) / 64);
   return (
     <span className={cn('inline-flex shrink-0', className)}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className="sa-logo-dark" src="/brand/sampaudience/sampaudience-logo-dark.svg" alt="SampAudience by Sampledge" width={w} height={height} />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className="sa-logo-light" src="/brand/sampaudience/sampaudience-logo-light.svg" alt="SampAudience by Sampledge" width={w} height={height} />
     </span>
   );
@@ -91,7 +89,6 @@ export function ProductChip({ product, children }: { product: 'sampleon' | 'proj
     <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold tracking-wide ring-1 ring-inset"
       style={{ color: `color-mix(in srgb, ${b.color} 55%, rgb(var(--ink)))`, background: `color-mix(in srgb, ${b.color} 12%, transparent)`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${b.color} 35%, transparent)` }}>
       {b.icon
-        // eslint-disable-next-line @next/next/no-img-element
         ? <img src={b.icon} alt="" aria-hidden width={14} height={14} className="-my-1 h-3.5 w-3.5" />
         : <span className="h-1.5 w-1.5 rounded-sm" style={{ background: b.color }} aria-hidden />}
       {children ?? b.name}
