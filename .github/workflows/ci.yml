@@ -1,8 +1,21 @@
 name: CI
-on: [push, pull_request]
+# Fits GitHub Free for a private repository (2,000 Actions minutes a month): branches are tested
+# through their pull request only (not once per push and again per PR), a newer push cancels the
+# run it replaces, and a stuck run stops after 30 minutes.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
-    runs-on: ubuntu-24.04 # pinned: Playwright 1.55 has no browser builds for Ubuntu 26
+    # Set the repository variable CI_RUNNER to "self-hosted" to run on your own machine, which
+    # costs no Actions minutes (it needs Docker for the Postgres service). Default: GitHub's runner.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }} # pinned: Playwright 1.55 has no browser builds for Ubuntu 26
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
