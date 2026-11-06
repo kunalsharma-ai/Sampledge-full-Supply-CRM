@@ -200,3 +200,17 @@ export const loadAccess = () => api<AccessMatrix>('/admin/access');
 export const limitRole = (b: { role: string; module: string; level: 'read' | 'none'; reason: string }) => api('/admin/access/limits', { method: 'POST', body: b });
 export const grantAccess = (b: { userId: string; module: string; reason: string; days: number }) => api('/admin/access/grants', { method: 'POST', body: b });
 export const revokeOverride = (id: string) => api(`/admin/access/${id}/revoke`, { method: 'POST', body: {} });
+
+// ───────────────────────── Summary views (markets, audience counts, activity)
+export type ApiMarket = { code: string; members: Record<'t2o' | 'mfr' | 'mho', number>; active: number; consented: number; reachable: number; completesToday: number; liveSurveys: number; ir: number; delta: number; trend: number[] };
+export const loadMarkets = () => api<{ asOf: string; markets: ApiMarket[] }>('/supply/markets');
+
+export type AudienceCount = {
+  eligible: number; reachable: number; invitable: number; missingProfile: number;
+  byCountry: { code: string; eligible: number; invitable: number }[]; byPanel: Record<string, number>; byAge: Record<string, number>; bySegment: Record<string, number>;
+  responseRate: number | null; unsupported: string[]; capped: boolean;
+};
+export const countAudience = (root: unknown, fatigueDays = 7) => api<AudienceCount>('/supply/audience/count', { method: 'POST', body: { root, fatigueDays } });
+
+export type ApiEvent = { id: string; type: 'signup' | 'profile' | 'survey' | 'reward' | 'support' | 'risk'; at: string; panelistId: string; text: string };
+export const loadEvents = (hours = 24) => api<{ since: string; hours: number; events: ApiEvent[] }>(`/panels/events?hours=${hours}`);

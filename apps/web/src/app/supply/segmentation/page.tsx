@@ -18,6 +18,7 @@ import { useOS } from '@/lib/store';
 import { cond, decodeRoot, describe, encodeRoot, filterSample, group, translate, type Group, type SavedSegment } from '@/lib/supply/audience';
 import { panellists, SCALE } from '@/lib/supply/panellists';
 import { panelBrands } from '@/lib/supply/demo';
+import { entries, useAudienceCount } from '@/lib/supply/audience-live';
 import { screenBySlug } from '@/lib/supply/screens';
 import { fmtNum } from '@/lib/utils';
 
@@ -50,7 +51,9 @@ function Segmentation() {
 
   const sample = panellists();
   const matched = useMemo(() => filterSample(sample, root), [sample, root]);
-  const est = Math.round(matched.length * SCALE);
+  const count = useAudienceCount(root);
+  const live = count.data;
+  const est = live ? live.eligible : Math.round(matched.length * SCALE);
   const summary = describe(root) || 'Everyone';
 
   const run = (t = text) => {
@@ -63,16 +66,19 @@ function Segmentation() {
     for (const p of matched) { const k = key(p); if (k) m.set(k, (m.get(k) ?? 0) + 1); }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   };
-  const byCountry = dist((p) => p.country).slice(0, 8);
-  const byAge = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+'].map((a) => [a, matched.filter((p) => p.ageBand === a).length] as const);
-  const byPanel = panelBrands.map((b) => ({ name: b.short, value: matched.filter((p) => p.brand === b.id).length, itemStyle: { color: b.color } }));
-  const bySeg = dist((p) => p.specialty ?? p.jobRole ?? p.segment).slice(0, 6);
+  const scaled = (xs: [string, number][]) => xs.map(([k, v]) => [k, Math.round(v * SCALE)] as [string, number]);
+  const AGES = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
+  const byCountry = live ? live.byCountry.slice(0, 8).map((c) => [c.code, c.eligible] as [string, number]) : scaled(dist((p) => p.country).slice(0, 8));
+  const byAge = AGES.map((a) => [a, live ? live.byAge[a] ?? 0 : Math.round(matched.filter((p) => p.ageBand === a).length * SCALE)] as const);
+  const byPanel = panelBrands.map((b) => ({ name: b.short, value: live ? live.byPanel[b.id] ?? 0 : matched.filter((p) => p.brand === b.id).length, itemStyle: { color: b.color } }));
+  const bySeg = live ? entries(live.bySegment).slice(0, 6) : scaled(dist((p) => p.specialty ?? p.jobRole ?? p.segment).slice(0, 6));
+  const none = live ? live.eligible === 0 : matched.length === 0;
   const feasHref = `/supply/feasibility?def=${encodeURIComponent(encodeRoot(root))}${target ? `&target=${target}` : ''}`;
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} source="demo" title="Audience builder"
-        subtitle="Describe the audience in plain language or build it rule by rule. Counts update as you go and are estimates from the panel sample."
+      <SupplyHeader screen={screen} source={live ? 'live' : 'demo'} title="Audience builder"
+        subtitle={live ? 'Describe the audience in plain language or build it rule by rule. Counts update as you go and are counted from the member database.' : 'Describe the audience in plain language or build it rule by rule. Counts update as you go and are estimates from the panel sample.'}
         actions={<>
           <Button size="sm" variant="ghost" disabled={!history.length} onClick={() => { setRootRaw(history[history.length - 1]); setHistory(history.slice(0, -1)); }}><Undo2 size={13} /> Undo</Button>
           <Button size="sm" onClick={() => setSaveOpen(true)}><Save size={13} /> Save segment</Button>
@@ -106,41 +112,44 @@ function Segmentation() {
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel className="min-w-0 p-4">
           <SectionTitle eyebrow="Definition" title="Rules" actions={<Button size="xs" variant="ghost" onClick={() => setRoot(starter())}><Trash2 size={12} /> Reset</Button>} />
-          <FilterTree root={root} onChange={setRoot} sample={sample} />
+          <FilterTree root={root} onChange={setRoot} sample={sample} estimates={!live} />
           <p className="mt-3 rounded-lg bg-surface-2/40 p-2.5 text-[12.5px] text-ink-2"><span className="eyebrow mr-1.5">Reads as</span>{summary}</p>
         </Panel>
 
         <Panel className="min-w-0 p-4">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="eyebrow">Eligible panellists (estimate)</div>
+              <div className="eyebrow">{live ? 'Eligible panellists' : 'Eligible panellists (estimate)'}</div>
               <AnimatedNumber value={est} format={(n) => fmtNum(Math.round(n))} duration={0.5} className="font-jakarta text-[34px] font-bold leading-none tracking-tight" />
-              <div className="mt-1 text-2xs text-ink-3">{fmtNum(matched.length)} of {fmtNum(sample.length)} in the sample · ±{Math.round(100 / Math.sqrt(Math.max(1, matched.length)))}%</div>
+              {live ? (
+                <div className="mt-1 text-2xs text-ink-3">{fmtNum(live.reachable)} reachable · {fmtNum(live.invitable)} not invited in the last 7 days{count.loading ? ' · updating…' : ''}</div>
+              ) : <div className="mt-1 text-2xs text-ink-3">{fmtNum(matched.length)} of {fmtNum(sample.length)} in the sample · ±{Math.round(100 / Math.sqrt(Math.max(1, matched.length)))}%</div>}
+              {live && live.unsupported.length > 0 && <p className="mt-1 text-2xs text-warn">Not recorded for members yet, so left out of the count: {live.unsupported.join(', ')}</p>}
             </div>
             {target && <div className="text-right"><div className="eyebrow">Target</div><div className="num font-jakarta text-xl font-bold">{fmtNum(target)}</div><div className="text-2xs text-ink-3">{(est / target).toFixed(1)}× eligible per complete</div></div>}
           </div>
-          {matched.length === 0 ? (
+          {none ? (
             <div className="grid place-items-center rounded-xl border border-dashed hairline py-16 text-center text-[13px] text-ink-3">No panellists match. Loosen a rule or switch a group to OR.</div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              <EChart ariaLabel="Eligible panellists by country" height={180} deps={[matched.length, summary]} option={(t) => ({
+              <EChart ariaLabel="Eligible panellists by country" height={180} deps={[est, summary]} option={(t) => ({
                 grid: { left: 4, right: 30, top: 6, bottom: 4, containLabel: true }, tooltip: { trigger: 'axis' },
                 xAxis: { type: 'value', show: false }, yAxis: { type: 'category', inverse: true, data: byCountry.map((c) => c[0]), ...axis(t, { splitLine: { show: false } }) },
-                series: [{ type: 'bar', name: 'Eligible', data: byCountry.map((c) => Math.round(c[1] * SCALE)), barWidth: 10, itemStyle: { borderRadius: 5 }, label: { show: true, position: 'right', fontSize: 10, textBorderWidth: 0, color: 'inherit', formatter: (p: { value?: unknown }) => Intl.NumberFormat('en', { notation: 'compact' }).format(Number(p.value)) } }],
+                series: [{ type: 'bar', name: 'Eligible', data: byCountry.map((c) => c[1]), barWidth: 10, itemStyle: { borderRadius: 5 }, label: { show: true, position: 'right', fontSize: 10, textBorderWidth: 0, color: 'inherit', formatter: (p: { value?: unknown }) => Intl.NumberFormat('en', { notation: 'compact' }).format(Number(p.value)) } }],
               })} />
-              <EChart ariaLabel="Eligible panellists by panel" height={180} deps={[matched.length, summary]} option={() => ({
+              <EChart ariaLabel="Eligible panellists by panel" height={180} deps={[est, summary]} option={() => ({
                 tooltip: { trigger: 'item' }, legend: { bottom: 0, top: 'auto' },
                 series: [{ type: 'pie', radius: ['48%', '72%'], center: ['50%', '44%'], data: byPanel, label: { show: false }, itemStyle: { borderWidth: 0 } }],
               })} />
-              <EChart ariaLabel="Eligible panellists by age band" height={160} deps={[matched.length, summary]} option={(t) => ({
+              <EChart ariaLabel="Eligible panellists by age band" height={160} deps={[est, summary]} option={(t) => ({
                 grid: { left: 4, right: 4, top: 10, bottom: 4, containLabel: true }, tooltip: { trigger: 'axis' },
                 xAxis: { type: 'category', data: byAge.map((a) => a[0]), ...axis(t, { splitLine: { show: false } }) }, yAxis: { type: 'value', show: false },
-                series: [{ type: 'bar', name: 'Eligible', data: byAge.map((a) => Math.round(a[1] * SCALE)), barWidth: 16, itemStyle: { borderRadius: [4, 4, 0, 0], color: 'rgb(var(--chart-3))' } }],
+                series: [{ type: 'bar', name: 'Eligible', data: byAge.map((a) => a[1]), barWidth: 16, itemStyle: { borderRadius: [4, 4, 0, 0], color: 'rgb(var(--chart-3))' } }],
               })} />
               <div>
                 <div className="eyebrow mb-1.5">Top segments</div>
                 <ul className="space-y-1 text-[12.5px]">
-                  {bySeg.map(([k, v]) => <li key={k} className="flex justify-between capitalize"><span className="truncate text-ink-2">{k}</span><span className="num font-semibold">{fmtNum(Math.round(v * SCALE))}</span></li>)}
+                  {bySeg.map(([k, v]) => <li key={k} className="flex justify-between capitalize"><span className="truncate text-ink-2">{k}</span><span className="num font-semibold">{fmtNum(v)}</span></li>)}
                 </ul>
               </div>
             </div>

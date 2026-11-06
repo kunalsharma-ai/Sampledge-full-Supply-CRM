@@ -14,7 +14,8 @@ import { cn, fmtCompact } from '@/lib/utils';
 
 const optLabel: Record<string, string> = { t2o: 'Turn2Opinion', mfr: 'MyFrequentRewards', mho: 'MyHealthOpinions', hcp: 'Healthcare professional', professional: 'B2B professional' };
 
-export function FilterTree({ root, onChange, sample, depth = 0, onRemove }: { root: Group; onChange: (g: Group) => void; sample: Panellist[]; depth?: number; onRemove?: () => void }) {
+/** `estimates` shows each rule's own count from the demo sample; it is turned off when the total is counted live. */
+export function FilterTree({ root, onChange, sample, depth = 0, onRemove, estimates = true }: { root: Group; onChange: (g: Group) => void; sample: Panellist[]; depth?: number; onRemove?: () => void; estimates?: boolean }) {
   const setChild = (i: number, n: Node | null) => onChange({ ...root, children: n ? root.children.map((c, k) => (k === i ? n : c)) : root.children.filter((_, k) => k !== i) });
   return (
     <div className={cn('rounded-xl border p-2.5', depth === 0 ? 'hairline bg-surface-2/20' : 'border-dashed border-primary/30 bg-primary/[.03]')}>
@@ -34,8 +35,8 @@ export function FilterTree({ root, onChange, sample, depth = 0, onRemove }: { ro
             <motion.li key={c.id} layout initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.16 }}>
               {i > 0 && <div className="my-1 pl-2 text-[10px] font-bold tracking-wider text-ink-3">{root.join}</div>}
               {c.kind === 'group'
-                ? <FilterTree root={c} sample={sample} depth={depth + 1} onChange={(g) => setChild(i, g)} onRemove={() => setChild(i, null)} />
-                : <ConditionRow c={c} sample={sample} onChange={(n) => setChild(i, n)} onRemove={() => setChild(i, null)} />}
+                ? <FilterTree root={c} sample={sample} estimates={estimates} depth={depth + 1} onChange={(g) => setChild(i, g)} onRemove={() => setChild(i, null)} />
+                : <ConditionRow c={c} sample={estimates ? sample : null} onChange={(n) => setChild(i, n)} onRemove={() => setChild(i, null)} />}
             </motion.li>
           ))}
         </AnimatePresence>
@@ -48,9 +49,9 @@ export function FilterTree({ root, onChange, sample, depth = 0, onRemove }: { ro
   );
 }
 
-function ConditionRow({ c, onChange, onRemove, sample }: { c: Condition; onChange: (c: Condition) => void; onRemove: () => void; sample: Panellist[] }) {
+function ConditionRow({ c, onChange, onRemove, sample }: { c: Condition; onChange: (c: Condition) => void; onRemove: () => void; sample: Panellist[] | null }) {
   const f = fieldByKey(c.field);
-  const count = sample.filter((p) => matches(p, c)).length;
+  const count = sample ? sample.filter((p) => matches(p, c)).length : null;
   const numeric = f.type === 'number';
   let editor: ReactNode;
   if (numeric) {
@@ -82,7 +83,7 @@ function ConditionRow({ c, onChange, onRemove, sample }: { c: Condition; onChang
         ))}
       </select>
       {editor}
-      <span className="num ml-auto w-14 text-right text-2xs text-ink-3" title="Panellists matching this rule on its own (estimate)">{fmtCompact(count * SCALE)}</span>
+      <span className="num ml-auto w-14 text-right text-2xs text-ink-3" title={count == null ? undefined : 'Panellists matching this rule on its own (estimate)'}>{count == null ? '' : fmtCompact(count * SCALE)}</span>
       <Button size="icon-sm" variant="ghost" aria-label={`Remove ${f.label} rule`} onClick={onRemove}><Trash2 size={13} /></Button>
     </div>
   );

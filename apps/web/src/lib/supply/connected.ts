@@ -54,6 +54,13 @@ export const markets: Market[] = coreCountries.map((c) => {
 }
 export const marketByCode = Object.fromEntries(markets.map((m) => [m.code, m])) as Record<string, Market>;
 export const totalMembers = (m: Market) => m.members.t2o + m.members.mfr + m.members.mho;
+/** Recorded figures from GET /supply/markets, with the place names and coordinates from the country list. */
+export const withGeography = (rows: Omit<Market, 'name' | 'lat' | 'lon' | 'region' | 'utcOffset'>[]): Market[] =>
+  rows.flatMap((m) => {
+    const c = coreCountries.find((x) => x.code === m.code);
+    return c ? [{ ...m, name: c.name, lat: c.lat, lon: c.lon, region: c.region, utcOffset: utcOffsetOf(c.code) } as Market] : [];
+  });
+export const byCode = (ms: Market[]) => Object.fromEntries(ms.map((m) => [m.code, m])) as Record<string, Market>;
 
 /** Client headquarters, used to draw request arcs from where the demand is to where fieldwork runs. */
 const clientHq: Record<string, string> = { 'Northwind Media': 'US', 'Helix Pharma': 'DE', 'Contoso Cloud': 'US', 'Fresh & Co': 'GB', 'Voltaro Motors': 'DE', 'Meridian Health': 'US', Fintrail: 'SG', Skyroute: 'GB' };

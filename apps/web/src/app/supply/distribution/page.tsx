@@ -13,7 +13,9 @@ import { Suspense, useMemo, useState } from 'react';
 import { Badge, Button, Panel, Segmented } from '@/components/ui/primitives';
 import { GeoMap } from '@/components/supply/geo-map';
 import { PanelChip, SectionTitle, SupplyHeader } from '@/components/supply/kit';
-import { inSendWindow, markets, marketByCode, totalMembers, wakeCurve, type Market } from '@/lib/supply/connected';
+import { byCode, inSendWindow, markets as demoMarkets, totalMembers, wakeCurve, withGeography, type Market } from '@/lib/supply/connected';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadMarkets } from '@/lib/supply/live';
 import { panelBrands, type PanelId } from '@/lib/supply/demo';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtNum } from '@/lib/utils';
@@ -33,12 +35,15 @@ function Distribution() {
   const [selected, setSelected] = useState<string | null>(params.get('c'));
   const [plan, setPlan] = useState<Set<string>>(() => new Set(params.get('c') ? [params.get('c')!] : ['US', 'GB', 'DE']));
 
+  const q = useSupplyData('markets', () => demoMarkets, async () => { const r = await loadMarkets(); return r?.markets.length ? withGeography(r.markets) : null; });
+  const markets = q.data;
+  const marketByCode = useMemo(() => byCode(markets), [markets]);
   /** Audience in a market for the chosen panel and measure. Reachable is split by panel in proportion to members. */
   const value = (m: Market, p: 'all' | PanelId = panel) => {
     const base = measure === 'members' ? totalMembers(m) : m.reachable;
-    return p === 'all' ? base : Math.round(base * (m.members[p] / totalMembers(m)));
+    return p === 'all' ? base : Math.round(base * (m.members[p] / (totalMembers(m) || 1)));
   };
-  const rows = useMemo(() => [...markets].sort((a, b) => value(b) - value(a)), [panel, measure]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => [...markets].sort((a, b) => value(b) - value(a)), [panel, measure, markets]); // eslint-disable-line react-hooks/exhaustive-deps
   const total = rows.reduce((a, m) => a + value(m), 0);
   const awakeNow = rows.filter((m) => inSendWindow(hour, m));
   const awakeShare = awakeNow.reduce((a, m) => a + value(m), 0) / (total || 1);
@@ -52,7 +57,7 @@ function Distribution() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Global audience distribution" subtitle="Where the reachable audience is, which panel it sits in, and what time it is there. Use it to plan when to send." />
+      <SupplyHeader screen={screen} source={q.source} title="Global audience distribution" subtitle="Where the reachable audience is, which panel it sits in, and what time it is there. Use it to plan when to send." />
 
       <div className="flex flex-wrap items-center gap-2">
         <Segmented label="Panel" size="sm" value={panel} onChange={setPanel} options={[{ value: 'all', label: 'All panels' }, ...panelBrands.map((b) => ({ value: b.id, label: b.short }))]} />
