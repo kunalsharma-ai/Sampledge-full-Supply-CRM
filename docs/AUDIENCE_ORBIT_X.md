@@ -216,8 +216,12 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
 ## 12. Delivery waves
 
 1. **Foundation** — this spec, tokens, six themes, component library, navigation, Executive Dashboard, Theme Studio.
-2. Respondents & audiences — panels, explorer, 360° profile, registration, profiling studios, segmentation, feasibility.
-3. Fieldwork — survey inventory, routing graph, launches, batches, quotas.
+2. **Respondents & audiences** (built) — panels, explorer, 360° profile, registration, profiling studios, segmentation, feasibility.
+3. **Fieldwork** (built) — survey inventory, routing graph, launches, batches, quotas.
+   - Pace = achieved share of target ÷ share of field time passed. Bands: ahead ≥ 1.15, on pace ≥ 0.92, behind ≥ 0.7, otherwise at risk.
+   - Batch times are UTC; quiet hours are 21:00–08:00 local, and moves into them are refused.
+   - Full launch is gated: soft-launch data, a complete checklist, and a written reason for any metric off plan.
+   - Planned SAMPLEON endpoints: `GET /sampleon/v1/surveys`, `POST /sampleon/v1/surveys/:id/launch`, `PATCH /sampleon/v1/batches/:id`, `GET /sampleon/v1/routing/flows`. Quota actions use the existing `POST /panel-backend/:panel/projects/:id/actions`.
 4. Engagement — automation node editor, email, newsletters, journeys, notifications, AI survey generation, weekly rewards.
 5. Rewards, support & quality — ledger, redemptions, three-pane support, AI support, quality & risk, activity timeline.
 6. Global, connected products & platform — globe, distribution, copilot, analytics, SAMPLEON / PROJEXA / ZAPX workspaces, API hub, roles, settings.

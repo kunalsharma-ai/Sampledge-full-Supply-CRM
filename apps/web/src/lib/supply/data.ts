@@ -57,6 +57,11 @@ export const endpoints = {
   supplyOverview: { method: 'GET', path: '/supply/overview', status: 'planned' },
   audienceRequests: { method: 'GET', path: '/sampleon/v1/audience-requests', status: 'planned' },
   decide: { method: 'POST', path: '/approvals/:id/decision', status: 'available' },
+  surveys: { method: 'GET', path: '/sampleon/v1/surveys', status: 'planned' },
+  launch: { method: 'POST', path: '/sampleon/v1/surveys/:id/launch', status: 'planned' },
+  batch: { method: 'PATCH', path: '/sampleon/v1/batches/:id', status: 'planned' },
+  routingFlows: { method: 'GET', path: '/sampleon/v1/routing/flows', status: 'planned' },
+  quotaAction: { method: 'POST', path: '/panel-backend/:panel/projects/:id/actions', status: 'available' },
 } as const;
 
 export type PanelStat = (typeof panelStats)[number] & { id: PanelId };
