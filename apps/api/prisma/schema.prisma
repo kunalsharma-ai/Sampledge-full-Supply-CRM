@@ -817,3 +817,72 @@ model PanelRewardPolicy {
 
   @@unique([tenantId, version])
 }
+
+// ───────────────────────── SAMPLEON integration (docs/integrations/SAMPLEON.md)
+/// One profile attribute of a panelist (B2B, healthcare, extra demographics). Keys come from the
+/// attribute catalogue in src/integrations/sampleon/attributes.ts. Health keys are only used for
+/// panelists with health-data consent.
+model PanelistAttribute {
+  id         String   @id @default(cuid())
+  tenantId   String
+  panelistId String
+  key        String
+  valueText  String?
+  valueNum   Float?
+  valueBool  Boolean?
+  source     String   @default("profile") // profile | import | survey
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([panelistId, key])
+  @@index([tenantId, key])
+}
+
+/// A survey card SAMPLEON asked SUPPLY360 to deliver: shown on the panelist's panel website. Also the
+/// invitation history used for fatigue and exclusions. id = SAMPLEON's invitation id.
+model SurveyCard {
+  id                String    @id
+  tenantId          String
+  audienceRequestId String
+  surveyId          String
+  panelistId        String
+  panel             String    // t2o | mfr | mho
+  title             String
+  cardUrl           String
+  loiMinutes        Int
+  rewardPoints      Int
+  expiresAt         DateTime
+  emailed           Boolean   @default(false)
+  status            String    @default("open") // open | started | completed | screened_out | withdrawn
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+
+  @@index([tenantId, panelistId, createdAt])
+  @@index([tenantId, audienceRequestId])
+}
+
+/// A panelist's participation in one SAMPLEON survey session, from SAMPLEON's events.
+model Participation {
+  id                String    @id @default(cuid())
+  tenantId          String
+  sessionId         String    @unique
+  audienceRequestId String
+  surveyId          String
+  panelistId        String
+  status            String    // started | complete | terminate | quota_full | quality_fail | ...
+  rewardEntryId     String?
+  startedAt         DateTime  @default(now())
+  endedAt           DateTime?
+
+  @@index([tenantId, panelistId])
+  @@index([tenantId, surveyId])
+}
+
+/// Inbound service events already applied (exactly-once effect).
+model InboundEvent {
+  eventId       String   @id
+  tenantId      String
+  source        String
+  type          String
+  correlationId String
+  receivedAt    DateTime @default(now())
+}

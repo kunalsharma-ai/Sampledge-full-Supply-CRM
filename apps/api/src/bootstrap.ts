@@ -10,7 +10,7 @@ import { requestObservability, RequestIdFilter } from './common/observability';
 
 export async function createApp() {
   assertConfig();
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: process.env.NODE_ENV === 'test' ? ['error'] : ['log', 'warn', 'error'] });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true, logger: process.env.NODE_ENV === 'test' ? ['error'] : ['log', 'warn', 'error'] });
   app.use(requestObservability);
   app.use(tenantScopeMiddleware);
   app.useGlobalFilters(new RequestIdFilter());
