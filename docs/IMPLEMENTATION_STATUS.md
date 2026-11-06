@@ -85,6 +85,7 @@ Seeded records are fictional. No real clients, suppliers, panelists or health da
 | Healthcare safeguards, automation list | Design + policy description |
 | CSV member import: dry-run validation, then import; rejects rows containing an email address or phone number; skips existing handles; up to 5,000 rows | Functional |
 | Integration with existing panel sites | Functional adapter and project sync (v0.10–v0.11), tested against stand-ins only; see Panels below and docs/integrations/TURN2OPINION.md |
+| SAMPLEON eligibility & delivery API: attribute catalogue, eligible/reachable counts, selection, checks, survey cards, panel card feed, participation and rewards from SAMPLEON events | Functional; tested in `sampleon.test.ts` and end to end with SAMPLEON, ZAPX and PROJEXA; see docs/integrations/SAMPLEON.md |
 
 ## Survey Studio
 | Feature | Status |
