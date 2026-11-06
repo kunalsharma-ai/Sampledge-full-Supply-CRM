@@ -114,12 +114,12 @@ export default function SurveyInventory() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Survey inventory" subtitle="Every survey panellists can be routed to, from PROJEXA, ZAPX and partner exchanges."
+      <SupplyHeader screen={screen} title="Survey inventory" subtitle="Every survey panellists can be routed to, from SampTrek, SampCode and partner exchanges."
         actions={<Segmented label="Inventory view" size="sm" value={view} onChange={(v) => setPref('view:surveys', v)} options={[{ value: 'board', label: <span className="flex items-center gap-1"><LayoutGrid size={12} /> Board</span> }, { value: 'table', label: <span className="flex items-center gap-1"><Rows3 size={12} /> Table</span> }]} />} />
 
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput value={q} onChange={setQ} placeholder="Search surveys, clients or refs…" className="w-full sm:w-72" />
-        <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'PROJEXA' }, { value: 'ZAPX', label: 'ZAPX' }, { value: 'Partner', label: 'Partner' }]} />
+        <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'SampTrek' }, { value: 'ZAPX', label: 'SampCode' }, { value: 'Partner', label: 'Partner' }]} />
         <span className="ml-auto text-2xs text-ink-3"><b className="num text-ink">{live.length}</b> live · <b className={cn('num', atRisk ? 'text-danger' : 'text-ink')}>{atRisk}</b> with a quota cell at risk</span>
       </div>
 

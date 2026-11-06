@@ -149,7 +149,7 @@ export const notices: Notice[] = [
   { id: 'n8', lane: 'review', title: 'Automation “HCP profile completion” paused by Tom', detail: 'Reason: template update', source: 'Automation', at: '3h ago', href: '/supply/automation' },
   { id: 'n9', lane: 'fyi', title: 'Weekly rewards survey #46 closed', detail: '9,214 completes · $0.31 per complete', source: 'Weekly rewards', at: '5h ago', href: '/supply/weekly-rewards' },
   { id: 'n10', lane: 'fyi', title: 'Onboarding conversion up 3.1 points this week', detail: 'New member onboarding · 41%', source: 'Journeys', at: '6h ago', href: '/supply/journeys' },
-  { id: 'n11', lane: 'fyi', title: 'PROJEXA synced 4 new audience requests', detail: 'PRJ-1104 to PRJ-1107', source: 'PROJEXA', at: '8h ago' },
+  { id: 'n11', lane: 'fyi', title: 'SampTrek synced 4 new audience requests', detail: 'PRJ-1104 to PRJ-1107', source: 'SampTrek', at: '8h ago' },
   { id: 'n12', lane: 'fyi', title: 'Theme preferences now sync across devices', detail: 'Product update', source: 'SUPPLY360', at: '1d ago' },
 ];
 export const channels = ['In app', 'Email', 'Slack', 'Mobile push'] as const;
