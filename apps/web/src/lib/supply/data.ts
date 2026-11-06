@@ -68,6 +68,11 @@ export const endpoints = {
   notifications: { method: 'GET', path: '/notifications', status: 'planned' },
   weeklyProgramme: { method: 'GET', path: '/panels/weekly-programme', status: 'planned' },
   surveyDraft: { method: 'POST', path: '/ai/survey-draft', status: 'planned' },
+  ledger: { method: 'GET', path: '/panels/ledger', status: 'planned' },
+  tickets: { method: 'GET', path: '/support/tickets', status: 'planned' },
+  ticketMessage: { method: 'POST', path: '/support/tickets/:id/messages', status: 'planned' },
+  qualityCases: { method: 'GET', path: '/quality/cases', status: 'planned' },
+  events: { method: 'GET', path: '/panels/events', status: 'planned' },
 } as const;
 
 export type PanelStat = (typeof panelStats)[number] & { id: PanelId };
