@@ -192,7 +192,7 @@ export const screenByPath = (path: string | null | undefined) =>
   path ? [...screens].sort((a, b) => b.slug.length - a.slug.length).find((s) => path === screenHref(s) || path.startsWith(`${screenHref(s)}/`)) : undefined;
 export const screenBySlug = (slug: string) => screens.find((s) => s.slug === slug);
 /** Screens with a finished implementation in this build; the rest show their design brief. */
-export const BUILT_WAVES = [1, 2, 3, 4] as const;
+export const BUILT_WAVES = [1, 2, 3, 4, 5] as const;
 export const isScreenBuilt = (s: Screen) => (BUILT_WAVES as readonly number[]).includes(s.wave);
 
 export const brandColors: Record<NonNullable<Screen['brand']>, { name: string; color: string; ink: string }> = {

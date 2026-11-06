@@ -226,5 +226,8 @@ Screens use `useSupplyData(key, demo, live)` (`lib/supply/data.ts`): live when t
    - Anything that messages members (activating a workflow, sending an email, scheduling a newsletter) asks for confirmation first. Test runs send nothing.
    - The AI drafter is local and deterministic in demo mode. Live mode will call `POST /ai/survey-draft` (planned) through the AI gateway, and drafts open unpublished in Survey Studio.
    - Notification delivery rules persist per user (`prefs['notify:rules']`).
-5. Rewards, support & quality — ledger, redemptions, three-pane support, AI support, quality & risk, activity timeline.
+5. **Rewards, support & quality** (built) — ledger, redemptions, three-pane support, AI support, quality & risk, activity timeline.
+   - The points ledger is append-only. Each row carries its hash and the previous row's hash, and corrections are new rows. 100 points = $1.
+   - Redemption decisions and quality actions are reversible: redemptions have a 10-second undo window, and a suspension can be lifted from the case.
+   - AI support drafts always show their sources. Auto-send needs confirmation and never covers drafts that propose an action.
 6. Global, connected products & platform — globe, distribution, copilot, analytics, SAMPLEON / PROJEXA / ZAPX workspaces, API hub, roles, settings.

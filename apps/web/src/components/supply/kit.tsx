@@ -37,7 +37,7 @@ export const fmt = {
   int: (n: number) => fmtNum(Math.round(n)),
   compact: (n: number) => fmtCompact(n),
   pct: (n: number) => `${(n * 100).toFixed(1)}%`,
-  money: (n: number) => (Math.abs(n) < 100 ? `$${n.toFixed(2)}` : fmtMoney(n, n >= 100_000)),
+  money: (n: number) => (Math.abs(n) < 100 ? `${n < 0 ? '−' : ''}$${Math.abs(n).toFixed(2)}` : fmtMoney(n, Math.abs(n) >= 100_000)),
 };
 
 /** Compact KPI: label + hint, animated value (0.6s on change), delta coloured by whether up is good. */
