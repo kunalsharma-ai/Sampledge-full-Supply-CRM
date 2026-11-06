@@ -6,7 +6,9 @@
  * lock everyone out), and panellist identity is never viewable by any role. Per-person overrides
  * are temporary: they need a reason and expire within 30 days.
  * Integration: the API enforces `packages/core` roles; `PUT /admin/roles/:id/capabilities` and
- * `POST /admin/overrides` (planned).
+ * `POST /admin/overrides` (planned). Live: "People in this workspace" lists `GET /admin/users` for
+ * admins and changes a sign-in role with `PATCH /admin/users/:id/role` after confirmation; granting
+ * platform admin opens an approval someone else decides.
  */
 import { Lock, Plus, RotateCcw, ShieldAlert, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -14,6 +16,10 @@ import { Badge, Button, Panel, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog, DialogClose, DialogContent, DialogFooter } from '@/components/ui/overlay';
 import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { roles as coreRoles, type Role } from '@/lib/core';
+import { useSupplyData, type SupplyQuery } from '@/lib/supply/data';
+import { loadMembers, setMemberRole, type LiveMember } from '@/lib/supply/live';
+import { ApiError } from '@/lib/api';
 import { capabilities, levels, overrides as seedOv, roleMatrix, supplyRoles, type CapId, type Level, type Override, type SupplyRole } from '@/lib/supply/platform';
 import { screenBySlug } from '@/lib/supply/screens';
 import { cn } from '@/lib/utils';
@@ -38,10 +44,11 @@ export default function Roles() {
   const diff = useMemo(() => supplyRoles.flatMap((r) => capabilities.filter((c) => draft[r.id][c.id] !== saved[r.id][c.id]).map((c) => ({ role: r, cap: c, from: saved[r.id][c.id], to: draft[r.id][c.id] }))), [draft, saved]);
   const setCell = (role: SupplyRole, cap: CapId, v: Level) => setDraft((d) => ({ ...d, [role]: { ...d[role], [cap]: v } }));
   const groups = [...new Set(capabilities.map((c) => c.group))];
+  const members = useSupplyData<LiveMember[] | null>('roles:members', () => null, loadMembers);
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="Roles & permissions" subtitle="Who can see and do what in SUPPLY360. Changes are a draft until you review and save them."
+      <SupplyHeader screen={screen} source={members.source === 'live' ? 'mixed' : 'demo'} title="Roles & permissions" subtitle="Who can see and do what in SUPPLY360. Changes are a draft until you review and save them."
         actions={diff.length > 0 && <>
           <Button size="sm" variant="ghost" onClick={() => setDraft(saved)}><RotateCcw size={13} /> Discard</Button>
           <Button size="sm" variant="primary" onClick={() => setReview(true)}>Review {diff.length} change{diff.length > 1 ? 's' : ''}</Button>
@@ -125,6 +132,8 @@ export default function Roles() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <WorkspaceMembers q={members} />
+
       <ConfirmDialog open={!!removeOv} onOpenChange={(v) => !v && setRemoveOv(null)} title="Remove this override?" body={removeOv ? `${removeOv.person} goes back to the ${supplyRoles.find((r) => r.id === removeOv.role)!.label.toLowerCase()} role’s access straight away.` : ''}
         confirmLabel="Remove" onConfirm={() => { if (removeOv) { setOv((l) => l.filter((x) => x.id !== removeOv.id)); toast('Override removed', 'info'); setRemoveOv(null); } }} />
       <AddOverride open={adding} onOpenChange={setAdding} onAdd={(o) => { setOv((l) => [o, ...l]); toast(`${o.person} has ${o.level} on ${o.cap} until ${o.expires}`, 'ok'); }} />
@@ -160,5 +169,57 @@ function AddOverride({ open, onOpenChange, onAdd }: { open: boolean; onOpenChang
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const roleLabel = (r: Role) => coreRoles.find((x) => x.id === r)?.label ?? r;
+
+/** Real members and sign-in roles (admins only; other roles get no rows and the panel stays hidden). */
+function WorkspaceMembers({ q }: { q: SupplyQuery<LiveMember[] | null> }) {
+  const toast = useOS((s) => s.toast);
+  const [change, setChange] = useState<{ m: LiveMember; to: Role } | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (q.source !== 'live' || !q.data) return null;
+  const assignable = coreRoles.filter((r) => r.id !== 'vendor' && r.id !== 'client');
+  const apply = async () => {
+    if (!change) return;
+    setBusy(true);
+    try {
+      const r = await setMemberRole(change.m.id, change.to);
+      toast(r.approvalId ? `Asked for approval to make ${change.m.name} a Platform Admin` : r.changed ? `${change.m.name} is now ${roleLabel(r.role)}` : 'No change', 'ok');
+      q.reload();
+    } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not change the role', 'warn'); }
+    finally { setBusy(false); setChange(null); }
+  };
+  return (
+    <Panel className="p-4">
+      <SectionTitle eyebrow="Live" title="People in this workspace" actions={<span className="text-2xs text-ink-3">{q.data.length} members</span>} />
+      <p className="-mt-1 mb-2 text-2xs text-ink-3">Each person’s sign-in role decides which SUPPLY360 screens they can open. A change applies on their next request. Vendor and client accounts keep their role.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[620px] text-[12.5px]">
+          <caption className="sr-only">Workspace members and their sign-in roles</caption>
+          <thead><tr className="text-left text-2xs text-ink-3"><th scope="col" className="py-1.5 font-semibold">Person</th><th scope="col" className="py-1.5 font-semibold">Role</th><th scope="col" className="py-1.5 font-semibold">Two-step sign-in</th><th scope="col" className="py-1.5 font-semibold">Last sign-in</th></tr></thead>
+          <tbody>{q.data.map((m) => {
+            const fixed = m.you || m.role === 'vendor' || m.role === 'client';
+            return (
+              <tr key={m.id} className="border-t hairline">
+                <th scope="row" className="py-2 pr-3 text-left font-medium">{m.name}{m.you && <Badge tone="blue" className="ml-1.5">You</Badge>}<div className="text-2xs font-normal text-ink-3">{m.email}</div></th>
+                <td className="py-2 pr-3">{fixed
+                  ? <span title={m.you ? 'Ask another administrator to change your role' : 'Tied to a vendor or client record'}>{roleLabel(m.role)}</span>
+                  : <select aria-label={`Role for ${m.name}`} className={cn(inputCls, 'h-8 w-48')} value={m.role} onChange={(e) => setChange({ m, to: e.target.value as Role })}>{assignable.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</select>}</td>
+                <td className="py-2 pr-3">{m.mfaEnabled ? <Badge tone="emerald">On</Badge> : <Badge tone="neutral">Off</Badge>}</td>
+                <td className="py-2 text-ink-2">{m.lastSignIn ? new Date(m.lastSignIn).toLocaleString() : 'Never'}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+      <ConfirmDialog open={!!change} onOpenChange={(v) => !v && !busy && setChange(null)} tone="primary"
+        title={change ? `Change ${change.m.name}’s role?` : ''}
+        body={change ? (change.to === 'platform_admin'
+          ? `${roleLabel(change.m.role)} → Platform Admin. Granting admin access needs someone else’s approval, so this opens a request and nothing changes until it is approved.`
+          : `${roleLabel(change.m.role)} → ${roleLabel(change.to)}. It applies on their next request and is recorded in the audit log.`) : ''}
+        confirmLabel={change?.to === 'platform_admin' ? 'Ask for approval' : 'Change role'} onConfirm={apply} />
+    </Panel>
   );
 }

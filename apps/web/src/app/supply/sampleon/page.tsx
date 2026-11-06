@@ -7,7 +7,8 @@
  * inline), quota cells, batches and delivery, and the event log in contract event names.
  * Approving an allocation sends `audience.approved` to SAMPLEON, so it asks for confirmation.
  * Integration: `GET /sampleon/v1/audience-requests` (planned), `POST /sampleon/v1/audience-requests/:id/approve` (planned),
- * staff overview `GET /panels/sampleon/overview` (added with the SAMPLEON supply API).
+ * staff overview `GET /panels/sampleon/overview` (live: the "Recorded in SUPPLY360" strip shows the real
+ * survey card, participation and reward totals when signed in to the API; the pipeline is still demo).
  */
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -18,6 +19,8 @@ import { Badge, Bar, Button, Panel, SearchInput, Segmented, inputCls } from '@/c
 import { ConfirmDialog, Tabs, TabsContent, TabsList } from '@/components/ui/overlay';
 import { CountryChips, KpiTile, PanelChip, ProductChip, SampAudienceLogo, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { cardStatus, loadSampOverview, participationStatus, type SampOverview } from '@/lib/supply/live';
 import { pipelineStages, sampleonRequests, type FlowEvent, type SampleonRequest, type SampleonStatus } from '@/lib/supply/connected';
 import { panelBrands, type PanelId } from '@/lib/supply/demo';
 import { productName, screenBySlug } from '@/lib/supply/screens';
@@ -45,10 +48,11 @@ function Sampleon() {
   const inFlight = items.filter((r) => ['soft_launch', 'live', 'paused'].includes(r.status));
   const required = inFlight.reduce((a, r) => a + r.requiredCompletes, 0), done = inFlight.reduce((a, r) => a + r.completes, 0);
   const delivered = items.reduce((a, r) => a + r.batches.delivered, 0), suppressed = items.reduce((a, r) => a + r.batches.suppressed, 0);
+  const overview = useSupplyData<SampOverview | null>('samp:overview', () => null, loadSampOverview);
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title={<span className="flex flex-wrap items-center gap-3"><SampAudienceLogo height={44} /> <span>Audience allocation</span></span>}
+      <SupplyHeader screen={screen} source={overview.source === 'live' ? 'mixed' : 'demo'} title={<span className="flex flex-wrap items-center gap-3"><SampAudienceLogo height={44} /> <span>Audience allocation</span></span>}
         subtitle="Requests from SampTrek projects and SampCode surveys, from feasibility to closed. SUPPLY360 does the counting and delivery; names and e-mail addresses never leave SUPPLY360." />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -58,9 +62,11 @@ function Sampleon() {
         <KpiTile label="Suppressed at delivery" value={suppressed / (delivered || 1)} format="pct" good="down" hint="Invitations SUPPLY360 did not send: no research consent, fatigue cap or recent participation" />
       </div>
 
+      {overview.source === 'live' && overview.data && <LiveOverview o={overview.data} />}
+
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
-          <span className="text-[13px] font-semibold">Pipeline</span>
+          <span className="text-[13px] font-semibold">Pipeline</span>{overview.source === 'live' && <Badge tone="neutral">Demo requests</Badge>}
           <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'SampTrek' }, { value: 'ZAPX', label: 'SampCode' }]} />
           <SearchInput value={q} onChange={setQ} placeholder="Request, project, survey or client…" className="ml-auto w-full sm:w-64" />
         </div>
@@ -209,6 +215,30 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
       <ConfirmDialog open={confirm === 'pause'} onOpenChange={(v) => !v && setConfirm(null)} title="Pause fieldwork?"
         body="No new batches go out and open survey cards are hidden from panellists. Respondents already in the survey can finish." confirmLabel="Pause"
         onConfirm={() => { update(r.id, { status: 'paused' }); toast(`${r.id} paused`, 'info'); }} />
+    </Panel>
+  );
+}
+
+/** Real totals from SUPPLY360's own tables: the survey cards SampAudience placed and what came back. */
+function LiveOverview({ o }: { o: SampOverview }) {
+  const cards = Object.values(o.cards).reduce((a, n) => a + n, 0), parts = Object.values(o.participation).reduce((a, n) => a + n, 0);
+  const extra = (known: { key: string }[], got: Record<string, number>) => Object.keys(got).filter((k) => !known.some((x) => x.key === k)).map((k) => ({ key: k, label: k.replace(/_/g, ' ') }));
+  const row = (title: string, known: { key: string; label: string }[], got: Record<string, number>, total: number) => (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between text-[12.5px]"><span className="font-semibold">{title}</span><span className="num text-ink-2">{fmtNum(total)}</span></div>
+      <dl className="flex flex-wrap gap-1.5">{[...known, ...extra(known, got)].map((s) => <div key={s.key} className="rounded-lg bg-surface-2/60 px-2 py-1 text-2xs"><dt className="inline text-ink-3">{s.label} </dt><dd className="num inline font-semibold">{fmtNum(got[s.key] ?? 0)}</dd></div>)}</dl>
+    </div>
+  );
+  return (
+    <Panel className="p-4" aria-labelledby="samp-live">
+      <SectionTitle id="samp-live" eyebrow="Live" title="Recorded in SUPPLY360" />
+      {cards + parts === 0 && o.rewardPointsNet === 0
+        ? <p className="text-[12.5px] text-ink-2">SampAudience hasn’t placed any survey cards with this workspace’s panellists yet. Cards, survey outcomes and rewards appear here as soon as it does.</p>
+        : <div className="grid gap-4 md:grid-cols-[1fr_1fr_180px]">
+            {row('Survey cards placed', cardStatus, o.cards, cards)}
+            {row('Survey outcomes received', participationStatus, o.participation, parts)}
+            <div><div className="text-[12.5px] font-semibold">Reward points credited</div><div className="num mt-1 font-display text-[22px] font-bold">{fmtNum(o.rewardPointsNet)}</div><p className="text-2xs text-ink-3">Net of reversals, from SampAudience outcomes</p></div>
+          </div>}
     </Panel>
   );
 }

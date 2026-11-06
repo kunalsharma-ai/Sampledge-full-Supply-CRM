@@ -6,6 +6,8 @@
  * API key management. A new key's secret is shown once; revoking asks you to type the key name.
  * Integration: `GET /integrations/connections`, `GET /integrations/deliveries`, `POST /integrations/deliveries/:id/retry`,
  * `POST /integrations/keys`, `DELETE /integrations/keys/:id` (all planned); SAMPLEON signing per the S2S contract.
+ * Live: "Configured on the API server" lists `GET /integrations` (real state; secrets are reported
+ * only as set or missing) when signed in. The map, delivery log and keys stay demo until their endpoints exist.
  */
 import { Copy, KeyRound, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -14,6 +16,8 @@ import { ConfirmDialog, Dialog, DialogClose, DialogContent, DialogFooter } from 
 import { StatusPill } from '@/components/ui/status';
 import { KpiTile, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
+import { useSupplyData } from '@/lib/supply/data';
+import { loadIntegrations, type LiveIntegration } from '@/lib/supply/live';
 import { apiKeys as seedKeys, connections, deliveries as seedDel, scopes, type ApiKey, type Connection, type Delivery } from '@/lib/supply/platform';
 import { brandColors, screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtNum } from '@/lib/utils';
@@ -37,6 +41,7 @@ export default function ApiHub() {
   const [newKey, setNewKey] = useState(false);
   const [revoke, setRevoke] = useState<ApiKey | null>(null);
 
+  const live = useSupplyData<LiveIntegration[] | null>('hub:integrations', () => null, loadIntegrations);
   const c = connections.find((x) => x.id === sel)!;
   const shownDl = useMemo(() => dl.filter((d) => dlFilter === 'all' || d.status === dlFilter), [dl, dlFilter]);
   const failed = dl.filter((d) => d.status === 'failed');
@@ -47,7 +52,7 @@ export default function ApiHub() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title="API integration hub" subtitle="Every system SUPPLY360 talks to, how healthy each link is, the events we send, and the keys that can call us." />
+      <SupplyHeader screen={screen} source={live.source === 'live' ? 'mixed' : 'demo'} title="API integration hub" subtitle="Every system SUPPLY360 talks to, how healthy each link is, the events we send, and the keys that can call us." />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Connections healthy" value={connections.filter((x) => x.status === 'healthy').length} format="int" hint={`Of ${connections.length} connected systems`} />
@@ -114,6 +119,8 @@ export default function ApiHub() {
           {shownDl.length === 0 && <p className="p-8 text-center text-[13px] text-ink-3">No deliveries with this status.</p>}
         </div>
       </Panel>
+
+      {live.source === 'live' && live.data && <ServerConfig rows={live.data} />}
 
       <Panel className="p-4">
         <SectionTitle eyebrow="Inbound access" title="API keys" actions={<Button size="sm" onClick={() => setNewKey(true)}><Plus size={13} /> New key</Button>} />
@@ -183,5 +190,35 @@ function NewKeyDialog({ open, onOpenChange, onCreate }: { open: boolean; onOpenC
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const stateLabel: Record<LiveIntegration['state'], { label: string; tone: 'emerald' | 'cyan' | 'warn' | 'neutral' }> = {
+  connected: { label: 'Connected', tone: 'emerald' }, configured: { label: 'Configured, not used yet', tone: 'cyan' }, development: { label: 'Development mode', tone: 'warn' }, off: { label: 'Off', tone: 'neutral' }, not_built: { label: 'Not built', tone: 'neutral' },
+};
+
+/** Real configuration state from the API server, grouped as the server groups it. */
+function ServerConfig({ rows }: { rows: LiveIntegration[] }) {
+  const groups = [...new Set(rows.map((r) => r.group))];
+  return (
+    <Panel className="p-4">
+      <SectionTitle eyebrow="Live" title="Configured on the API server" actions={<span className="text-2xs text-ink-3">{rows.filter((r) => r.state === 'connected').length} of {rows.length} connected</span>} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {groups.map((g) => (
+          <section key={g} aria-label={g}>
+            <h3 className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-ink-3">{g}</h3>
+            <ul className="space-y-2">{rows.filter((r) => r.group === g).map((r) => (
+              <li key={r.id} className="rounded-xl border hairline p-2.5 text-[12px]">
+                <div className="flex items-center gap-2"><span className="font-semibold">{r.name}</span><Badge tone={stateLabel[r.state].tone} className="ml-auto">{stateLabel[r.state].label}</Badge></div>
+                <p className="mt-1 text-ink-2">{r.detail}</p>
+                {r.settings.length > 0 && <p className="mt-1 flex flex-wrap gap-1">{r.settings.map((x) => <code key={x.name} className={cn('rounded px-1 text-[10.5px]', x.set ? 'bg-emerald/10 text-ink' : 'bg-ink-3/10 text-ink-3')} title={x.set ? 'Set' : 'Not set'}>{x.name}{x.set ? ' ✓' : ''}</code>)}</p>}
+                {r.lastActivity && <p className="mt-1 text-2xs text-ink-3">Last: {r.lastActivity.summary} · {new Date(r.lastActivity.at).toLocaleString()}</p>}
+              </li>
+            ))}</ul>
+          </section>
+        ))}
+      </div>
+      <p className="mt-2 text-2xs text-ink-3">Settings are environment variables on the API server. Values are never sent to the browser, only whether each one is set.</p>
+    </Panel>
   );
 }
