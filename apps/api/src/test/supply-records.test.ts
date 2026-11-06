@@ -73,9 +73,10 @@ describe('supply records', () => {
     const base = { name: 'Completes by panel', metric: 'completes', rows: 'week', cols: 'panel', chart: 'line' };
     assert.equal((await as('executive').post('/supply/records/report', { data: { ...base, schedule: 'weekly' } })).status, 400);
     assert.equal((await as('executive').post('/supply/records/report', { data: { ...base, cols: 'week' } })).status, 400);
-    const ok = await as('executive').post('/supply/records/report', { data: { ...base, schedule: 'weekly', recipients: ['Leads@Example.com'] } });
+    const ok = await as('executive').post('/supply/records/report', { data: { ...base, schedule: 'weekly', recipients: ['Executive@Demo.Sampledge.test'] } });
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
-    assert.deepEqual(ok.body.data.recipients, ['leads@example.com']);
+    assert.deepEqual(ok.body.data.recipients, ['executive@demo.sampledge.test'], 'lower-cased');
+    assert.equal((await as('executive').post('/supply/records/report', { data: { ...base, schedule: 'weekly', recipients: ['leads@example.com'] } })).status, 400, 'team members only');
     assert.match(ok.body.ref, /^RPT-/);
   });
 });

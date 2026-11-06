@@ -931,3 +931,42 @@ model WorkflowRun {
   @@unique([workflowId, panelistId])
   @@index([tenantId, workflowId, status, wakeAt])
 }
+
+/// Read-only API keys for systems outside SUPPLY360; only a SHA-256 hash of the secret is stored.
+model ApiKey {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  /// the first characters of the secret, to recognise a key in logs and lists
+  prefix      String
+  hash        String    @unique
+  /// modules the key may read, e.g. ["panels", "analytics"]
+  scopes      String[]
+  createdBy   String
+  createdById String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+
+  @@index([tenantId, createdAt])
+}
+
+/// Workspace changes to the role matrix in @sampledge/core: a role limited to less access to a
+/// module (userId null), or one person given temporary read access with a reason (userId set).
+model AccessOverride {
+  id          String    @id @default(cuid())
+  tenantId    String
+  role        String?
+  userId      String?
+  module      String
+  level       String    // full | read | scoped | none
+  reason      String
+  expiresAt   DateTime?
+  createdBy   String
+  createdById String
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([tenantId, revokedAt])
+}

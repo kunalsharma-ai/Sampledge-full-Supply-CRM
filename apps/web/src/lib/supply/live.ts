@@ -185,3 +185,18 @@ export type TicketDraft = { ticketId: string; ref: string; reply: string; confid
 /** `POST /supply/ai/tickets/:id/draft`: a reply draft from the ticket and the member's ledger; nothing is sent. */
 export const draftTicketReply = (id: string) => api<TicketDraft>(`/supply/ai/tickets/${id}/draft`, { method: 'POST', body: {} });
 export const loadSupportAiStats = () => api<{ drafts7d: number; replies7d: number; solved7d: number; awaitingReply: number }>('/supply/ai/support/stats');
+
+/** `GET /integrations/keys`: read-only API keys (the secret is never listed). */
+export type LiveApiKey = { id: string; name: string; prefix: string; scopes: string[]; createdBy: string; createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null };
+export const loadApiKeys = () => api<{ scopes: string[]; keys: LiveApiKey[] }>('/integrations/keys');
+export const createApiKey = (b: { name: string; scopes: string[]; days: number }) => api<LiveApiKey & { secret: string }>('/integrations/keys', { method: 'POST', body: b });
+export const revokeApiKey = (id: string) => api<LiveApiKey>(`/integrations/keys/${id}/revoke`, { method: 'POST', body: {} });
+
+/** `GET /admin/access`: the role × module matrix as enforced, with this workspace's overrides. */
+export type ModuleLevel = 'full' | 'read' | 'scoped' | 'none';
+export type AccessOverrideRow = { id: string; kind: 'limit' | 'grant'; role: string | null; userId: string | null; person: string | null; module: string; level: ModuleLevel; reason: string; expiresAt: string | null; createdBy: string; createdAt: string };
+export type AccessMatrix = { modules: string[]; roles: { id: string; label: string; people: number }[]; defaults: Record<string, Record<string, ModuleLevel>>; effective: Record<string, Record<string, ModuleLevel>>; overrides: AccessOverrideRow[] };
+export const loadAccess = () => api<AccessMatrix>('/admin/access');
+export const limitRole = (b: { role: string; module: string; level: 'read' | 'none'; reason: string }) => api('/admin/access/limits', { method: 'POST', body: b });
+export const grantAccess = (b: { userId: string; module: string; reason: string; days: number }) => api('/admin/access/grants', { method: 'POST', body: b });
+export const revokeOverride = (id: string) => api(`/admin/access/${id}/revoke`, { method: 'POST', body: {} });

@@ -5,10 +5,12 @@
  * change affects before anything is saved. Platform admin can't lose settings access (that would
  * lock everyone out), and panellist identity is never viewable by any role. Per-person overrides
  * are temporary: they need a reason and expire within 30 days.
- * Integration: the API enforces `packages/core` roles; `PUT /admin/roles/:id/capabilities` and
- * `POST /admin/overrides` (planned). Live: "People in this workspace" lists `GET /admin/users` for
- * admins and changes a sign-in role with `PATCH /admin/users/:id/role` after confirmation; granting
- * platform admin opens an approval someone else decides.
+ * The capability matrix above is the example model (demo). Live, for admins: "Access as enforced"
+ * shows the real role × module levels the API applies (`GET /admin/access`), with this workspace's
+ * overrides: a role can be limited to less access (`POST /admin/access/limits`, never more), and one
+ * person can get temporary read access with a reason for up to 30 days (`POST /admin/access/grants`).
+ * Both are audited and can be ended at once. "People in this workspace" lists `GET /admin/users` and
+ * changes a sign-in role with `PATCH /admin/users/:id/role`; granting platform admin opens an approval.
  */
 import { Lock, Plus, RotateCcw, ShieldAlert, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -18,7 +20,7 @@ import { SectionTitle, SupplyHeader } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { roles as coreRoles, type Role } from '@/lib/core';
 import { useSupplyData, type SupplyQuery } from '@/lib/supply/data';
-import { loadMembers, setMemberRole, type LiveMember } from '@/lib/supply/live';
+import { grantAccess, limitRole, loadAccess, loadMembers, revokeOverride, setMemberRole, type AccessMatrix, type AccessOverrideRow, type LiveMember, type ModuleLevel } from '@/lib/supply/live';
 import { ApiError } from '@/lib/api';
 import { capabilities, levels, overrides as seedOv, roleMatrix, supplyRoles, type CapId, type Level, type Override, type SupplyRole } from '@/lib/supply/platform';
 import { screenBySlug } from '@/lib/supply/screens';
@@ -132,6 +134,7 @@ export default function Roles() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <EnforcedAccess members={members.source === 'live' ? members.data : null} />
       <WorkspaceMembers q={members} />
 
       <ConfirmDialog open={!!removeOv} onOpenChange={(v) => !v && setRemoveOv(null)} title="Remove this override?" body={removeOv ? `${removeOv.person} goes back to the ${supplyRoles.find((r) => r.id === removeOv.role)!.label.toLowerCase()} role’s access straight away.` : ''}
@@ -220,6 +223,87 @@ function WorkspaceMembers({ q }: { q: SupplyQuery<LiveMember[] | null> }) {
           ? `${roleLabel(change.m.role)} → Platform Admin. Granting admin access needs someone else’s approval, so this opens a request and nothing changes until it is approved.`
           : `${roleLabel(change.m.role)} → ${roleLabel(change.to)}. It applies on their next request and is recorded in the audit log.`) : ''}
         confirmLabel={change?.to === 'platform_admin' ? 'Ask for approval' : 'Change role'} onConfirm={apply} />
+    </Panel>
+  );
+}
+
+const lvlCls: Record<ModuleLevel, string> = { full: 'text-emerald font-semibold', read: 'text-blue', scoped: 'text-ink-2', none: 'text-ink-3' };
+const moduleName = (m: string) => m.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
+
+/** The role × module levels the API enforces, with this workspace's limits and temporary grants (admins only). */
+function EnforcedAccess({ members }: { members: LiveMember[] | null }) {
+  const toast = useOS((s) => s.toast);
+  const q = useSupplyData<AccessMatrix | null>('roles:access', () => null, loadAccess);
+  const [dlg, setDlg] = useState<'limit' | 'grant' | null>(null);
+  const [end, setEnd] = useState<AccessOverrideRow | null>(null);
+  const [f, setF] = useState({ role: 'bizdev', module: 'crm', level: 'read' as 'read' | 'none', userId: '', days: 7, reason: '' });
+  const [busy, setBusy] = useState(false);
+  if (q.source !== 'live' || !q.data) return null;
+  const a = q.data;
+  const team = (members ?? []).filter((m) => m.role !== 'vendor' && m.role !== 'client' && !m.you);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      if (dlg === 'limit') await limitRole({ role: f.role, module: f.module, level: f.level, reason: f.reason.trim() });
+      else await grantAccess({ userId: f.userId, module: f.module, reason: f.reason.trim(), days: f.days });
+      toast(dlg === 'limit' ? 'Limit saved; it applies within 30 seconds' : 'Read access granted', 'ok');
+      setDlg(null); setF({ ...f, reason: '' }); q.reload();
+    } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not save', 'warn'); } finally { setBusy(false); }
+  };
+  const fieldCls = cn(inputCls, 'mt-1');
+  return (
+    <Panel className="p-4">
+      <SectionTitle eyebrow="Live" title="Access as enforced" actions={<div className="flex gap-1.5">
+        <Button size="sm" variant="ghost" className="border hairline" onClick={() => setDlg('limit')}>Limit a role</Button>
+        <Button size="sm" onClick={() => { setF({ ...f, userId: team[0]?.id ?? '', module: 'panels' }); setDlg('grant'); }} disabled={!team.length}><Plus size={13} /> Temporary read access</Button>
+      </div>} />
+      <p className="-mt-1 mb-2 text-2xs text-ink-3">What each sign-in role can do in each module, as the API checks it on every request. Full can change records, read can only look, scoped sees only its own records. Highlighted cells are limited in this workspace.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] text-[12px]">
+          <caption className="sr-only">Module access per role as enforced by the API</caption>
+          <thead><tr className="border-b hairline text-left"><th scope="col" className="sticky left-0 bg-surface px-2 py-2 text-2xs font-semibold text-ink-3">Module</th>
+            {a.roles.map((r) => <th key={r.id} scope="col" className="px-1.5 py-2 text-center text-[11px] font-semibold">{r.label}<div className="text-2xs font-normal text-ink-3">{r.people}</div></th>)}</tr></thead>
+          <tbody>{a.modules.map((m) => (
+            <tr key={m} className="border-t hairline">
+              <th scope="row" className="sticky left-0 bg-surface px-2 py-1.5 text-left font-medium">{moduleName(m)}</th>
+              {a.roles.map((r) => { const v = a.effective[r.id][m], d = a.defaults[r.id][m]; return <td key={r.id} className={cn('px-1.5 py-1.5 text-center capitalize', lvlCls[v], v !== d && 'bg-warn/10')} title={v !== d ? `Limited here; the role normally has ${d}` : undefined}>{v}</td>; })}
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <h3 className="eyebrow mb-1.5 mt-4">Overrides in force</h3>
+      {a.overrides.length ? (
+        <ul className="divide-y divide-ink-3/15 text-[12.5px]">{a.overrides.map((o) => (
+          <li key={o.id} className="flex flex-wrap items-center gap-2 py-2">
+            <Badge tone={o.kind === 'limit' ? 'warn' : 'blue'}>{o.kind === 'limit' ? 'Role limit' : 'Grant'}</Badge>
+            <span className="min-w-0 flex-1">{o.kind === 'limit' ? <>{roleLabel(o.role as Role)} limited to <b>{o.level}</b> on {moduleName(o.module)}</> : <>{o.person} can <b>read</b> {moduleName(o.module)}{o.expiresAt && <span className="text-ink-3"> until {new Date(o.expiresAt).toLocaleDateString()}</span>}</>}
+              <span className="block text-2xs text-ink-3">{o.reason} · {o.createdBy}</span></span>
+            <Button size="xs" variant="ghost" onClick={() => setEnd(o)}>End</Button>
+          </li>
+        ))}</ul>
+      ) : <p className="text-2xs text-ink-3">None. Everyone has exactly their role’s access.</p>}
+
+      <Dialog open={!!dlg} onOpenChange={(v) => !v && setDlg(null)}>
+        <DialogContent title={dlg === 'limit' ? 'Limit a role' : 'Temporary read access'} description={dlg === 'limit' ? 'Everyone in the role gets less access to the module in this workspace. A limit can never give more than the role has.' : 'One person can look at a module their role cannot see, for up to 30 days. It never allows changes.'}>
+          <div className="grid grid-cols-2 gap-3">
+            {dlg === 'limit'
+              ? <label className="block text-2xs text-ink-3">Role<select className={fieldCls} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>{a.roles.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</select></label>
+              : <label className="block text-2xs text-ink-3">Person<select className={fieldCls} value={f.userId} onChange={(e) => setF({ ...f, userId: e.target.value })}>{team.map((m) => <option key={m.id} value={m.id}>{m.name} ({roleLabel(m.role)})</option>)}</select></label>}
+            <label className="block text-2xs text-ink-3">Module<select className={fieldCls} value={f.module} onChange={(e) => setF({ ...f, module: e.target.value })}>{a.modules.filter((m) => dlg === 'limit' || m !== 'admin').map((m) => <option key={m} value={m}>{moduleName(m)}{dlg === 'limit' ? ` (now ${a.effective[f.role]?.[m]})` : ''}</option>)}</select></label>
+            {dlg === 'limit'
+              ? <label className="block text-2xs text-ink-3">New level<select className={fieldCls} value={f.level} onChange={(e) => setF({ ...f, level: e.target.value as 'read' | 'none' })}><option value="read">Read only</option><option value="none">No access</option></select></label>
+              : <label className="block text-2xs text-ink-3">For how many days<input type="number" min={1} max={30} className={fieldCls} value={f.days} onChange={(e) => setF({ ...f, days: Number(e.target.value) })} /></label>}
+            <label className="col-span-2 block text-2xs text-ink-3">Reason (kept in the audit log)<input className={fieldCls} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder={dlg === 'limit' ? 'e.g. Support moves to the vendor this month' : 'e.g. Covering support during leave'} /></label>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild><Button size="sm" variant="ghost">Cancel</Button></DialogClose>
+            <Button size="sm" variant="primary" disabled={busy || f.reason.trim().length < 5 || (dlg === 'grant' && (!f.userId || f.days < 1 || f.days > 30))} onClick={() => void submit()}>{dlg === 'limit' ? 'Save limit' : 'Grant read access'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog open={!!end} onOpenChange={(v) => !v && setEnd(null)} title="End this override?" confirmLabel="End it"
+        body={end ? (end.kind === 'limit' ? `${roleLabel(end.role as Role)} gets its normal ${moduleName(end.module).toLowerCase()} access back.` : `${end.person} loses read access to ${moduleName(end.module).toLowerCase()}.`) : ''}
+        onConfirm={async () => { if (!end) return; try { await revokeOverride(end.id); toast('Override ended', 'info'); q.reload(); } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not end it', 'warn'); } setEnd(null); }} />
     </Panel>
   );
 }

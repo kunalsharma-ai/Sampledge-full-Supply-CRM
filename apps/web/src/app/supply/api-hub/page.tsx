@@ -5,10 +5,11 @@
  * health. Below: the outbound event delivery log (retry one, or all failed after confirmation) and
  * API key management. A new key's secret is shown once; revoking asks you to type the key name.
  * Integration: `GET /integrations/connections`, `GET /integrations/deliveries`, `POST /integrations/deliveries/:id/retry`,
- * `POST /integrations/keys`, `DELETE /integrations/keys/:id` (all planned); SAMPLEON signing per the S2S contract.
+ * keys live at `GET/POST /integrations/keys` and `POST /integrations/keys/:id/revoke`: read-only, scoped to
+ * modules, hashed at rest and shown once (see apps/api/src/modules/api-keys.ts); SAMPLEON signing per the S2S contract.
  * Live: the delivery log reads `GET /integrations/deliveries` and retries with `POST /integrations/deliveries/:id/retry`.
  * "Configured on the API server" lists `GET /integrations` (real state; secrets are reported
- * only as set or missing) when signed in. The map, delivery log and keys stay demo until their endpoints exist.
+ * only as set or missing) when signed in. The connection map stays demo.
  */
 import { Copy, KeyRound, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -20,7 +21,7 @@ import { useOS } from '@/lib/store';
 import { InfoTip } from '@/components/supply/info-tip';
 import { sectionHelp } from '@/lib/supply/help';
 import { useSupplyData } from '@/lib/supply/data';
-import { loadDeliveries, loadIntegrations, retryDelivery, type LiveDelivery, type LiveIntegration } from '@/lib/supply/live';
+import { ago, createApiKey, loadApiKeys, loadDeliveries, loadIntegrations, retryDelivery, revokeApiKey, type LiveDelivery, type LiveIntegration } from '@/lib/supply/live';
 import type { SupplyQuery } from '@/lib/supply/data';
 import { ApiError } from '@/lib/api';
 import { apiKeys as seedKeys, connections, deliveries as seedDel, scopes, type ApiKey, type Connection, type Delivery } from '@/lib/supply/platform';
@@ -41,7 +42,11 @@ export default function ApiHub() {
   const [sel, setSel] = useState<string>('zapx');
   const [dl, setDl] = useState<Delivery[]>(seedDel);
   const [dlFilter, setDlFilter] = useState<'all' | Delivery['status']>('all');
-  const [keys, setKeys] = useState<ApiKey[]>(seedKeys);
+  const [demoKeys, setKeys] = useState<ApiKey[]>(seedKeys);
+  const liveKeys = useSupplyData('hub:keys', () => null, loadApiKeys);
+  const lk = liveKeys.source === 'live' ? liveKeys.data : null;
+  const ymd = (iso: string) => iso.slice(0, 10);
+  const keys: ApiKey[] = lk ? lk.keys.filter((k) => !k.revokedAt).map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, scopes: k.scopes.map((m) => `${m}:read`), created: ymd(k.createdAt), lastUsed: k.lastUsedAt ? ago(k.lastUsedAt) : 'never', expires: ymd(k.expiresAt), owner: k.createdBy })) : demoKeys;
   const [retryAll, setRetryAll] = useState(false);
   const [newKey, setNewKey] = useState(false);
   const [revoke, setRevoke] = useState<ApiKey | null>(null);
@@ -154,24 +159,32 @@ export default function ApiHub() {
         onConfirm={() => { retry(failed.map((d) => d.id)); toast(`${failed.length} deliveries sent again`, 'ok'); }} />
       <ConfirmDialog open={!!revoke} onOpenChange={(v) => !v && setRevoke(null)} title={`Revoke “${revoke?.name ?? ''}”?`} typeToConfirm={revoke?.name}
         body="Calls with this key fail straight away. This can’t be undone; you would issue a new key." confirmLabel="Revoke key"
-        onConfirm={() => { if (revoke) { setKeys((l) => l.filter((x) => x.id !== revoke.id)); toast(`Revoked ${revoke.name}`, 'info'); setRevoke(null); } }} />
-      <NewKeyDialog open={newKey} onOpenChange={setNewKey} onCreate={(k) => { setKeys((l) => [k, ...l]); }} />
+        onConfirm={async () => {
+          if (!revoke) return;
+          if (lk) { try { await revokeApiKey(revoke.id); liveKeys.reload(); } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not revoke the key', 'warn'); return; } }
+          else setKeys((l) => l.filter((x) => x.id !== revoke.id));
+          toast(`Revoked ${revoke.name}`, 'info'); setRevoke(null);
+        }} />
+      <NewKeyDialog open={newKey} onOpenChange={setNewKey} onCreate={(k) => { setKeys((l) => [k, ...l]); }}
+        live={lk ? { scopes: lk.scopes, create: async (b) => { try { const k = await createApiKey(b); liveKeys.reload(); return k.secret; } catch (e) { toast(e instanceof ApiError ? e.message : 'Could not create the key', 'warn'); return null; } } } : undefined} />
     </div>
   );
 }
 
-function NewKeyDialog({ open, onOpenChange, onCreate }: { open: boolean; onOpenChange: (v: boolean) => void; onCreate: (k: ApiKey) => void }) {
+type LiveKeys = { scopes: string[]; create: (b: { name: string; scopes: string[]; days: number }) => Promise<string | null> };
+function NewKeyDialog({ open, onOpenChange, onCreate, live }: { open: boolean; onOpenChange: (v: boolean) => void; onCreate: (k: ApiKey) => void; live?: LiveKeys }) {
   const toast = useOS((s) => s.toast);
   const [name, setName] = useState('');
   const [sc, setSc] = useState<string[]>([]);
   const [expires, setExpires] = useState('2027-05-06');
   const [secret, setSecret] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const errs = { name: name.trim().length < 3 ? 'At least 3 characters' : null, sc: sc.length ? null : 'Choose at least one scope', expires: !expires || daysTo(expires) < 1 ? 'Must be after today' : daysTo(expires) > 366 ? 'At most one year from today' : null };
   const valid = !errs.name && !errs.sc && !errs.expires;
   const reset = () => { setName(''); setSc([]); setExpires('2027-05-06'); setSecret(null); };
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
-      <DialogContent title={secret ? 'Copy the key now' : 'New API key'} description={secret ? 'This is the only time the full key is shown. Store it in your secrets manager.' : 'Keys are scoped and expire. Give the key the least access it needs.'}>
+      <DialogContent title={secret ? 'Copy the key now' : 'New API key'} description={secret ? 'This is the only time the full key is shown. Store it in your secrets manager.' : live ? 'Keys are read-only, limited to the modules you pick (and never more than you can read), and expire. Send it as Authorization: Bearer <key>.' : 'Keys are scoped and expire. Give the key the least access it needs.'}>
         {secret ? (
           <div className="flex items-center gap-2 rounded-xl bg-surface-2/60 p-2.5"><code className="min-w-0 flex-1 break-all text-[12px]">{secret}</code>
             <Button size="xs" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(secret).catch(() => {}); toast('Key copied', 'ok'); }}><Copy size={12} /> Copy</Button></div>
@@ -179,7 +192,7 @@ function NewKeyDialog({ open, onOpenChange, onCreate }: { open: boolean; onOpenC
           <div className="space-y-3">
             <label className="block text-2xs text-ink-3">Name<input className={cn(inputCls, 'mt-1')} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!(name && errs.name)} placeholder="What will use this key?" />{name && errs.name && <span className="text-danger">{errs.name}</span>}</label>
             <fieldset><legend className="mb-1 text-2xs text-ink-3">Scopes</legend>
-              <div className="grid grid-cols-2 gap-1">{scopes.map((s) => <label key={s} className="flex items-center gap-2 text-[12px]"><input type="checkbox" className="accent-[rgb(var(--primary))]" checked={sc.includes(s)} onChange={(e) => setSc((l) => (e.target.checked ? [...l, s] : l.filter((x) => x !== s)))} /><code>{s}</code></label>)}</div>
+              <div className="grid grid-cols-2 gap-1">{(live ? live.scopes : scopes).map((s) => <label key={s} className="flex items-center gap-2 text-[12px]"><input type="checkbox" className="accent-[rgb(var(--primary))]" checked={sc.includes(s)} onChange={(e) => setSc((l) => (e.target.checked ? [...l, s] : l.filter((x) => x !== s)))} /><code>{live ? `${s}:read` : s}</code></label>)}</div>
               {errs.sc && <span className="text-2xs text-ink-3">{errs.sc}</span>}
             </fieldset>
             <label className="block text-2xs text-ink-3">Expires<input type="date" className={cn(inputCls, 'mt-1')} value={expires} onChange={(e) => setExpires(e.target.value)} aria-invalid={!!errs.expires} />{errs.expires && <span className="text-danger">{errs.expires}</span>}</label>
@@ -188,7 +201,14 @@ function NewKeyDialog({ open, onOpenChange, onCreate }: { open: boolean; onOpenC
         <DialogFooter>
           {secret ? <DialogClose asChild><Button size="sm" variant="primary">Done</Button></DialogClose> : <>
             <DialogClose asChild><Button size="sm" variant="ghost">Cancel</Button></DialogClose>
-            <Button size="sm" variant="primary" disabled={!valid} onClick={() => {
+            <Button size="sm" variant="primary" disabled={!valid || busy} onClick={async () => {
+              if (live) {
+                setBusy(true);
+                const sec = await live.create({ name: name.trim(), scopes: sc, days: daysTo(expires) });
+                setBusy(false);
+                if (sec) setSecret(sec);
+                return;
+              }
               const rand = Array.from({ length: 32 }, () => 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 57)]).join('');
               const full = `sk_demo_${rand}`;
               onCreate({ id: `k-${Date.now()}`, name: name.trim(), prefix: full.slice(0, 12), scopes: sc, created: TODAY, lastUsed: 'never', expires, owner: 'You' });

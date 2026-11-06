@@ -30,7 +30,14 @@ type Db = Prisma.TransactionClient | PrismaService;
 /** Recipients a target resolves to, after consent filtering. */
 export async function resolveTarget(db: Db, ctx: Ctx, audience: string, target: string): Promise<{ recipients: number; label: string }> {
   const [kind, a, b] = target.split(':');
-  if (kind !== audience && !(audience === 'internal' && kind === 'role') && !(audience === 'panel' && kind === 'panelist')) throw new BadRequestException('Target does not match audience');
+  if (kind !== audience && !(audience === 'internal' && (kind === 'role' || kind === 'users')) && !(audience === 'panel' && kind === 'panelist')) throw new BadRequestException('Target does not match audience');
+  // Named members of this workspace (comma-separated user ids), e.g. a scheduled report's recipients.
+  if (kind === 'users') {
+    const ids = [...new Set((a ?? '').split(',').filter(Boolean))].slice(0, 50);
+    const n = await db.membership.count({ where: { tenantId: ctx.tenantId, userId: { in: ids } } });
+    if (!n) throw new BadRequestException('None of these people is a member of this workspace');
+    return { recipients: n, label: `${n} team member${n === 1 ? '' : 's'}` };
+  }
   if (kind === 'client') {
     const c = await db.client.findFirst({ where: { id: a, tenantId: ctx.tenantId } });
     if (!c) throw new BadRequestException('Unknown client');

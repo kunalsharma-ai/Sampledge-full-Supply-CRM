@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { queueMessage, resolveTarget } from './comms';
 import { graphProblems, type WorkflowData } from './workflows';
 import { registerKind, type RecordAction } from './supply-records';
+import { loadFacts, type Fact } from './facts';
 
 const email = z.string().trim().toLowerCase().email('Not an e-mail address').max(200);
 const panelShort = z.enum(['T2O', 'MFR', 'MHO']);
@@ -42,6 +43,37 @@ registerKind('weekly', {
 // ───────────────────────── Saved reports (analytics)
 export const reportMetrics = ['completes', 'starts', 'cr', 'invites', 'signups', 'points', 'cpc'] as const;
 export const reportDims = ['panel', 'country', 'week', 'source'] as const;
+/** When a scheduled report next goes out: 07:00 UTC daily, on Mondays (weekly) or on the 1st (monthly). */
+export function nextReportSend(from: Date, schedule: string) {
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 7));
+  const ok = () => d > from && (schedule === 'daily' || (schedule === 'weekly' && d.getUTCDay() === 1) || (schedule === 'monthly' && d.getUTCDate() === 1));
+  for (let i = 0; i < 400 && !ok(); i++) d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+}
+const metricLabel: Record<string, string> = { completes: 'Completes', starts: 'Survey starts', cr: 'Completion rate', invites: 'Invitations', signups: 'New sign-ups', points: 'Points issued', cpc: 'Reward cost per complete' };
+/** The saved report as a plain-text table over the last 8 weeks of recorded activity. */
+export async function renderReport(tx: Tx, tenantId: string, d: { name: string; metric: string; rows: string; cols: string | null; panels: string[] }, now = new Date()) {
+  const f = await loadFacts(tx, tenantId, 8, now);
+  const facts = f.facts.filter((x) => !d.panels.length || d.panels.includes(x.panel));
+  const key = (x: Fact, dim: string) => String(x[dim as keyof Fact]);
+  const rowV = [...new Set(facts.map((x) => key(x, d.rows)))].sort().slice(0, 20);
+  const colV = d.cols ? [...new Set(facts.map((x) => key(x, d.cols!)))].sort().slice(0, 8) : ['Total'];
+  const val = (sub: Fact[]) => {
+    const s = (k: 'completes' | 'starts' | 'invites' | 'signups' | 'points') => sub.reduce((a, x) => a + x[k], 0);
+    if (d.metric === 'cr') return s('starts') ? `${Math.round((s('completes') / s('starts')) * 100)}%` : '—';
+    if (d.metric === 'cpc') return s('completes') ? `${((s('points') * f.pointValue) / s('completes')).toFixed(2)} ${f.currency}` : '—';
+    return s(d.metric as 'completes').toLocaleString('en-US');
+  };
+  const table = [[d.rows, ...colV], ...rowV.map((rv) => [rv, ...colV.map((cv) => val(facts.filter((x) => key(x, d.rows) === rv && (!d.cols || key(x, d.cols) === cv))))])];
+  const w = table[0].map((_, i) => Math.max(...table.map((r) => r[i].length)));
+  const lines = table.map((r) => r.map((c, i) => c.padEnd(w[i])).join('  ').trimEnd());
+  return [
+    `${d.name}: ${metricLabel[d.metric] ?? d.metric} by ${d.rows}${d.cols ? ` and ${d.cols}` : ''}, weeks ${f.weeks[0]} to ${f.weeks[f.weeks.length - 1]}${d.panels.length ? `, panels ${d.panels.join(', ')}` : ''}.`,
+    '', ...(rowV.length ? lines : ['No recorded activity in these weeks.']), '',
+    'Counted from SUPPLY360 records. Open Analytics & Reporting to explore it.',
+  ].join('\n');
+}
+
 registerKind('report', {
   label: 'Saved report', module: 'analytics', prefix: 'RPT',
   data: z.object({
@@ -52,16 +84,51 @@ registerKind('report', {
     chart: z.enum(['bar', 'line', 'table']),
     panels: z.array(panelShort).max(3).default([]),
     schedule: z.enum(['off', 'daily', 'weekly', 'monthly']).default('off'),
+    /** workspace members only: scheduled reports go to the team, never outside it */
     recipients: z.array(email).max(20).default([]),
+    nextSendAt: z.string().datetime().optional(),
+    lastSentAt: z.string().datetime().optional(),
+    lastMessageId: z.string().max(40).optional(),
+    error: z.string().max(300).optional(),
   }).strict()
     .refine((d) => d.rows !== d.cols, { message: 'Rows and columns must be different', path: ['cols'] })
     .refine((d) => d.schedule === 'off' || d.recipients.length > 0, { message: 'Add at least one recipient for a scheduled report', path: ['recipients'] }),
   title: (d) => String(d.name),
-  statuses: ['active', 'archived'], initial: 'active', editableIn: ['active'],
-  actions: {
-    archive: { from: ['active'], to: 'archived' },
-    restore: { from: ['archived'], to: 'active' },
+  check: async (tx, ctx, d) => {
+    const want = d.recipients as string[];
+    if (!want.length) return;
+    const found = new Set((await tx.membership.findMany({ where: { tenantId: ctx.tenantId, user: { email: { in: want } } }, include: { user: { select: { email: true } } } })).map((m) => m.user.email.toLowerCase()));
+    const outside = want.filter((e) => !found.has(e));
+    if (outside.length) throw new BadRequestException(`${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} not in this workspace; scheduled reports go to team members only`);
   },
+  derive: (d, prev) => {
+    const out = { ...d, nextSendAt: prev?.nextSendAt, lastSentAt: prev?.lastSentAt, lastMessageId: prev?.lastMessageId, error: prev ? prev.error : undefined };
+    if (d.schedule === 'off') out.nextSendAt = undefined;
+    else if (!prev || prev.schedule !== d.schedule || !prev.nextSendAt) out.nextSendAt = nextReportSend(new Date(), String(d.schedule)).toISOString();
+    return out;
+  },
+  statuses: ['active', 'archived', 'failed'], initial: 'active', editableIn: ['active', 'failed'],
+  actions: {
+    archive: { from: ['active', 'failed'], to: 'archived' },
+    restore: { from: ['archived', 'failed'], to: 'active', effect: async (_tx, _ctx, rec) => { const d = rec.data as { schedule: string }; return { error: undefined, nextSendAt: d.schedule === 'off' ? undefined : nextReportSend(new Date(), d.schedule).toISOString() }; } },
+    /** e-mails the report to its recipients now (the scheduler runs this when it is due) */
+    deliver: {
+      from: ['active'], to: '=',
+      effect: async (tx, ctx, rec, _b, log) => {
+        const d = rec.data as { name: string; metric: string; rows: string; cols: string | null; panels: string[]; schedule: string; recipients: string[] };
+        if (!d.recipients.length) throw new BadRequestException('Add at least one recipient first');
+        const ms = await tx.membership.findMany({ where: { tenantId: ctx.tenantId, user: { email: { in: d.recipients } } }, select: { userId: true } });
+        if (!ms.length) throw new BadRequestException('None of the recipients is in this workspace any more');
+        const target = `users:${ms.map((m) => m.userId).join(',')}`;
+        const r = await resolveTarget(tx, ctx, 'internal', target);
+        const now = new Date();
+        const q = await queueMessage(tx, ctx, { channel: 'email', audience: 'internal', target, subject: `${d.name} [${rec.ref}]`, body: await renderReport(tx, ctx.tenantId, d, now) }, r, { relatedType: 'SupplyRecord', relatedId: rec.id });
+        await log('message.create', 'Message', q.message.id, undefined, { to: `${r.recipients} team member(s)`, report: rec.ref });
+        return { lastSentAt: now.toISOString(), lastMessageId: q.message.id, error: undefined, nextSendAt: d.schedule === 'off' ? undefined : nextReportSend(now, d.schedule).toISOString() };
+      },
+    },
+  },
+  due: { status: 'active', action: 'deliver', at: (d) => (d.schedule !== 'off' ? d.nextSendAt : undefined) },
 });
 
 // ───────────────────────── Communications: e-mail campaigns and newsletters

@@ -1,5 +1,5 @@
 import { createParamDecorator, ExecutionContext, SetMetadata } from '@nestjs/common';
-import type { ModuleId, Permission, Role } from '@sampledge/core';
+import { access, type Access, type ModuleId, type Permission, type Role } from '@sampledge/core';
 
 /** The authenticated caller. Every service method takes this and scopes queries by tenantId. */
 export type Ctx = {
@@ -11,7 +11,14 @@ export type Ctx = {
   email: string;
   vendorId: string | null;
   clientId: string | null;
+  /** module levels that differ from the role's row in core (workspace overrides, or an API key's scopes) */
+  access?: Partial<Record<ModuleId, Access>>;
+  /** set when the call is made with an API key: read-only, scoped modules only */
+  apiKeyId?: string;
 };
+
+/** The caller's access to a module: their role's level, after workspace overrides and key scopes. */
+export const moduleLevel = (ctx: Pick<Ctx, 'role' | 'access'>, m: ModuleId): Access => ctx.access?.[m] ?? access(ctx.role, m);
 
 export const PUBLIC = 'sampledge:public';
 export const MODULE = 'sampledge:module';
