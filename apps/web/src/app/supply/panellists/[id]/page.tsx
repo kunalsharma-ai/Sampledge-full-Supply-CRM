@@ -19,7 +19,7 @@ import { api } from '@/lib/api';
 import { useOS } from '@/lib/store';
 import { useSupplyData } from '@/lib/supply/data';
 import { fromApiPanelist, historyFor, panellistById, panellists, type Panellist } from '@/lib/supply/panellists';
-import { screenBySlug } from '@/lib/supply/screens';
+import { productName, screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtNum } from '@/lib/utils';
 
 const screen = screenBySlug('panellists/profile')!;
@@ -123,7 +123,7 @@ export default function Panellist360() {
               })} />
               <ul className="divide-y divide-[rgb(var(--line)/var(--line-alpha))] text-[12.5px]">
                 {h.surveys.map((s) => (
-                  <li key={s.id} className="flex items-center gap-3 py-2"><span className="w-20 text-2xs text-ink-3">{s.at}</span><span className="flex-1 truncate">{s.title}</span><Badge tone={s.source === 'PROJEXA' ? 'orange' : 'magenta'}>{s.source}</Badge><span className="num w-10 text-right text-2xs text-ink-3">{s.loi}m</span><StatusPill status={outcomeStatus[s.outcome]} label={s.outcome} /></li>
+                  <li key={s.id} className="flex items-center gap-3 py-2"><span className="w-20 text-2xs text-ink-3">{s.at}</span><span className="flex-1 truncate">{s.title}</span><Badge tone={s.source === 'PROJEXA' ? 'orange' : 'magenta'}>{productName(s.source)}</Badge><span className="num w-10 text-right text-2xs text-ink-3">{s.loi}m</span><StatusPill status={outcomeStatus[s.outcome]} label={s.outcome} /></li>
                 ))}
               </ul>
             </TabsContent>

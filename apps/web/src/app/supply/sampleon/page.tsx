@@ -16,11 +16,11 @@ import { CheckCircle2, CirclePause, CirclePlay, Rocket, Sparkles, TriangleAlert 
 import { Suspense, useMemo, useState } from 'react';
 import { Badge, Bar, Button, Panel, SearchInput, Segmented, inputCls } from '@/components/ui/primitives';
 import { ConfirmDialog, Tabs, TabsContent, TabsList } from '@/components/ui/overlay';
-import { CountryChips, KpiTile, PanelChip, ProductChip, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
+import { CountryChips, KpiTile, PanelChip, ProductChip, SampAudienceLogo, SectionTitle, SupplyHeader, fmt } from '@/components/supply/kit';
 import { useOS } from '@/lib/store';
 import { pipelineStages, sampleonRequests, type FlowEvent, type SampleonRequest, type SampleonStatus } from '@/lib/supply/connected';
 import { panelBrands, type PanelId } from '@/lib/supply/demo';
-import { screenBySlug } from '@/lib/supply/screens';
+import { productName, screenBySlug } from '@/lib/supply/screens';
 import { cn, fmtCompact, fmtNum } from '@/lib/utils';
 
 const screen = screenBySlug('sampleon')!;
@@ -48,8 +48,8 @@ function Sampleon() {
 
   return (
     <div className="space-y-4">
-      <SupplyHeader screen={screen} title={<span className="flex items-center gap-2.5"><ProductChip product="sampleon" /> Audience allocation</span>}
-        subtitle="Requests from PROJEXA projects and ZAPX surveys, from feasibility to closed. SUPPLY360 does the counting and delivery; names and e-mail addresses never leave SUPPLY360." />
+      <SupplyHeader screen={screen} title={<span className="flex flex-wrap items-center gap-3"><SampAudienceLogo height={44} /> <span>Audience allocation</span></span>}
+        subtitle="Requests from SampTrek projects and SampCode surveys, from feasibility to closed. SUPPLY360 does the counting and delivery; names and e-mail addresses never leave SUPPLY360." />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Requests in the pipeline" value={items.filter((r) => !['closed', 'rejected', 'cancelled'].includes(r.status)).length} format="int" hint="Submitted, waiting for allocation, approved or in field" />
@@ -61,7 +61,7 @@ function Sampleon() {
       <Panel className="p-0">
         <div className="flex flex-wrap items-center gap-2 border-b hairline p-3">
           <span className="text-[13px] font-semibold">Pipeline</span>
-          <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'PROJEXA' }, { value: 'ZAPX', label: 'ZAPX' }]} />
+          <Segmented label="Source" size="sm" value={src} onChange={setSrc} options={[{ value: 'all', label: 'All sources' }, { value: 'PROJEXA', label: 'SampTrek' }, { value: 'ZAPX', label: 'SampCode' }]} />
           <SearchInput value={q} onChange={setQ} placeholder="Request, project, survey or client…" className="ml-auto w-full sm:w-64" />
         </div>
         <div className="grid gap-2 overflow-x-auto p-3 md:grid-cols-3 xl:grid-cols-6">
@@ -115,7 +115,7 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
     <Panel className="p-4">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{r.id}</span><ProductChip product={r.platform === 'PROJEXA' ? 'projexa' : 'zapx'}>{r.platform} {r.platform === 'PROJEXA' ? r.projectId : r.surveyId}</ProductChip>{r.platform === 'PROJEXA' && <span>survey {r.surveyId} on ZAPX</span>}{r.platform === 'ZAPX' && r.projectId && <span>linked to {r.projectId}</span>}<Badge tone={r.status === 'paused' ? 'warn' : r.status === 'live' ? 'emerald' : 'neutral'}>{statusLabel[r.status]}</Badge></div>
+          <div className="flex flex-wrap items-center gap-2 text-2xs text-ink-3"><span className="font-mono">{r.id}</span><ProductChip product={r.platform === 'PROJEXA' ? 'projexa' : 'zapx'}>{productName(r.platform)} {r.platform === 'PROJEXA' ? r.projectId : r.surveyId}</ProductChip>{r.platform === 'PROJEXA' && <span>survey {r.surveyId} on SampCode</span>}{r.platform === 'ZAPX' && r.projectId && <span>linked to {r.projectId}</span>}<Badge tone={r.status === 'paused' ? 'warn' : r.status === 'live' ? 'emerald' : 'neutral'}>{statusLabel[r.status]}</Badge></div>
           <h2 className="mt-1 font-display text-lg font-semibold">{r.title}</h2>
           <p className="text-[12.5px] text-ink-2">{r.client} · {fmtNum(r.requiredCompletes)} completes · IR {fmt.pct(r.ir)} · LOI {r.loi} min · {fmtNum(r.rewardPoints)} points · fieldwork {r.fieldwork.start} to {r.fieldwork.end}</p>
           <p className="mt-1 flex items-start gap-1.5 text-2xs text-ink-3"><Sparkles size={12} className="mt-px shrink-0 text-purple" aria-hidden />“{r.naturalLanguage}” → {r.criteria.join(' AND ')}</p>
@@ -178,7 +178,7 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
             <tbody>{r.quotas.map((qc) => (
               <tr key={qc.id} className="border-t hairline">
                 <th scope="row" className="py-2 text-left font-medium">{qc.label}{qc.question && <span className="block text-2xs font-normal text-ink-3">{qc.question}</span>}</th>
-                <td className="py-2">{qc.mapped ? <code className="rounded bg-ink-3/10 px-1.5 py-0.5 text-[11px]">{qc.condition}</code> : <span className="text-2xs text-warn">Not mapped yet: map the question in PROJEXA</span>}</td>
+                <td className="py-2">{qc.mapped ? <code className="rounded bg-ink-3/10 px-1.5 py-0.5 text-[11px]">{qc.condition}</code> : <span className="text-2xs text-warn">Not mapped yet: map the question in SampTrek</span>}</td>
                 <td className="w-40 py-2"><Bar value={qc.completes / qc.target} tone={qc.full ? 'emerald' : 'blue'} /></td>
                 <td className="num py-2 text-right">{fmtNum(qc.completes)} / {fmtNum(qc.target)}{qc.full && <Badge tone="emerald" className="ml-1.5">Full</Badge>}</td>
               </tr>
@@ -201,8 +201,8 @@ function Workspace({ r, update, toast }: { r: SampleonRequest; update: (id: stri
       </Tabs>
 
       <ConfirmDialog open={confirm === 'approve'} onOpenChange={(v) => !v && setConfirm(null)} tone="primary" title="Approve this allocation?"
-        body={<>SAMPLEON will plan batches for {r.id} with T2O {alloc.t2o}, MFR {alloc.mfr} and MHO {alloc.mho}, and {r.platform} will see the request as approved. You can still pause before the first batch goes out.</>}
-        confirmLabel="Approve" onConfirm={() => { update(r.id, { status: 'approved', allocation: alloc }, { type: 'audience.approved', text: `Allocation approved: T2O ${alloc.t2o}, MFR ${alloc.mfr}, MHO ${alloc.mho}` }); toast(`${r.id} approved; ${r.platform} notified`, 'ok'); }} />
+        body={<>SampAudience will plan batches for {r.id} with T2O {alloc.t2o}, MFR {alloc.mfr} and MHO {alloc.mho}, and {productName(r.platform)} will see the request as approved. You can still pause before the first batch goes out.</>}
+        confirmLabel="Approve" onConfirm={() => { update(r.id, { status: 'approved', allocation: alloc }, { type: 'audience.approved', text: `Allocation approved: T2O ${alloc.t2o}, MFR ${alloc.mfr}, MHO ${alloc.mho}` }); toast(`${r.id} approved; ${productName(r.platform)} notified`, 'ok'); }} />
       <ConfirmDialog open={confirm === 'soft'} onOpenChange={(v) => !v && setConfirm(null)} tone="primary" title="Schedule the soft launch?"
         body={`The first batch goes to about ${fmtNum(Math.round(r.requiredCompletes * 0.1 / Math.max(0.05, r.ir)))} panellists at the next send window in each country, for a read-out before full launch.`}
         confirmLabel="Schedule" onConfirm={() => { update(r.id, { status: 'soft_launch' }, { type: 'batch.scheduled', text: 'Soft-launch batch scheduled' }); toast(`Soft launch scheduled for ${r.id}`, 'ok'); }} />

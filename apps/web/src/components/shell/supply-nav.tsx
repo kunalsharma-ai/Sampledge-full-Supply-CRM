@@ -29,7 +29,9 @@ function Item({ s, active, onNavigate }: { s: Screen; active: boolean; onNavigat
       className={cn('group relative flex h-nav items-center gap-2.5 rounded-lg pl-3 pr-2 text-[13px] font-medium transition-colors', active ? 'text-ink' : 'text-ink-2 hover:bg-surface-2/50 hover:text-ink')}>
       {active && <motion.span layoutId="supply-nav-active" className="absolute inset-0 rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/25" transition={{ type: 'spring', bounce: 0.12, duration: 0.4 }} />}
       {active && <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-primary" />}
-      <Icon size={15} className={cn('relative shrink-0', active ? 'text-primary' : 'text-ink-3 group-hover:text-ink-2')} style={brand ? { color: brand.color } : undefined} />
+      {brand && brand.icon
+        ? <img src={brand.icon} alt="" aria-hidden width={17} height={17} className="relative -mx-px h-[17px] w-[17px] shrink-0" />
+        : <Icon size={15} className={cn('relative shrink-0', active ? 'text-primary' : 'text-ink-3 group-hover:text-ink-2')} style={brand ? { color: brand.color } : undefined} />}
       <span className="relative flex-1 truncate">{s.label}</span>
       {!isScreenBuilt(s) && <span className="relative h-1.5 w-1.5 rounded-full bg-ink-3/40" title={`Arrives in wave ${s.wave}`} aria-label="Design brief only" />}
       {access(role, s.module) === 'read' && <Lock size={10} className="relative text-ink-3" aria-label="Read only" />}

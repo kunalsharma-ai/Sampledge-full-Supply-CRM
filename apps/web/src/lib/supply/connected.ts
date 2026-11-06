@@ -12,6 +12,7 @@ import { countries as coreCountries, countryByCode } from '../core';
 import { rng } from '../utils';
 import { audienceRequests, funnel, panelBrands, type PanelId } from './demo';
 import { utcOffsetOf } from './fieldwork';
+import { productName } from './screens';
 
 const r = rng(606);
 const between = (lo: number, hi: number) => Math.round(lo + r() * (hi - lo));
@@ -154,12 +155,12 @@ export const sampleonRequests: SampleonRequest[] = [
   const delivered = Math.round((x.completes / Math.max(0.05, x.ir)) * (1.8 + r()));
   const t = (h: number) => (h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`);
   const events: FlowEvent[] = [
-    { id: 'e1', type: 'audience_request.submitted' as const, at: t(between(80, 200)), text: `Submitted by ${x.platform} (${x.ref}) for ${x.countries.join(', ')}` },
+    { id: 'e1', type: 'audience_request.submitted' as const, at: t(between(80, 200)), text: `Submitted by ${productName(x.platform)} (${x.ref}) for ${x.countries.join(', ')}` },
     ...(x.status !== 'submitted' ? [{ id: 'e2', type: 'feasibility.calculated' as const, at: t(between(60, 79)), text: `${feasibility.estimatedCompletes.toLocaleString('en-US')} estimated completes from ${feasibility.reachable.toLocaleString('en-US')} reachable` }] : []),
     ...(allocated ? [{ id: 'e3', type: 'audience.approved' as const, at: t(between(40, 59)), text: `Allocation approved: T2O ${allocation!.t2o}, MFR ${allocation!.mfr}, MHO ${allocation!.mho}` }, { id: 'e4', type: 'batch.scheduled' as const, at: t(between(30, 39)), text: `Batch 1 scheduled (soft, ${between(200, 900)} invitations)` }] : []),
     ...(x.completes ? [{ id: 'e5', type: 'invitation.delivered' as const, at: t(between(10, 29)), text: `${delivered.toLocaleString('en-US')} delivered, ${Math.round(delivered * 0.04)} suppressed (no consent or fatigue cap)` }, { id: 'e6', type: 'survey.completed' as const, at: t(between(0, 3) || 1), text: `Verified complete in ${x.countries[0]}; ${x.completes} of ${x.required}` }] : []),
     ...(quotas.some((q) => q.full) ? [{ id: 'e7', type: 'quota.full' as const, at: t(between(4, 9)), text: `Quota ${quotas.find((q) => q.full)!.label} full` }] : []),
-    ...(x.completes > 100 ? [{ id: 'e8', type: 'quality.failed' as const, at: t(between(2, 8)), text: 'One complete reversed: speeder flagged by ZAPX' }] : []),
+    ...(x.completes > 100 ? [{ id: 'e8', type: 'quality.failed' as const, at: t(between(2, 8)), text: 'One complete reversed: speeder flagged by SampCode' }] : []),
   ].reverse();
   return {
     id: x.id, title: x.title, client: x.client, platform: x.platform, projectId: x.platform === 'PROJEXA' ? x.ref : i % 2 ? `PRJ-${1080 + i}` : null, surveyId: x.platform === 'ZAPX' ? x.ref : `ZX-S${700 + i * 7}`,
@@ -240,7 +241,7 @@ export const zapxRequests: ZapxRequest[] = sampleonRequests.filter((s) => s.plat
     status, questions: s.healthcare ? qBank.healthcare : qBank.default, redirects,
     qa: [
       { id: 'test', label: 'Test link completes end to end', ok: tested, detail: tested ? 'Last run 2h ago' : 'Not run since the last edit' },
-      { id: 'redirects', label: 'All four redirects return to SAMPLEON', ok: redirects.every((x) => x.state === 'passed'), detail: redirects.every((x) => x.state === 'passed') ? '4 of 4 passed' : `${redirects.filter((x) => x.state === 'passed').length} of 4 passed` },
+      { id: 'redirects', label: 'All four redirects return to SampAudience', ok: redirects.every((x) => x.state === 'passed'), detail: redirects.every((x) => x.state === 'passed') ? '4 of 4 passed' : `${redirects.filter((x) => x.state === 'passed').length} of 4 passed` },
       { id: 'loi', label: 'Tested LOI within 25% of plan', ok: testLoi != null && testLoi <= s.loi * 1.25, detail: testLoi == null ? 'No timed test yet' : `${testLoi} min vs ${s.loi} planned` },
       { id: 'quality', label: 'Attention check and speeder rule present', ok: true, detail: 'Q3 grid has a trap row; speeder at 40% of median' },
       { id: 'translations', label: 'Every country has its language version', ok: s.countries.length === 1 || tested, detail: s.countries.length === 1 ? 'Single language' : tested ? 'All versions reviewed' : `${s.countries[s.countries.length - 1]} version not reviewed` },

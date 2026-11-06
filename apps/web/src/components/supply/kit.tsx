@@ -71,13 +71,26 @@ export function KpiTile({ label, value, format, delta, good = 'up', spark, hint,
   return href ? <Link href={href} className="block h-full rounded-[1.25rem]" aria-label={`${label}: open`} title={hint}>{body}</Link> : body;
 }
 
-/** Product identity chip: SAMPLEON, PROJEXA and ZAPX keep their own colours inside SUPPLY360. */
+/** SampAudience (formerly SAMPLEON) logo lockup; the theme decides which file shows (globals.css). */
+export function SampAudienceLogo({ height = 40, className }: { height?: number; className?: string }) {
+  const w = Math.round((height * 272) / 64);
+  return (
+    <span className={cn('inline-flex shrink-0', className)}>
+      <img className="sa-logo-dark" src="/brand/sampaudience/sampaudience-logo-dark.svg" alt="SampAudience by Sampledge" width={w} height={height} />
+      <img className="sa-logo-light" src="/brand/sampaudience/sampaudience-logo-light.svg" alt="SampAudience by Sampledge" width={w} height={height} />
+    </span>
+  );
+}
+
+/** Product identity chip: SampAudience, PROJEXA and ZAPX keep their own colours inside SUPPLY360. */
 export function ProductChip({ product, children }: { product: 'sampleon' | 'projexa' | 'zapx'; children?: ReactNode }) {
   const b = brandColors[product];
   return (
     <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold tracking-wide ring-1 ring-inset"
       style={{ color: `color-mix(in srgb, ${b.color} 55%, rgb(var(--ink)))`, background: `color-mix(in srgb, ${b.color} 12%, transparent)`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${b.color} 35%, transparent)` }}>
-      <span className="h-1.5 w-1.5 rounded-sm" style={{ background: b.color }} aria-hidden />
+      {b.icon
+        ? <img src={b.icon} alt="" aria-hidden width={14} height={14} className="-my-1 h-3.5 w-3.5" />
+        : <span className="h-1.5 w-1.5 rounded-sm" style={{ background: b.color }} aria-hidden />}
       {children ?? b.name}
     </span>
   );

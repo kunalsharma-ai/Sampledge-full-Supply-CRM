@@ -46,19 +46,19 @@ export default function ZapxRequests() {
         return { ...x, redirects, qa, status: x.status === 'qa' && allOk ? 'ready' : x.status };
       });
       setTesting(null);
-      toast(`Redirects on ${z.surveyId} all return to SAMPLEON`, 'ok');
+      toast(`Redirects on ${z.surveyId} all return to SampAudience`, 'ok');
     }, 1200);
   };
 
   return (
     <div className="space-y-4">
       <SupplyHeader screen={screen} title={<span className="flex items-center gap-2.5"><ProductChip product="zapx" /> Audience requests</span>}
-        subtitle="Requests raised from ZAPX surveys, some for a PROJEXA project and some for the survey alone. Check the survey and its redirects, then approve the launch." />
+        subtitle="Requests raised from SampCode surveys, some for a SampTrek project and some for the survey alone. Check the survey and its redirects, then approve the launch." />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <KpiTile label="Waiting on QA" value={items.filter((z) => z.status === 'qa').length} format="int" good="down" hint="A test run, redirect or LOI check has not passed yet" />
         <KpiTile label="Ready to approve" value={items.filter((z) => z.status === 'ready').length} format="int" hint="All checks passed; launch needs a person" />
-        <KpiTile label="Independent surveys" value={items.filter((z) => !z.linkedProject).length} format="int" hint="ZAPX surveys with no PROJEXA project behind them" />
+        <KpiTile label="Independent surveys" value={items.filter((z) => !z.linkedProject).length} format="int" hint="SampCode surveys with no SampTrek project behind them" />
       </div>
 
       <Segmented label="Show" size="sm" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'All' }, { value: 'qa', label: 'Needs QA' }, { value: 'ready', label: 'Ready' }, { value: 'done', label: 'Approved and live' }]} />
@@ -95,18 +95,18 @@ export default function ZapxRequests() {
                   {(z.status === 'qa' || z.status === 'ready') && (failing.length
                     ? <span className="inline-flex items-center gap-1.5 text-2xs text-ink-3"><Lock size={12} aria-hidden /> Launch locked: {failing[0].label.toLowerCase()}{failing.length > 1 ? ` and ${failing.length - 1} more` : ''}</span>
                     : <Button size="sm" onClick={() => setApprove(z)}><Rocket size={13} /> Approve launch</Button>)}
-                  {(z.status === 'approved' || z.status === 'live') && <Link href={`/supply/sampleon?r=${z.requestId}`} className="text-2xs text-primary hover:underline">Open in SAMPLEON allocation</Link>}
+                  {(z.status === 'approved' || z.status === 'live') && <Link href={`/supply/sampleon?r=${z.requestId}`} className="text-2xs text-primary hover:underline">Open in SampAudience allocation</Link>}
                   {z.status === 'live' && <span className="num ml-auto text-2xs text-ink-3">{fmtNum(z.completes)} completes</span>}
                 </div>
               </div>
             </motion.article>
           );
         })}
-        {shown.length === 0 && <Panel className="py-12 text-center text-[13px] text-ink-3 xl:col-span-2">Nothing here. Requests appear when a ZAPX survey owner asks SAMPLEON for an audience.</Panel>}
+        {shown.length === 0 && <Panel className="py-12 text-center text-[13px] text-ink-3 xl:col-span-2">Nothing here. Requests appear when a SampCode survey owner asks SampAudience for an audience.</Panel>}
       </div>
 
       <ConfirmDialog open={!!approve} onOpenChange={(v) => !v && setApprove(null)} tone="primary" title={approve ? `Approve the launch of ${approve.surveyId}?` : ''}
-        body={approve ? <>SAMPLEON moves the request to allocation and schedules a soft launch in {approve.countries.join(', ')}. {approve.linkedProject ? `PROJEXA project ${approve.linkedProject} sees it as approved.` : 'The survey owner in ZAPX is notified.'}</> : ''}
+        body={approve ? <>SampAudience moves the request to allocation and schedules a soft launch in {approve.countries.join(', ')}. {approve.linkedProject ? `SampTrek project ${approve.linkedProject} sees it as approved.` : 'The survey owner in SampCode is notified.'}</> : ''}
         confirmLabel="Approve launch" onConfirm={() => { if (approve) { patch(approve.id, (x) => ({ ...x, status: 'approved' })); toast(`${approve.surveyId} approved for launch`, 'ok'); setApprove(null); } }} />
     </div>
   );

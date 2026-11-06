@@ -288,3 +288,10 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
+
+/* SampAudience (formerly SAMPLEON) lockups: the "dark" file is drawn for dark backgrounds. */
+.sa-logo-light { display: none; }
+[data-theme='enterprise'] .sa-logo-light, [data-theme='light'] .sa-logo-light,
+[data-theme='emerald'] .sa-logo-light, [data-theme='warm'] .sa-logo-light { display: inline-block; }
+[data-theme='enterprise'] .sa-logo-dark, [data-theme='light'] .sa-logo-dark,
+[data-theme='emerald'] .sa-logo-dark, [data-theme='warm'] .sa-logo-dark { display: none; }

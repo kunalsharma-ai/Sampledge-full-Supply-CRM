@@ -1,5 +1,7 @@
 # SAMPLEON ↔ SUPPLY360
 
+> **Name change:** SAMPLEON is now shown to people as **SampAudience** (by Sampledge). Screens use the new name and logo (`apps/web/public/brand/sampaudience/`); API paths, env vars, the client id `sampleon` and event source `SAMPLEON` are unchanged. See `docs/BRAND.md` in the Sampleon repository.
+
 SAMPLEON (repository `kunalsharma-ai/Sampleon`) is the Sampledge audience, invitation and routing
 engine. The full ecosystem design is SAMPLEON's `docs/ECOSYSTEM_ARCHITECTURE.md`; this page is
 SUPPLY360's side.
